@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 
 const menuItems = [
-  { title: "POS", url: "/pos", icon: Receipt },
+  { title: "FACTURADOR", url: "/pos", icon: Receipt },
   { title: "Servicios", url: "/servicios", icon: FileText },
   { title: "Clientes", url: "/clientes", icon: Users },
   { title: "Gastos", url: "/gastos", icon: CreditCard },
