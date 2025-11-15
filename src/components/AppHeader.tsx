@@ -1,34 +1,54 @@
-import { Moon, Sun, Search, User } from "lucide-react";
+import { Moon, Sun, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { NavLink } from "@/components/NavLink";
 import { useTheme } from "next-themes";
+import {
+  Receipt,
+  CreditCard,
+  Briefcase,
+  Users,
+  UserCog,
+} from "lucide-react";
+
+const menuItems = [
+  { title: "POS", url: "/pos", icon: Receipt },
+  { title: "Ventas", url: "/ventas", icon: CreditCard },
+  { title: "Servicios", url: "/servicios", icon: Briefcase },
+  { title: "Clientes", url: "/clientes", icon: Users },
+  { title: "Gastos", url: "/gastos", icon: CreditCard },
+  { title: "Usuarios", url: "/usuarios", icon: UserCog },
+];
 
 export function AppHeader() {
   const { theme, setTheme } = useTheme();
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60">
-      <div className="flex h-16 items-center gap-4 px-4">
-        <SidebarTrigger className="-ml-1" />
-        
-        <div className="flex items-center gap-2 flex-1">
+      <div className="flex h-16 items-center gap-6 px-6">
+        {/* Logo */}
+        <div className="flex items-center gap-2 flex-shrink-0">
           <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-navy-700 to-navy-500 bg-clip-text text-transparent dark:from-navy-500 dark:to-gold-400">
             Cuska-OnOffice
           </h1>
         </div>
 
-        <div className="hidden md:flex flex-1 max-w-md">
-          <div className="relative w-full">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar clientes, facturas..."
-              className="pl-9 bg-secondary/50"
-            />
-          </div>
-        </div>
+        {/* Navegación Principal */}
+        <nav className="flex items-center gap-1 flex-1">
+          {menuItems.map((item) => (
+            <NavLink
+              key={item.url}
+              to={item.url}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-muted-foreground rounded-md hover:bg-secondary hover:text-foreground transition-smooth"
+              activeClassName="bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+            >
+              <item.icon className="h-4 w-4" />
+              <span className="hidden md:inline">{item.title}</span>
+            </NavLink>
+          ))}
+        </nav>
 
-        <div className="flex items-center gap-2">
+        {/* Acciones */}
+        <div className="flex items-center gap-2 flex-shrink-0">
           <Button
             variant="ghost"
             size="icon"
