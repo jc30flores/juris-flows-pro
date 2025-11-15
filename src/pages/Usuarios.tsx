@@ -53,13 +53,7 @@ export default function Usuarios() {
 
   return (
     <div className="space-y-4 md:space-y-6 overflow-x-hidden">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Usuarios</h2>
-          <p className="text-muted-foreground mt-1 text-sm md:text-base">
-            Gestión de usuarios y roles del sistema
-          </p>
-        </div>
+      <div className="flex justify-end">
         <Button className="bg-primary hover:bg-primary/90 w-full md:w-auto">
           <Plus className="h-4 w-4 mr-2" />
           <span className="md:hidden">Nuevo</span>
