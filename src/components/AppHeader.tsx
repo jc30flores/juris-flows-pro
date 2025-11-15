@@ -37,10 +37,10 @@ export function AppHeader() {
             <NavLink
               key={item.url}
               to={item.url}
-              className="flex items-center gap-2 px-3 md:px-4 py-2 text-sm font-medium text-muted-foreground rounded-md hover:bg-secondary hover:text-foreground transition-smooth whitespace-nowrap flex-shrink-0"
+              className="flex items-center justify-center gap-2 px-3 md:px-4 py-2 text-sm font-medium text-muted-foreground rounded-md hover:bg-secondary hover:text-foreground transition-smooth whitespace-nowrap flex-shrink-0"
               activeClassName="bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
             >
-              <item.icon className="h-4 w-4 flex-shrink-0" />
+              <item.icon className="h-5 w-5 flex-shrink-0" />
               <span className="hidden md:inline">{item.title}</span>
             </NavLink>
           ))}
@@ -54,13 +54,13 @@ export function AppHeader() {
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             className="transition-smooth flex-shrink-0"
           >
-            <Sun className="h-5 w-5 rotate-0 scale-100 transition-transform dark:-rotate-90 dark:scale-0" />
-            <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-transform dark:rotate-0 dark:scale-100" />
+            <Sun className="h-6 w-6 rotate-0 scale-100 transition-transform dark:-rotate-90 dark:scale-0" />
+            <Moon className="absolute h-6 w-6 rotate-90 scale-0 transition-transform dark:rotate-0 dark:scale-100" />
             <span className="sr-only">Cambiar tema</span>
           </Button>
 
           <Button variant="ghost" size="icon" className="flex-shrink-0">
-            <User className="h-5 w-5" />
+            <User className="h-6 w-6" />
             <span className="sr-only">Usuario</span>
           </Button>
         </div>
