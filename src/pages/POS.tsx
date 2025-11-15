@@ -47,41 +47,43 @@ export default function POS() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6 overflow-x-hidden">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Punto de Venta</h2>
-          <p className="text-muted-foreground mt-1">
+          <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Punto de Venta</h2>
+          <p className="text-muted-foreground mt-1 text-sm md:text-base">
             Gestión de facturas y documentos tributarios electrónicos
           </p>
         </div>
-        <Button className="bg-primary hover:bg-primary/90">
+        <Button className="bg-primary hover:bg-primary/90 w-full md:w-auto">
           <Plus className="h-4 w-4 mr-2" />
-          <span className="hidden sm:inline">Nueva Factura</span>
-          <span className="sm:hidden">Nueva</span>
+          <span className="md:hidden">Nueva</span>
+          <span className="hidden md:inline">Nueva Factura</span>
         </Button>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col sm:flex-row gap-3 md:gap-4">
         <div className="flex-1">
           <Input placeholder="Buscar por número, cliente..." className="w-full" />
         </div>
-        <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-full sm:w-[180px]">
-            <Filter className="h-4 w-4 mr-2" />
-            <SelectValue placeholder="Filtrar por..." />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos</SelectItem>
-            <SelectItem value="today">Hoy</SelectItem>
-            <SelectItem value="week">Esta Semana</SelectItem>
-            <SelectItem value="month">Este Mes</SelectItem>
-          </SelectContent>
-        </Select>
-        <Button variant="outline">
-          <Download className="h-4 w-4 mr-2" />
-          <span className="hidden sm:inline">Exportar</span>
-        </Button>
+        <div className="flex gap-2">
+          <Select value={filter} onValueChange={setFilter}>
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <Filter className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Filtrar por..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="today">Hoy</SelectItem>
+              <SelectItem value="week">Esta Semana</SelectItem>
+              <SelectItem value="month">Este Mes</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline" className="flex-shrink-0">
+            <Download className="h-4 w-4 md:mr-2" />
+            <span className="hidden md:inline">Exportar</span>
+          </Button>
+        </div>
       </div>
 
       {/* Mobile view - Cards */}

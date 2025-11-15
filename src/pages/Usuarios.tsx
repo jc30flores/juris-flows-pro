@@ -1,0 +1,153 @@
+import { useState } from "react";
+import { Plus, UserCog } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+
+export default function Usuarios() {
+  const usuarios = [
+    {
+      id: 1,
+      nombre: "Admin Usuario",
+      email: "admin@cuska.local",
+      rol: "ADMIN",
+      activo: true,
+    },
+    {
+      id: 2,
+      nombre: "Carlos Abogado",
+      email: "cabogado@cuska.local",
+      rol: "ABOGADO",
+      activo: true,
+    },
+    {
+      id: 3,
+      nombre: "María Cajera",
+      email: "mcajera@cuska.local",
+      rol: "CAJERO",
+      activo: true,
+    },
+    {
+      id: 4,
+      nombre: "Juan Contador",
+      email: "jcontador@cuska.local",
+      rol: "CONTADOR",
+      activo: true,
+    },
+  ];
+
+  const getRolBadgeColor = (rol: string) => {
+    switch (rol) {
+      case "ADMIN":
+        return "bg-primary/10 text-primary";
+      case "ABOGADO":
+        return "bg-accent/10 text-accent";
+      case "CAJERO":
+        return "bg-success/10 text-success";
+      case "CONTADOR":
+        return "bg-warning/10 text-warning";
+      default:
+        return "bg-secondary";
+    }
+  };
+
+  return (
+    <div className="space-y-4 md:space-y-6 overflow-x-hidden">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Usuarios</h2>
+          <p className="text-muted-foreground mt-1 text-sm md:text-base">
+            Gestión de usuarios y roles del sistema
+          </p>
+        </div>
+        <Button className="bg-primary hover:bg-primary/90 w-full md:w-auto">
+          <Plus className="h-4 w-4 mr-2" />
+          <span className="md:hidden">Nuevo</span>
+          <span className="hidden md:inline">Nuevo Usuario</span>
+        </Button>
+      </div>
+
+      <div className="flex gap-4">
+        <div className="flex-1">
+          <Input placeholder="Buscar por nombre o email..." className="w-full" />
+        </div>
+      </div>
+
+      {/* Mobile view - Cards */}
+      <div className="grid gap-4 md:hidden">
+        {usuarios.map((usuario) => (
+          <div
+            key={usuario.id}
+            className="rounded-lg border border-border bg-card p-4 shadow-elegant hover:shadow-elegant-lg transition-smooth"
+          >
+            <div className="flex items-start justify-between mb-3">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <UserCog className="h-5 w-5 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-base truncate">{usuario.nombre}</p>
+                  <p className="text-sm text-muted-foreground truncate">{usuario.email}</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between pt-3 border-t border-border">
+              <Badge variant="outline" className={getRolBadgeColor(usuario.rol)}>
+                {usuario.rol}
+              </Badge>
+              <Badge variant={usuario.activo ? "default" : "secondary"} className="text-xs">
+                {usuario.activo ? "Activo" : "Inactivo"}
+              </Badge>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop view - Table */}
+      <div className="hidden md:block rounded-lg border border-border bg-card shadow-elegant overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-muted/50">
+              <tr className="border-b border-border">
+                <th className="px-4 py-3 text-left text-sm font-medium">Nombre</th>
+                <th className="px-4 py-3 text-left text-sm font-medium">Email</th>
+                <th className="px-4 py-3 text-left text-sm font-medium">Rol</th>
+                <th className="px-4 py-3 text-center text-sm font-medium">Estado</th>
+                <th className="px-4 py-3 text-right text-sm font-medium">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {usuarios.map((usuario) => (
+                <tr
+                  key={usuario.id}
+                  className="border-b border-border hover:bg-muted/30 transition-colors"
+                >
+                  <td className="px-4 py-3 font-medium">{usuario.nombre}</td>
+                  <td className="px-4 py-3 text-sm">{usuario.email}</td>
+                  <td className="px-4 py-3">
+                    <Badge variant="outline" className={getRolBadgeColor(usuario.rol)}>
+                      {usuario.rol}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <Badge
+                      variant={usuario.activo ? "default" : "secondary"}
+                      className="text-xs"
+                    >
+                      {usuario.activo ? "Activo" : "Inactivo"}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Button variant="ghost" size="sm">
+                      Editar
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}

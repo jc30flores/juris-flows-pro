@@ -8,6 +8,8 @@ import { AppHeader } from "@/components/AppHeader";
 import POS from "./pages/POS";
 import Clientes from "./pages/Clientes";
 import Servicios from "./pages/Servicios";
+import Gastos from "./pages/Gastos";
+import Usuarios from "./pages/Usuarios";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -19,16 +21,16 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <div className="flex min-h-screen w-full flex-col">
+          <div className="flex min-h-screen w-full flex-col overflow-x-hidden">
             <AppHeader />
-            <main className="flex-1 p-6 overflow-auto">
+            <main className="flex-1 p-3 md:p-6 overflow-auto">
               <Routes>
                 <Route path="/" element={<Navigate to="/pos" replace />} />
                 <Route path="/pos" element={<POS />} />
                 <Route path="/servicios" element={<Servicios />} />
                 <Route path="/clientes" element={<Clientes />} />
-                <Route path="/gastos" element={<POS />} />
-                <Route path="/usuarios" element={<POS />} />
+                <Route path="/gastos" element={<Gastos />} />
+                <Route path="/usuarios" element={<Usuarios />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </main>
