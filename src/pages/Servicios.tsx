@@ -84,15 +84,15 @@ export default function Servicios() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6 overflow-x-hidden">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Catálogo de Servicios</h2>
-          <p className="text-muted-foreground mt-1">
+          <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Catálogo de Servicios</h2>
+          <p className="text-muted-foreground mt-1 text-sm md:text-base">
             Servicios jurídicos y notariales disponibles
           </p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4">
           <div className="flex items-center space-x-2">
             <Switch
               id="modo-edicion"
@@ -104,10 +104,10 @@ export default function Servicios() {
             </Label>
           </div>
           {modoEdicion && (
-            <Button className="bg-primary hover:bg-primary/90">
+            <Button className="bg-primary hover:bg-primary/90 w-full sm:w-auto">
               <Plus className="h-4 w-4 mr-2" />
-              <span className="hidden sm:inline">Nuevo Servicio</span>
-              <span className="sm:hidden">Nuevo</span>
+              <span className="md:hidden">Nuevo</span>
+              <span className="hidden md:inline">Nuevo Servicio</span>
             </Button>
           )}
         </div>
