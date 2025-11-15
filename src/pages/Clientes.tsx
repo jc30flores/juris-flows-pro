@@ -3,8 +3,10 @@ import { Plus, Search, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { NuevoClienteModal } from "@/components/modals/NuevoClienteModal";
 
 export default function Clientes() {
+  const [showNuevoModal, setShowNuevoModal] = useState(false);
   const clientes = [
     {
       id: 1,
@@ -36,7 +38,10 @@ export default function Clientes() {
   return (
     <div className="space-y-4 md:space-y-6 overflow-x-hidden">
       <div className="flex justify-end">
-        <Button className="bg-primary hover:bg-primary/90 w-full md:w-auto">
+        <Button 
+          className="bg-primary hover:bg-primary/90 w-full md:w-auto"
+          onClick={() => setShowNuevoModal(true)}
+        >
           <Plus className="h-4 w-4 mr-2" />
           <span className="md:hidden">Nuevo</span>
           <span className="hidden md:inline">Nuevo Cliente</span>
@@ -165,6 +170,11 @@ export default function Clientes() {
           </table>
         </div>
       </div>
+
+      <NuevoClienteModal
+        open={showNuevoModal}
+        onOpenChange={setShowNuevoModal}
+      />
     </div>
   );
 }

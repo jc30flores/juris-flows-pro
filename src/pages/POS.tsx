@@ -9,9 +9,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
 
 export default function POS() {
   const [filter, setFilter] = useState("all");
+  const [showNuevaFacturaModal, setShowNuevaFacturaModal] = useState(false);
 
   const ventas = [
     {
@@ -49,7 +51,10 @@ export default function POS() {
   return (
     <div className="space-y-4 md:space-y-6 overflow-x-hidden">
       <div className="flex justify-end">
-        <Button className="bg-primary hover:bg-primary/90 w-full md:w-auto">
+        <Button 
+          className="bg-primary hover:bg-primary/90 w-full md:w-auto"
+          onClick={() => setShowNuevaFacturaModal(true)}
+        >
           <Plus className="h-4 w-4 mr-2" />
           <span className="md:hidden">Nueva</span>
           <span className="hidden md:inline">Nueva Factura</span>
@@ -180,6 +185,11 @@ export default function POS() {
           </table>
         </div>
       </div>
+
+      <NuevaFacturaModal
+        open={showNuevaFacturaModal}
+        onOpenChange={setShowNuevaFacturaModal}
+      />
     </div>
   );
 }
