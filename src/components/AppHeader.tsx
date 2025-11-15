@@ -12,10 +12,10 @@ import {
 
 const menuItems = [
   { title: "FACTURADOR", url: "/pos", icon: Receipt },
-  { title: "Servicios", url: "/servicios", icon: FileText },
-  { title: "Clientes", url: "/clientes", icon: Users },
-  { title: "Gastos", url: "/gastos", icon: CreditCard },
-  { title: "Usuarios", url: "/usuarios", icon: UserCog },
+  { title: "SERVICIOS", url: "/servicios", icon: FileText },
+  { title: "CLIENTES", url: "/clientes", icon: Users },
+  { title: "GASTOS", url: "/gastos", icon: CreditCard },
+  { title: "USUARIOS", url: "/usuarios", icon: UserCog },
 ];
 
 export function AppHeader() {
