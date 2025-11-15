@@ -5,14 +5,14 @@ import { useTheme } from "next-themes";
 import {
   Receipt,
   CreditCard,
-  Briefcase,
+  FileText,
   Users,
   UserCog,
 } from "lucide-react";
 
 const menuItems = [
   { title: "POS", url: "/pos", icon: Receipt },
-  { title: "Servicios", url: "/servicios", icon: Briefcase },
+  { title: "Servicios", url: "/servicios", icon: FileText },
   { title: "Clientes", url: "/clientes", icon: Users },
   { title: "Gastos", url: "/gastos", icon: CreditCard },
   { title: "Usuarios", url: "/usuarios", icon: UserCog },
