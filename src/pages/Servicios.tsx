@@ -85,14 +85,7 @@ export default function Servicios() {
 
   return (
     <div className="space-y-4 md:space-y-6 overflow-x-hidden">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Catálogo de Servicios</h2>
-          <p className="text-muted-foreground mt-1 text-sm md:text-base">
-            Servicios jurídicos y notariales disponibles
-          </p>
-        </div>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-end gap-3 md:gap-4">
           <div className="flex items-center space-x-2">
             <Switch
               id="modo-edicion"
@@ -111,7 +104,6 @@ export default function Servicios() {
             </Button>
           )}
         </div>
-      </div>
 
       {/* Tabla de Servicios */}
       <div className="rounded-lg border border-border bg-card shadow-elegant overflow-hidden">
