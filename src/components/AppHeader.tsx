@@ -12,7 +12,6 @@ import {
 
 const menuItems = [
   { title: "POS", url: "/pos", icon: Receipt },
-  { title: "Ventas", url: "/ventas", icon: CreditCard },
   { title: "Servicios", url: "/servicios", icon: Briefcase },
   { title: "Clientes", url: "/clientes", icon: Users },
   { title: "Gastos", url: "/gastos", icon: CreditCard },
