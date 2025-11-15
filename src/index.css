@@ -2,95 +2,124 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
+/* Cuska-OnOffice Design System - Old Money Aesthetic */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-
+    /* Navy Scale - Primary Brand */
+    --navy-950: 215 35% 8%;
+    --navy-900: 215 40% 11%;
+    --navy-800: 216 42% 18%;
+    --navy-700: 217 44% 29%;
+    --navy-600: 217 45% 38%;
+    --navy-500: 217 91% 60%;
+    
+    /* Sand/Neutral Scale */
+    --sand-50: 40 23% 97%;
+    --sand-100: 38 18% 95%;
+    --sand-200: 36 12% 88%;
+    --sand-300: 35 10% 78%;
+    --sand-400: 34 8% 65%;
+    --sand-500: 33 7% 52%;
+    
+    /* Gold Accent */
+    --gold-400: 43 58% 58%;
+    --gold-500: 43 64% 49%;
+    --gold-600: 43 74% 42%;
+    
+    /* Semantic Tokens - Light Mode */
+    --background: var(--sand-50);
+    --foreground: 222 47% 11%;
+    
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-
+    --card-foreground: 222 47% 11%;
+    
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-
-    --primary: 222.2 47.4% 11.2%;
+    --popover-foreground: 222 47% 11%;
+    
+    --primary: var(--navy-700);
     --primary-foreground: 210 40% 98%;
-
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-
-    --destructive: 0 84.2% 60.2%;
+    
+    --secondary: var(--sand-100);
+    --secondary-foreground: var(--navy-900);
+    
+    --muted: var(--sand-200);
+    --muted-foreground: 215 16% 47%;
+    
+    --accent: var(--gold-500);
+    --accent-foreground: var(--navy-950);
+    
+    --destructive: 0 84% 60%;
     --destructive-foreground: 210 40% 98%;
-
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-
+    
+    --success: 142 76% 36%;
+    --success-foreground: 210 40% 98%;
+    
+    --warning: 38 92% 50%;
+    --warning-foreground: 222 47% 11%;
+    
+    --border: var(--sand-300);
+    --input: var(--sand-300);
+    --ring: var(--navy-500);
+    
     --radius: 0.5rem;
-
-    --sidebar-background: 0 0% 98%;
-
-    --sidebar-foreground: 240 5.3% 26.1%;
-
-    --sidebar-primary: 240 5.9% 10%;
-
+    
+    /* Sidebar */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: var(--navy-900);
+    --sidebar-primary: var(--navy-700);
     --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-accent: var(--sand-100);
+    --sidebar-accent-foreground: var(--navy-900);
+    --sidebar-border: var(--sand-300);
+    --sidebar-ring: var(--navy-500);
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
+    /* Dark Mode - Inverted with Navy accents */
+    --background: var(--navy-950);
     --foreground: 210 40% 98%;
-
-    --card: 222.2 84% 4.9%;
+    
+    --card: var(--navy-900);
     --card-foreground: 210 40% 98%;
-
-    --popover: 222.2 84% 4.9%;
+    
+    --popover: var(--navy-900);
     --popover-foreground: 210 40% 98%;
-
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-
-    --secondary: 217.2 32.6% 17.5%;
+    
+    --primary: var(--navy-500);
+    --primary-foreground: 0 0% 100%;
+    
+    --secondary: var(--navy-800);
     --secondary-foreground: 210 40% 98%;
-
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62.8% 30.6%;
+    
+    --muted: var(--navy-800);
+    --muted-foreground: 215 20% 65%;
+    
+    --accent: var(--gold-400);
+    --accent-foreground: var(--navy-950);
+    
+    --destructive: 0 63% 31%;
     --destructive-foreground: 210 40% 98%;
-
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
+    
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    
+    --warning: 38 92% 50%;
+    --warning-foreground: 222 47% 11%;
+    
+    --border: var(--navy-800);
+    --input: var(--navy-800);
+    --ring: var(--navy-500);
+    
+    /* Sidebar Dark */
+    --sidebar-background: var(--navy-900);
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: var(--navy-500);
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-accent: var(--navy-800);
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: var(--navy-800);
+    --sidebar-ring: var(--navy-500);
   }
 }
 
@@ -101,5 +130,25 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+  }
+}
+
+@layer utilities {
+  .transition-smooth {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  .shadow-elegant {
+    box-shadow: 0 1px 3px 0 hsl(var(--navy-900) / 0.1), 0 1px 2px -1px hsl(var(--navy-900) / 0.1);
+  }
+  
+  .shadow-elegant-lg {
+    box-shadow: 0 10px 15px -3px hsl(var(--navy-900) / 0.1), 0 4px 6px -4px hsl(var(--navy-900) / 0.1);
   }
 }
