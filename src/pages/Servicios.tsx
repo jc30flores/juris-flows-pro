@@ -4,9 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { NuevoServicioModal } from "@/components/modals/NuevoServicioModal";
+import { EditarServicioModal } from "@/components/modals/EditarServicioModal";
 
 export default function Servicios() {
   const [modoEdicion, setModoEdicion] = useState(false);
+  const [showNuevoModal, setShowNuevoModal] = useState(false);
+  const [showEditarModal, setShowEditarModal] = useState(false);
+  const [servicioSeleccionado, setServicioSeleccionado] = useState<any>(null);
 
   const servicios = [
     {
@@ -97,7 +102,10 @@ export default function Servicios() {
             </Label>
           </div>
           {modoEdicion && (
-            <Button className="bg-primary hover:bg-primary/90 w-full sm:w-auto">
+            <Button 
+              className="bg-primary hover:bg-primary/90 w-full sm:w-auto"
+              onClick={() => setShowNuevoModal(true)}
+            >
               <Plus className="h-4 w-4 mr-2" />
               <span className="md:hidden">Nuevo</span>
               <span className="hidden md:inline">Nuevo Servicio</span>
@@ -115,18 +123,22 @@ export default function Servicios() {
                 <th className="px-4 py-3 text-left text-sm font-medium">Servicio</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Categoría</th>
                 <th className="px-4 py-3 text-right text-sm font-medium">Precio Base</th>
-                <th className="px-4 py-3 text-center text-sm font-medium">Imponible</th>
                 <th className="px-4 py-3 text-center text-sm font-medium">Estado</th>
-                {modoEdicion && (
-                  <th className="px-4 py-3 text-right text-sm font-medium">Acciones</th>
-                )}
               </tr>
             </thead>
             <tbody>
               {servicios.map((servicio) => (
                 <tr
                   key={servicio.id}
-                  className="border-b border-border hover:bg-muted/30 transition-colors"
+                  onClick={() => {
+                    if (modoEdicion) {
+                      setServicioSeleccionado(servicio);
+                      setShowEditarModal(true);
+                    }
+                  }}
+                  className={`border-b border-border hover:bg-muted/30 transition-colors ${
+                    modoEdicion ? "cursor-pointer" : ""
+                  }`}
                 >
                   <td className="px-4 py-3 font-mono text-sm">{servicio.codigo}</td>
                   <td className="px-4 py-3 font-medium">{servicio.nombre}</td>
@@ -137,13 +149,6 @@ export default function Servicios() {
                     ${servicio.precioBase.toFixed(2)}
                   </td>
                   <td className="px-4 py-3 text-center">
-                    {servicio.imponible && (
-                      <Badge variant="outline" className="text-xs">
-                        Sí
-                      </Badge>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-center">
                     <Badge
                       variant={servicio.activo ? "default" : "secondary"}
                       className="text-xs"
@@ -151,20 +156,22 @@ export default function Servicios() {
                       {servicio.activo ? "Activo" : "Inactivo"}
                     </Badge>
                   </td>
-                  {modoEdicion && (
-                    <td className="px-4 py-3 text-right">
-                      <Button variant="ghost" size="sm">
-                        <Edit className="h-4 w-4 mr-2" />
-                        Editar
-                      </Button>
-                    </td>
-                  )}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      <NuevoServicioModal
+        open={showNuevoModal}
+        onOpenChange={setShowNuevoModal}
+      />
+      <EditarServicioModal
+        open={showEditarModal}
+        onOpenChange={setShowEditarModal}
+        servicio={servicioSeleccionado}
+      />
     </div>
   );
 }

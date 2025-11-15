@@ -10,9 +10,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { NuevoGastoModal } from "@/components/modals/NuevoGastoModal";
 
 export default function Gastos() {
   const [filter, setFilter] = useState("all");
+  const [showNuevoModal, setShowNuevoModal] = useState(false);
 
   const gastos = [
     {
@@ -41,7 +43,10 @@ export default function Gastos() {
   return (
     <div className="space-y-4 md:space-y-6 overflow-x-hidden">
       <div className="flex justify-end">
-        <Button className="bg-primary hover:bg-primary/90 w-full md:w-auto">
+        <Button 
+          className="bg-primary hover:bg-primary/90 w-full md:w-auto"
+          onClick={() => setShowNuevoModal(true)}
+        >
           <Plus className="h-4 w-4 mr-2" />
           <span className="md:hidden">Nuevo</span>
           <span className="hidden md:inline">Nuevo Gasto</span>
@@ -125,6 +130,11 @@ export default function Gastos() {
           </table>
         </div>
       </div>
+
+      <NuevoGastoModal
+        open={showNuevoModal}
+        onOpenChange={setShowNuevoModal}
+      />
     </div>
   );
 }
