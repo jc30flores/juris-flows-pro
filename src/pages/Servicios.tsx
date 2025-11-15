@@ -113,49 +113,8 @@ export default function Servicios() {
         </div>
       </div>
 
-      {/* Mobile view - Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:hidden">
-        {servicios.map((servicio) => (
-          <div
-            key={servicio.id}
-            className="rounded-lg border border-border bg-card p-4 shadow-elegant hover:shadow-elegant-lg transition-smooth"
-          >
-            <div className="flex items-start justify-between mb-3">
-              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                <Briefcase className="h-5 w-5 text-primary" />
-              </div>
-              {modoEdicion && (
-                <Button variant="ghost" size="sm">
-                  <Edit className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-            <p className="font-semibold mb-1">{servicio.nombre}</p>
-            <p className="text-xs text-muted-foreground mb-3">{servicio.categoria}</p>
-            <div className="flex items-center justify-between">
-              <span className="text-lg font-bold text-accent">
-                ${servicio.precioBase.toFixed(2)}
-              </span>
-              <div className="flex gap-2">
-                {servicio.imponible && (
-                  <Badge variant="outline" className="text-xs">
-                    IVA
-                  </Badge>
-                )}
-                <Badge
-                  variant={servicio.activo ? "default" : "secondary"}
-                  className="text-xs"
-                >
-                  {servicio.activo ? "Activo" : "Inactivo"}
-                </Badge>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Desktop view - Table */}
-      <div className="hidden lg:block rounded-lg border border-border bg-card shadow-elegant overflow-hidden">
+      {/* Tabla de Servicios */}
+      <div className="rounded-lg border border-border bg-card shadow-elegant overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-muted/50">
