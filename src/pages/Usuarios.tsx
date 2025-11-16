@@ -79,25 +79,17 @@ export default function Usuarios() {
             key={usuario.id}
             className="rounded-lg border border-border bg-card p-4 shadow-elegant hover:shadow-elegant-lg transition-smooth"
           >
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                   <UserCog className="h-5 w-5 text-primary" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-base truncate">{usuario.nombre}</p>
-                  <p className="text-sm text-muted-foreground truncate">{usuario.email}</p>
+                  <Badge variant="outline" className={getRolBadgeColor(usuario.rol)}>
+                    {usuario.rol}
+                  </Badge>
                 </div>
               </div>
-            </div>
-            <div className="flex items-center justify-between pt-3 border-t border-border">
-              <Badge variant="outline" className={getRolBadgeColor(usuario.rol)}>
-                {usuario.rol}
-              </Badge>
-              <Badge variant={usuario.activo ? "default" : "secondary"} className="text-xs">
-                {usuario.activo ? "Activo" : "Inactivo"}
-              </Badge>
-            </div>
           </div>
         ))}
       </div>
@@ -109,9 +101,7 @@ export default function Usuarios() {
             <thead className="bg-muted/50">
               <tr className="border-b border-border">
                 <th className="px-4 py-3 text-left text-sm font-medium">Nombre</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Email</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Rol</th>
-                <th className="px-4 py-3 text-center text-sm font-medium">Estado</th>
                 <th className="px-4 py-3 text-right text-sm font-medium">Acciones</th>
               </tr>
             </thead>
@@ -122,18 +112,9 @@ export default function Usuarios() {
                   className="border-b border-border hover:bg-muted/30 transition-colors"
                 >
                   <td className="px-4 py-3 font-medium">{usuario.nombre}</td>
-                  <td className="px-4 py-3 text-sm">{usuario.email}</td>
                   <td className="px-4 py-3">
                     <Badge variant="outline" className={getRolBadgeColor(usuario.rol)}>
                       {usuario.rol}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <Badge
-                      variant={usuario.activo ? "default" : "secondary"}
-                      className="text-xs"
-                    >
-                      {usuario.activo ? "Activo" : "Inactivo"}
                     </Badge>
                   </td>
                   <td className="px-4 py-3 text-right">
