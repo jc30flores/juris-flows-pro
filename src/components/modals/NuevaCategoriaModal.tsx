@@ -21,7 +21,6 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
 const categoriaSchema = z.object({
-  codigo: z.string().min(1, { message: "El código es requerido" }),
   nombre: z.string().min(1, { message: "El nombre es requerido" }),
 });
 
@@ -36,7 +35,6 @@ export function NuevaCategoriaModal({ open, onOpenChange }: NuevaCategoriaModalP
   const form = useForm<CategoriaFormValues>({
     resolver: zodResolver(categoriaSchema),
     defaultValues: {
-      codigo: "",
       nombre: "",
     },
   });
@@ -56,19 +54,6 @@ export function NuevaCategoriaModal({ open, onOpenChange }: NuevaCategoriaModalP
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="codigo"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Código</FormLabel>
-                  <FormControl>
-                    <Input placeholder="CAT-001" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
             <FormField
               control={form.control}
               name="nombre"
