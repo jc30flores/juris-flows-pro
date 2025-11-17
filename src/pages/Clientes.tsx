@@ -37,6 +37,8 @@ export default function Clientes() {
 
   return (
     <div className="space-y-4 md:space-y-6 overflow-x-hidden">
+      {/* Título móvil */}
+      <h2 className="text-lg font-semibold md:hidden">Clientes</h2>
       <div className="flex justify-end">
         <Button 
           className="bg-primary hover:bg-primary/90 w-full md:w-auto"

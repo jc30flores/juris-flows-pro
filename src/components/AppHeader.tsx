@@ -38,7 +38,7 @@ export function AppHeader() {
               key={item.url}
               to={item.url}
               className="flex items-center justify-center gap-2 px-3 md:px-4 py-2 text-sm font-medium text-muted-foreground rounded-md hover:bg-secondary hover:text-foreground transition-smooth whitespace-nowrap flex-shrink-0"
-              activeClassName="bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+              activeClassName="bg-primary text-primary-foreground hover:bg-primary/90 shadow-md"
             >
               <item.icon className="h-5 w-5 flex-shrink-0" />
               <span className="hidden md:inline">{item.title}</span>
