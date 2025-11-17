@@ -237,23 +237,23 @@ export function NuevaFacturaModal({ open, onOpenChange }: NuevaFacturaModalProps
 
             {serviciosSeleccionados.length > 0 && (
               <div className="border border-border rounded-lg overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full">
+                <div className="overflow-x-auto scrollbar-thin">
+                  <table className="w-full min-w-[600px]">
                     <thead className="bg-muted/50">
                       <tr className="border-b border-border">
-                        <th className="px-4 py-3 text-left text-sm font-medium">
+                        <th className="px-3 py-3 text-left text-sm font-medium min-w-[180px]">
                           Servicio
                         </th>
-                        <th className="px-4 py-3 text-center text-sm font-medium">
+                        <th className="px-3 py-3 text-center text-sm font-medium w-[100px]">
                           Cantidad
                         </th>
-                        <th className="px-4 py-3 text-right text-sm font-medium">
+                        <th className="px-3 py-3 text-right text-sm font-medium w-[100px]">
                           Precio
                         </th>
-                        <th className="px-4 py-3 text-right text-sm font-medium">
+                        <th className="px-3 py-3 text-right text-sm font-medium w-[100px]">
                           Subtotal
                         </th>
-                        <th className="px-4 py-3 text-center text-sm font-medium">
+                        <th className="px-3 py-3 text-center text-sm font-medium w-[80px]">
                           Acciones
                         </th>
                       </tr>
@@ -261,8 +261,8 @@ export function NuevaFacturaModal({ open, onOpenChange }: NuevaFacturaModalProps
                     <tbody>
                       {serviciosSeleccionados.map((servicio, index) => (
                         <tr key={index} className="border-b border-border">
-                          <td className="px-4 py-3 text-sm">{servicio.nombre}</td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="px-3 py-3 text-sm">{servicio.nombre}</td>
+                          <td className="px-3 py-3 text-center">
                             <Input
                               type="number"
                               min="1"
@@ -270,16 +270,16 @@ export function NuevaFacturaModal({ open, onOpenChange }: NuevaFacturaModalProps
                               onChange={(e) =>
                                 actualizarCantidad(index, parseInt(e.target.value))
                               }
-                              className="w-20 mx-auto"
+                              className="w-16 mx-auto"
                             />
                           </td>
-                          <td className="px-4 py-3 text-right text-sm">
+                          <td className="px-3 py-3 text-right text-sm whitespace-nowrap">
                             ${servicio.precio.toFixed(2)}
                           </td>
-                          <td className="px-4 py-3 text-right text-sm font-medium">
+                          <td className="px-3 py-3 text-right text-sm font-medium whitespace-nowrap">
                             ${(servicio.precio * servicio.cantidad).toFixed(2)}
                           </td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="px-3 py-3 text-center">
                             <Button
                               type="button"
                               variant="ghost"
