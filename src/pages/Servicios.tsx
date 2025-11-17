@@ -1,16 +1,18 @@
 import { useState } from "react";
-import { Plus, Edit, Briefcase } from "lucide-react";
+import { Plus, Edit, Briefcase, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { NuevoServicioModal } from "@/components/modals/NuevoServicioModal";
 import { EditarServicioModal } from "@/components/modals/EditarServicioModal";
+import { NuevaCategoriaModal } from "@/components/modals/NuevaCategoriaModal";
 
 export default function Servicios() {
   const [modoEdicion, setModoEdicion] = useState(false);
   const [showNuevoModal, setShowNuevoModal] = useState(false);
   const [showEditarModal, setShowEditarModal] = useState(false);
+  const [showCategoriaModal, setShowCategoriaModal] = useState(false);
   const [servicioSeleccionado, setServicioSeleccionado] = useState<any>(null);
 
   const servicios = [
@@ -102,14 +104,25 @@ export default function Servicios() {
             </Label>
           </div>
           {modoEdicion && (
-            <Button 
-              className="bg-primary hover:bg-primary/90 w-full sm:w-auto"
-              onClick={() => setShowNuevoModal(true)}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              <span className="md:hidden">Nuevo</span>
-              <span className="hidden md:inline">Nuevo Servicio</span>
-            </Button>
+            <div className="flex gap-2 w-full sm:w-auto">
+              <Button 
+                variant="outline"
+                className="flex-1 sm:flex-initial"
+                onClick={() => setShowCategoriaModal(true)}
+              >
+                <Tag className="h-4 w-4 mr-2" />
+                <span className="md:hidden">Categoría</span>
+                <span className="hidden md:inline">Nueva Categoría</span>
+              </Button>
+              <Button 
+                className="bg-primary hover:bg-primary/90 flex-1 sm:flex-initial"
+                onClick={() => setShowNuevoModal(true)}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                <span className="md:hidden">Servicio</span>
+                <span className="hidden md:inline">Nuevo Servicio</span>
+              </Button>
+            </div>
           )}
         </div>
 
@@ -171,6 +184,10 @@ export default function Servicios() {
         open={showEditarModal}
         onOpenChange={setShowEditarModal}
         servicio={servicioSeleccionado}
+      />
+      <NuevaCategoriaModal
+        open={showCategoriaModal}
+        onOpenChange={setShowCategoriaModal}
       />
     </div>
   );
