@@ -50,6 +50,8 @@ export default function POS() {
 
   return (
     <div className="space-y-4 md:space-y-6 overflow-x-hidden">
+      {/* Título móvil */}
+      <h2 className="text-lg font-semibold md:hidden">Facturador</h2>
       <div className="flex justify-end">
         <Button 
           className="bg-primary hover:bg-primary/90 w-full md:w-auto"

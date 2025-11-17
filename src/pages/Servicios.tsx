@@ -92,6 +92,8 @@ export default function Servicios() {
 
   return (
     <div className="space-y-4 md:space-y-6 overflow-x-hidden">
+      {/* Título móvil */}
+      <h2 className="text-lg font-semibold md:hidden">Servicios</h2>
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-end gap-3 md:gap-4">
           <div className="flex items-center space-x-2">
             <Switch
