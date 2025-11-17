@@ -32,7 +32,7 @@ export function AppHeader() {
         </div>
 
         {/* Navegación Principal - scroll horizontal en móvil */}
-        <nav className="flex items-center gap-1 flex-1 overflow-x-auto scrollbar-thin">
+        <nav className="flex items-center justify-center md:justify-start gap-1 flex-1 overflow-x-auto scrollbar-thin">
           {menuItems.map((item) => (
             <NavLink
               key={item.url}
