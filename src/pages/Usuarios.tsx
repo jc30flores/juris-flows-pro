@@ -17,20 +17,13 @@ export default function Usuarios() {
     },
     {
       id: 2,
-      nombre: "Carlos Abogado",
-      email: "cabogado@cuska.local",
-      rol: "ABOGADO",
+      nombre: "María Colaboradora",
+      email: "mcolaboradora@cuska.local",
+      rol: "COLABORADOR",
       activo: true,
     },
     {
       id: 3,
-      nombre: "María Cajera",
-      email: "mcajera@cuska.local",
-      rol: "CAJERO",
-      activo: true,
-    },
-    {
-      id: 4,
       nombre: "Juan Contador",
       email: "jcontador@cuska.local",
       rol: "CONTADOR",
@@ -42,10 +35,8 @@ export default function Usuarios() {
     switch (rol) {
       case "ADMIN":
         return "bg-primary/10 text-primary";
-      case "ABOGADO":
+      case "COLABORADOR":
         return "bg-accent/10 text-accent";
-      case "CAJERO":
-        return "bg-success/10 text-success";
       case "CONTADOR":
         return "bg-warning/10 text-warning";
       default:

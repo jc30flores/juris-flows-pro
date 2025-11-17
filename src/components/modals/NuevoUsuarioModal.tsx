@@ -28,7 +28,7 @@ const usuarioSchema = z
       .min(1, "El nombre es requerido")
       .max(100, "El nombre debe tener máximo 100 caracteres"),
     email: z.string().email("El correo no es válido"),
-    rol: z.enum(["ADMIN", "ABOGADO", "CAJERO", "CONTADOR"], {
+    rol: z.enum(["ADMIN", "COLABORADOR", "CONTADOR"], {
       required_error: "Debe seleccionar un rol",
     }),
     pin: z
@@ -58,7 +58,7 @@ export function NuevoUsuarioModal({
     defaultValues: {
       nombre: "",
       email: "",
-      rol: "CAJERO",
+      rol: "COLABORADOR",
       pin: "",
       confirmarPin: "",
       activo: true,
@@ -128,8 +128,7 @@ export function NuevoUsuarioModal({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ADMIN">Administrador</SelectItem>
-                <SelectItem value="ABOGADO">Abogado</SelectItem>
-                <SelectItem value="CAJERO">Cajero</SelectItem>
+                <SelectItem value="COLABORADOR">Colaborador</SelectItem>
                 <SelectItem value="CONTADOR">Contador</SelectItem>
               </SelectContent>
             </Select>
