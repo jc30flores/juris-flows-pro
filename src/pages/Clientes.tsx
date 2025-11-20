@@ -1,12 +1,18 @@
 import { useState } from "react";
-import { Plus, Search, UserPlus } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { NuevoClienteModal } from "@/components/modals/NuevoClienteModal";
+import { EditarClienteModal } from "@/components/modals/EditarClienteModal";
 
 export default function Clientes() {
+  const [modoEdicion, setModoEdicion] = useState(false);
   const [showNuevoModal, setShowNuevoModal] = useState(false);
+  const [showEditarModal, setShowEditarModal] = useState(false);
+  const [clienteSeleccionado, setClienteSeleccionado] = useState<any>(null);
   const clientes = [
     {
       id: 1,
@@ -39,15 +45,27 @@ export default function Clientes() {
     <div className="space-y-4 md:space-y-6 overflow-x-hidden">
       {/* Título móvil */}
       <h2 className="text-lg font-semibold md:hidden">Clientes</h2>
-      <div className="flex justify-end">
-        <Button 
-          className="bg-primary hover:bg-primary/90 w-full md:w-auto"
-          onClick={() => setShowNuevoModal(true)}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          <span className="md:hidden">Nuevo</span>
-          <span className="hidden md:inline">Nuevo Cliente</span>
-        </Button>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-end gap-3 md:gap-4">
+        <div className="flex items-center space-x-2">
+          <Switch
+            id="modo-edicion-clientes"
+            checked={modoEdicion}
+            onCheckedChange={setModoEdicion}
+          />
+          <Label htmlFor="modo-edicion-clientes" className="cursor-pointer">
+            Modo Edición
+          </Label>
+        </div>
+        {modoEdicion && (
+          <Button 
+            className="bg-primary hover:bg-primary/90 w-full md:w-auto"
+            onClick={() => setShowNuevoModal(true)}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            <span className="md:hidden">Nuevo</span>
+            <span className="hidden md:inline">Nuevo Cliente</span>
+          </Button>
+        )}
       </div>
 
       <div className="flex gap-4">
@@ -62,7 +80,15 @@ export default function Clientes() {
         {clientes.map((cliente) => (
           <div
             key={cliente.id}
-            className="rounded-lg border border-border bg-card p-4 shadow-elegant hover:shadow-elegant-lg transition-smooth cursor-pointer"
+            onClick={() => {
+              if (modoEdicion) {
+                setClienteSeleccionado(cliente);
+                setShowEditarModal(true);
+              }
+            }}
+            className={`rounded-lg border border-border bg-card p-4 shadow-elegant hover:shadow-elegant-lg transition-smooth ${
+              modoEdicion ? "cursor-pointer" : ""
+            }`}
           >
             <div className="flex items-start justify-between mb-3">
               <div className="flex-1">
@@ -123,14 +149,21 @@ export default function Clientes() {
                 <th className="px-4 py-3 text-left text-sm font-medium">DUI / NIT</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Teléfono</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Correo</th>
-                <th className="px-4 py-3 text-right text-sm font-medium">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {clientes.map((cliente) => (
                 <tr
                   key={cliente.id}
-                  className="border-b border-border hover:bg-muted/30 transition-colors cursor-pointer"
+                  onClick={() => {
+                    if (modoEdicion) {
+                      setClienteSeleccionado(cliente);
+                      setShowEditarModal(true);
+                    }
+                  }}
+                  className={`border-b border-border hover:bg-muted/30 transition-colors ${
+                    modoEdicion ? "cursor-pointer" : ""
+                  }`}
                 >
                   <td className="px-4 py-3">
                     <div>
@@ -161,11 +194,6 @@ export default function Clientes() {
                   </td>
                   <td className="px-4 py-3 text-sm">{cliente.telefono}</td>
                   <td className="px-4 py-3 text-sm">{cliente.correo}</td>
-                  <td className="px-4 py-3 text-right">
-                    <Button variant="ghost" size="sm">
-                      Editar
-                    </Button>
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -176,6 +204,11 @@ export default function Clientes() {
       <NuevoClienteModal
         open={showNuevoModal}
         onOpenChange={setShowNuevoModal}
+      />
+      <EditarClienteModal
+        open={showEditarModal}
+        onOpenChange={setShowEditarModal}
+        cliente={clienteSeleccionado}
       />
     </div>
   );

@@ -11,10 +11,13 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { NuevoGastoModal } from "@/components/modals/NuevoGastoModal";
+import { VerGastoModal } from "@/components/modals/VerGastoModal";
 
 export default function Gastos() {
   const [filter, setFilter] = useState("all");
   const [showNuevoModal, setShowNuevoModal] = useState(false);
+  const [showVerModal, setShowVerModal] = useState(false);
+  const [gastoSeleccionado, setGastoSeleccionado] = useState<any>(null);
 
   const gastos = [
     {
@@ -84,7 +87,11 @@ export default function Gastos() {
         {gastos.map((gasto) => (
           <div
             key={gasto.id}
-            className="rounded-lg border border-border bg-card p-4 shadow-elegant"
+            onClick={() => {
+              setGastoSeleccionado(gasto);
+              setShowVerModal(true);
+            }}
+            className="rounded-lg border border-border bg-card p-4 shadow-elegant cursor-pointer hover:bg-muted/30 transition-colors"
           >
             <div className="flex items-start justify-between mb-3">
               <div className="flex-1 min-w-0">
@@ -111,21 +118,22 @@ export default function Gastos() {
                 <th className="px-4 py-3 text-left text-sm font-medium">Proveedor</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Fecha</th>
                 <th className="px-4 py-3 text-right text-sm font-medium">Total</th>
-                <th className="px-4 py-3 text-right text-sm font-medium">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {gastos.map((gasto) => (
-                <tr key={gasto.id} className="border-b border-border hover:bg-muted/30 transition-colors">
+                <tr 
+                  key={gasto.id} 
+                  onClick={() => {
+                    setGastoSeleccionado(gasto);
+                    setShowVerModal(true);
+                  }}
+                  className="border-b border-border hover:bg-muted/30 transition-colors cursor-pointer"
+                >
                   <td className="px-4 py-3 font-medium">{gasto.nombre}</td>
                   <td className="px-4 py-3 text-sm">{gasto.proveedor}</td>
                   <td className="px-4 py-3 text-sm">{gasto.fecha}</td>
                   <td className="px-4 py-3 text-right font-semibold">${gasto.total.toFixed(2)}</td>
-                  <td className="px-4 py-3 text-right">
-                    <Button variant="ghost" size="sm">
-                      Ver
-                    </Button>
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -136,6 +144,11 @@ export default function Gastos() {
       <NuevoGastoModal
         open={showNuevoModal}
         onOpenChange={setShowNuevoModal}
+      />
+      <VerGastoModal
+        open={showVerModal}
+        onOpenChange={setShowVerModal}
+        gasto={gastoSeleccionado}
       />
     </div>
   );
