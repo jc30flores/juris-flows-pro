@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, FileText, Download, Filter } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Download, Filter, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -10,52 +10,129 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
+import { api } from "@/lib/api";
+import { Client } from "@/types/client";
+import { Invoice, InvoicePayload } from "@/types/invoice";
+import { Service } from "@/types/service";
+import { toast } from "@/hooks/use-toast";
 
 export default function POS() {
   const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
   const [showNuevaFacturaModal, setShowNuevaFacturaModal] = useState(false);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [mode, setMode] = useState<"create" | "edit">("create");
 
-  const ventas = [
-    {
-      id: 1,
-      numero: "DTE-001234",
-      fecha: "2024-01-15",
-      cliente: "Juan Pérez",
-      tipo: "CF",
-      metodoPago: "Efectivo",
-      estadoDTE: "Aprobado",
-      total: 150.0,
-    },
-    {
-      id: 2,
-      numero: "DTE-001235",
-      fecha: "2024-01-15",
-      cliente: "Empresa ABC S.A.",
-      tipo: "CCF",
-      metodoPago: "Transferencia",
-      estadoDTE: "Aprobado",
-      total: 450.0,
-    },
-    {
-      id: 3,
-      numero: "DTE-001236",
-      fecha: "2024-01-14",
-      cliente: "María González",
-      tipo: "CF",
-      metodoPago: "Tarjeta",
-      estadoDTE: "Pendiente",
-      total: 280.0,
-    },
-  ];
+  const fetchInitialData = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [invoiceResponse, clientResponse, serviceResponse] =
+        await Promise.all([
+          api.get<Invoice[]>("/invoices/"),
+          api.get<Client[]>("/clients/"),
+          api.get<Service[]>("/services/"),
+        ]);
+
+      setInvoices(invoiceResponse.data);
+      setClients(clientResponse.data);
+      setServices(serviceResponse.data);
+    } catch (err) {
+      console.error("Error al cargar facturas", err);
+      setError("No se pudieron cargar las facturas");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchInitialData();
+  }, []);
+
+  const handleSaveInvoice = async (payload: InvoicePayload) => {
+    if (selectedInvoice) {
+      await api.patch(`/invoices/${selectedInvoice.id}/`, payload);
+    } else {
+      await api.post("/invoices/", payload);
+    }
+
+    await fetchInitialData();
+    setSelectedInvoice(null);
+    setMode("create");
+  };
+
+  const handleDeleteInvoice = async (invoiceId: number) => {
+    try {
+      await api.delete(`/invoices/${invoiceId}/`);
+      setInvoices((prev) => prev.filter((invoice) => invoice.id !== invoiceId));
+      toast({
+        title: "Factura eliminada",
+        description: "La factura se ha eliminado correctamente",
+      });
+    } catch (err) {
+      console.error("Error al eliminar factura", err);
+      toast({
+        title: "No se pudo eliminar la factura",
+        description: "Intenta nuevamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const clientLookup = useMemo(() => {
+    return clients.reduce<Record<number, string>>((acc, client) => {
+      acc[client.id] = client.company_name || client.full_name;
+      return acc;
+    }, {});
+  }, [clients]);
+
+  const filteredInvoices = useMemo(() => {
+    const today = new Date().toISOString().split("T")[0];
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+
+    return invoices.filter((invoice) => {
+      const matchesSearch = `${invoice.number} ${clientLookup[invoice.client] || ""}`
+        .toLowerCase()
+        .includes(search.toLowerCase());
+
+      const invoiceDate = new Date(invoice.date);
+      const matchesFilter =
+        filter === "all" ||
+        (filter === "today" && invoice.date === today) ||
+        (filter === "week" && invoiceDate >= startOfWeek) ||
+        (filter === "month" && invoiceDate.getMonth() === now.getMonth());
+
+      return matchesSearch && matchesFilter;
+    });
+  }, [clientLookup, filter, invoices, search]);
+
+  const handleOpenCreate = () => {
+    setMode("create");
+    setSelectedInvoice(null);
+    setShowNuevaFacturaModal(true);
+  };
+
+  const handleOpenEdit = (invoice: Invoice) => {
+    setMode("edit");
+    setSelectedInvoice(invoice);
+    setShowNuevaFacturaModal(true);
+  };
 
   return (
     <div className="space-y-4 md:space-y-6 overflow-x-hidden">
       {/* Título móvil */}
       <h2 className="text-lg font-semibold md:hidden">Facturador</h2>
       <div className="flex justify-end">
-        <Button 
+        <Button
           className="bg-primary hover:bg-primary/90 w-full md:w-auto"
-          onClick={() => setShowNuevaFacturaModal(true)}
+          onClick={handleOpenCreate}
         >
           <Plus className="h-4 w-4 mr-2" />
           <span className="md:hidden">Nueva</span>
@@ -65,7 +142,12 @@ export default function POS() {
 
       <div className="flex flex-col sm:flex-row gap-3 md:gap-4">
         <div className="flex-1">
-          <Input placeholder="Buscar por número, cliente..." className="w-full" />
+          <Input
+            placeholder="Buscar por número, cliente..."
+            className="w-full"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
         <div className="flex gap-2">
           <Select value={filter} onValueChange={setFilter}>
@@ -89,108 +171,188 @@ export default function POS() {
 
       {/* Mobile view - Cards */}
       <div className="grid gap-4 md:hidden">
-        {ventas.map((venta) => (
-          <div
-            key={venta.id}
-            className="rounded-lg border border-border bg-card p-4 shadow-elegant"
-          >
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <p className="font-semibold text-lg">{venta.numero}</p>
-                <p className="text-sm text-muted-foreground">{venta.fecha}</p>
+        {loading && (
+          <div className="p-4 text-sm text-muted-foreground">Cargando facturas...</div>
+        )}
+        {!loading && error && (
+          <div className="p-4 text-sm text-destructive">{error}</div>
+        )}
+        {!loading && !error &&
+          filteredInvoices.map((venta) => (
+            <div
+              key={venta.id}
+              className="rounded-lg border border-border bg-card p-4 shadow-elegant"
+            >
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <p className="font-semibold text-lg">{venta.number}</p>
+                  <p className="text-sm text-muted-foreground">{venta.date}</p>
+                </div>
+                <span
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${
+                    venta.dte_status === "Aprobado"
+                      ? "bg-success/10 text-success"
+                      : "bg-warning/10 text-warning"
+                  }`}
+                >
+                  {venta.dte_status}
+                </span>
               </div>
-              <span
-                className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${
-                  venta.estadoDTE === "Aprobado"
-                    ? "bg-success/10 text-success"
-                    : "bg-warning/10 text-warning"
-                }`}
-              >
-                {venta.estadoDTE}
-              </span>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Cliente:</span>
+                  <span className="font-medium">
+                    {clientLookup[venta.client] || "Sin cliente"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Tipo:</span>
+                  <span className="font-medium">{venta.doc_type}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Pago:</span>
+                  <span className="font-medium">{venta.payment_method}</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t border-border">
+                  <span className="text-muted-foreground">Total:</span>
+                  <span className="font-bold text-lg">
+                    ${Number(venta.total).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+              <div className="flex gap-2 mt-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => handleOpenEdit(venta)}
+                >
+                  <Pencil className="h-3 w-3 mr-2" />
+                  Editar
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => handleDeleteInvoice(venta.id)}
+                >
+                  <Trash2 className="h-3 w-3 mr-2 text-destructive" />
+                  Eliminar
+                </Button>
+              </div>
             </div>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Cliente:</span>
-                <span className="font-medium">{venta.cliente}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Tipo:</span>
-                <span className="font-medium">{venta.tipo}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Pago:</span>
-                <span className="font-medium">{venta.metodoPago}</span>
-              </div>
-              <div className="flex justify-between pt-2 border-t border-border">
-                <span className="text-muted-foreground">Total:</span>
-                <span className="font-bold text-lg">${venta.total.toFixed(2)}</span>
-              </div>
-            </div>
-            <Button variant="outline" size="sm" className="w-full mt-3">
-              <FileText className="h-3 w-3 mr-2" />
-              Ver Detalles
-            </Button>
+          ))}
+        {!loading && !error && filteredInvoices.length === 0 && (
+          <div className="p-4 text-sm text-muted-foreground">
+            No hay facturas registradas.
           </div>
-        ))}
+        )}
       </div>
 
       {/* Desktop view - Table */}
       <div className="hidden md:block rounded-lg border border-border bg-card shadow-elegant overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-muted/50">
-              <tr className="border-b border-border">
-                <th className="px-4 py-3 text-left text-sm font-medium">Nº Factura</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Fecha</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Cliente</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Tipo</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Método Pago</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Estado DTE</th>
-                <th className="px-4 py-3 text-right text-sm font-medium">Total</th>
-                <th className="px-4 py-3 text-right text-sm font-medium">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ventas.map((venta) => (
-                <tr key={venta.id} className="border-b border-border hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3 font-medium">{venta.numero}</td>
-                  <td className="px-4 py-3 text-sm">{venta.fecha}</td>
-                  <td className="px-4 py-3 text-sm">{venta.cliente}</td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-primary/10 text-primary font-medium">
-                      {venta.tipo}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm">{venta.metodoPago}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                        venta.estadoDTE === "Aprobado"
-                          ? "bg-success/10 text-success"
-                          : "bg-warning/10 text-warning"
-                      }`}
-                    >
-                      {venta.estadoDTE}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right font-semibold">${venta.total.toFixed(2)}</td>
-                  <td className="px-4 py-3 text-right">
-                    <Button variant="ghost" size="sm">
-                      <FileText className="h-4 w-4" />
-                      <span className="sr-only">Ver detalles</span>
-                    </Button>
-                  </td>
+          {loading && (
+            <div className="p-4 text-sm text-muted-foreground">Cargando facturas...</div>
+          )}
+          {!loading && error && (
+            <div className="p-4 text-sm text-destructive">{error}</div>
+          )}
+          {!loading && !error && (
+            <table className="w-full">
+              <thead className="bg-muted/50">
+                <tr className="border-b border-border">
+                  <th className="px-4 py-3 text-left text-sm font-medium">Nº Factura</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Fecha</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Cliente</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Tipo</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Método Pago</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Estado DTE</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium">Total</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium">Acciones</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredInvoices.map((venta) => (
+                  <tr
+                    key={venta.id}
+                    className="border-b border-border hover:bg-muted/30 transition-colors"
+                  >
+                    <td className="px-4 py-3 font-medium">{venta.number}</td>
+                    <td className="px-4 py-3 text-sm">{venta.date}</td>
+                    <td className="px-4 py-3 text-sm">
+                      {clientLookup[venta.client] || "Sin cliente"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-primary/10 text-primary font-medium">
+                        {venta.doc_type}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm">{venta.payment_method}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                          venta.dte_status === "Aprobado"
+                            ? "bg-success/10 text-success"
+                            : venta.dte_status === "Pendiente"
+                              ? "bg-warning/10 text-warning"
+                              : "bg-destructive/10 text-destructive"
+                        }`}
+                      >
+                        {venta.dte_status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold">${Number(venta.total).toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleOpenEdit(venta)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                        <span className="sr-only">Editar</span>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteInvoice(venta.id)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                        <span className="sr-only">Eliminar</span>
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {filteredInvoices.length === 0 && (
+                  <tr>
+                    <td
+                      className="px-4 py-3 text-sm text-muted-foreground"
+                      colSpan={8}
+                    >
+                      No hay facturas registradas.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
       <NuevaFacturaModal
         open={showNuevaFacturaModal}
-        onOpenChange={setShowNuevaFacturaModal}
+        onOpenChange={(open) => {
+          setShowNuevaFacturaModal(open);
+          if (!open) {
+            setSelectedInvoice(null);
+            setMode("create");
+          }
+        }}
+        onSubmit={handleSaveInvoice}
+        clients={clients}
+        services={services}
+        invoice={selectedInvoice}
+        mode={mode}
       />
     </div>
   );
