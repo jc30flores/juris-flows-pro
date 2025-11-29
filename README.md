@@ -1,9 +1,9 @@
 # Cuska-OnOffice
 
-El repositorio ahora está organizado en dos áreas principales:
+El repositorio está dividido en dos áreas principales:
 
-- `frontend/`: aplicación Vite + React (Lovable) existente para la operación diaria.
-- `backend/`: carpeta reservada para la futura API Django + PostgreSQL, con documentación previa en `backend/docs/`.
+- `frontend/`: aplicación Vite + React (Lovable) para la operación diaria. Usa un cliente axios central en `frontend/src/lib/api.ts` apuntando a `${VITE_API_URL}/api`.
+- `backend/`: proyecto Django (`abogados_backend`) y documentación para la API y el modelo de datos PostgreSQL.
 
 ## Ejecutar el frontend
 
@@ -13,10 +13,21 @@ npm install
 npm run dev
 ```
 
-Los archivos originales del proyecto React viven dentro de `frontend/`, incluyendo `src/`, `public/`, configuraciones de Vite/Tailwind y bloqueos de dependencias.
+Configura un archivo `.env` en `frontend/` (ver `.env.example`) si necesitas sobreescribir `VITE_API_URL` (por defecto `http://localhost:8000`).
 
-## Planificación del backend
+## Backend
 
-El análisis funcional actual, propuesta de modelo de datos (base `policydb`, usuario `jarvis`) y el boceto de endpoints REST están documentados en [`backend/docs/system_overview.md`](backend/docs/system_overview.md).
+```bash
+cd backend
+# crear y activar un entorno virtual (por ejemplo, python -m venv .venv && source .venv/bin/activate)
+pip install -r requirements.txt
+# configura las variables de entorno según .env.example
+python manage.py migrate
+python manage.py runserver
+```
 
-Todavía no se ha creado el proyecto Django ni la base de datos; esta etapa es únicamente de diseño y organización.
+El backend expone un endpoint básico de salud en `/api/health/` que responde `{"status": "ok"}`.
+
+## Documentación del sistema
+
+El análisis funcional, propuesta de modelo de datos en PostgreSQL (`abogados`, owner `jarvis`) y el boceto de endpoints REST están en [`backend/docs/system_overview.md`](backend/docs/system_overview.md).

@@ -47,8 +47,8 @@ Relaciones principales:
 - Un **Gasto** puede registrar el **Usuario** que lo creó.
 - Un **Usuario** pertenece a un **Rol**.
 
-## Propuesta inicial de modelo de datos para PostgreSQL (base `policydb`)
-La base de datos local se llamará `policydb` y el owner será el usuario de PostgreSQL `jarvis`. Más adelante se parametrizarán las credenciales con variables de entorno (`DB_NAME=policydb`, `DB_USER=jarvis`, `DB_PASSWORD=...`). Aún no se crea la base ni migraciones; esto es solo el diseño conceptual.
+## Propuesta inicial de modelo de datos para PostgreSQL (base `abogados`)
+La base de datos local se llamará `abogados` y el owner será el usuario de PostgreSQL `jarvis`. Más adelante se parametrizarán las credenciales con variables de entorno (`DB_NAME=abogados`, `DB_USER=jarvis`, `DB_PASSWORD=...`). Aún no se crea la base ni migraciones; esto es solo el diseño conceptual.
 
 Tablas sugeridas:
 
@@ -187,10 +187,10 @@ Endpoints pensados para Django + Django REST Framework; el frontend podrá consu
   - `/api/auth/me` (GET perfil autenticado).
 
 ## Siguientes pasos
-- Crear el proyecto Django en `backend/` apuntando a la base `policydb` en PostgreSQL.
+- Completar la configuración del proyecto Django en `backend/` apuntándolo a la base `abogados` en PostgreSQL y creando apps por dominio (facturación, clientes, etc.).
 - Implementar modelos en Django basados en las tablas propuestas y preparar migraciones.
 - Configurar viewsets/routers DRF para los endpoints definidos, aplicando filtros y paginación.
 - Actualizar el frontend para consumir los endpoints con `fetch` o `axios` de manera progresiva.
 - Mantener variables de entorno para credenciales de base de datos y configuración de despliegue.
 
-> Nota: aún no se han creado archivos de proyecto Django ni migraciones; este documento es únicamente de análisis y diseño previo.
+> Nota: el proyecto base `abogados_backend` ya existe, pero aún no se han creado apps ni migraciones específicas; este documento sigue siendo de análisis y diseño previo.
