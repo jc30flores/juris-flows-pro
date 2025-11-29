@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -31,19 +32,19 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
-import { useState } from "react";
+import { Service, ServiceCategory } from "@/types/service";
 
 const servicioSchema = z.object({
-  codigo: z
+  code: z
     .string()
     .min(1, "El código es requerido")
     .max(20, "El código debe tener máximo 20 caracteres"),
-  nombre: z
+  name: z
     .string()
     .min(1, "El nombre es requerido")
     .max(200, "El nombre debe tener máximo 200 caracteres"),
-  categoria: z.string().min(1, "La categoría es requerida"),
-  precioBase: z
+  category: z.string().min(1, "La categoría es requerida"),
+  base_price: z
     .string()
     .min(1, "El precio es requerido")
     .refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
@@ -52,77 +53,91 @@ const servicioSchema = z.object({
   activo: z.boolean().default(true),
 });
 
-interface Servicio {
-  id: number;
-  codigo: string;
-  nombre: string;
-  categoria: string;
-  precioBase: number;
-  activo: boolean;
-}
-
 interface EditarServicioModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  servicio: Servicio | null;
+  servicio: Service | null;
+  categories: ServiceCategory[];
+  onSubmit: (
+    payload: Partial<Omit<Service, "id" | "category"> & { category: number }>,
+  ) => Promise<void>;
+  onDelete: () => Promise<void>;
 }
 
 export function EditarServicioModal({
   open,
   onOpenChange,
   servicio,
+  categories,
+  onSubmit,
+  onDelete,
 }: EditarServicioModalProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const form = useForm<z.infer<typeof servicioSchema>>({
     resolver: zodResolver(servicioSchema),
-    values: servicio
-      ? {
-          codigo: servicio.codigo,
-          nombre: servicio.nombre,
-          categoria: servicio.categoria,
-          precioBase: servicio.precioBase.toString(),
-          activo: servicio.activo,
-        }
-      : undefined,
   });
 
-  const categorias = [
-    "Compra Venta",
-    "Escrituras Públicas",
-    "Autenticaciones",
-    "Certificaciones",
-    "Poderes",
-    "Arrendamientos",
-    "Testamentos",
-    "Otros",
-  ];
+  useEffect(() => {
+    if (servicio) {
+      form.reset({
+        code: servicio.code,
+        name: servicio.name,
+        category: servicio.category?.toString() ?? "",
+        base_price: servicio.base_price.toString(),
+        activo: servicio.active,
+      });
+    }
+  }, [servicio, form]);
 
-  const onSubmit = (data: z.infer<typeof servicioSchema>) => {
-    console.log({
-      id: servicio?.id,
-      ...data,
-      precioBase: Number(data.precioBase),
-    });
+  const handleSubmit = async (data: z.infer<typeof servicioSchema>) => {
+    if (!servicio) return;
+    setSubmitting(true);
+    try {
+      await onSubmit({
+        code: data.code,
+        name: data.name,
+        category: Number(data.category),
+        base_price: Number(data.base_price),
+        active: data.activo,
+      });
 
-    toast({
-      title: "Servicio actualizado",
-      description: "Los cambios se han guardado exitosamente",
-    });
+      toast({
+        title: "Servicio actualizado",
+        description: "Los cambios se han guardado exitosamente",
+      });
 
-    onOpenChange(false);
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Error al actualizar servicio", error);
+      toast({
+        title: "Error",
+        description: "No se pudo actualizar el servicio",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleDelete = () => {
-    console.log("Eliminar servicio:", servicio?.id);
-
-    toast({
-      title: "Servicio eliminado",
-      description: "El servicio se ha eliminado exitosamente",
-    });
-
-    setShowDeleteDialog(false);
-    onOpenChange(false);
+  const handleDelete = async () => {
+    try {
+      await onDelete();
+      toast({
+        title: "Servicio eliminado",
+        description: "El servicio se ha eliminado exitosamente",
+      });
+      setShowDeleteDialog(false);
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Error al eliminar servicio", error);
+      toast({
+        title: "Error",
+        description: "No se pudo eliminar el servicio",
+        variant: "destructive",
+      });
+    }
   };
 
   if (!servicio) return null;
@@ -135,17 +150,17 @@ export function EditarServicioModal({
             <DialogTitle>Editar Servicio</DialogTitle>
           </DialogHeader>
 
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="codigo">Código</Label>
               <Input
                 id="codigo"
                 placeholder="SRV-001"
-                {...form.register("codigo")}
+                {...form.register("code")}
               />
-              {form.formState.errors.codigo && (
+              {form.formState.errors.code && (
                 <p className="text-sm text-destructive">
-                  {form.formState.errors.codigo.message}
+                  {form.formState.errors.code.message}
                 </p>
               )}
             </div>
@@ -155,11 +170,11 @@ export function EditarServicioModal({
               <Input
                 id="nombre"
                 placeholder="Compra Venta de Vehículos"
-                {...form.register("nombre")}
+                {...form.register("name")}
               />
-              {form.formState.errors.nombre && (
+              {form.formState.errors.name && (
                 <p className="text-sm text-destructive">
-                  {form.formState.errors.nombre.message}
+                  {form.formState.errors.name.message}
                 </p>
               )}
             </div>
@@ -167,23 +182,23 @@ export function EditarServicioModal({
             <div className="space-y-2">
               <Label htmlFor="categoria">Categoría</Label>
               <Select
-                value={form.watch("categoria")}
-                onValueChange={(value) => form.setValue("categoria", value)}
+                value={form.watch("category")}
+                onValueChange={(value) => form.setValue("category", value)}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar categoría" />
                 </SelectTrigger>
                 <SelectContent>
-                  {categorias.map((cat) => (
-                    <SelectItem key={cat} value={cat}>
-                      {cat}
+                  {categories.map((cat) => (
+                    <SelectItem key={cat.id} value={cat.id.toString()}>
+                      {cat.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              {form.formState.errors.categoria && (
+              {form.formState.errors.category && (
                 <p className="text-sm text-destructive">
-                  {form.formState.errors.categoria.message}
+                  {form.formState.errors.category.message}
                 </p>
               )}
             </div>
@@ -200,12 +215,12 @@ export function EditarServicioModal({
                   step="0.01"
                   placeholder="0.00"
                   className="pl-7"
-                  {...form.register("precioBase")}
+                  {...form.register("base_price")}
                 />
               </div>
-              {form.formState.errors.precioBase && (
+              {form.formState.errors.base_price && (
                 <p className="text-sm text-destructive">
-                  {form.formState.errors.precioBase.message}
+                  {form.formState.errors.base_price.message}
                 </p>
               )}
             </div>
@@ -239,7 +254,9 @@ export function EditarServicioModal({
                 >
                   Cancelar
                 </Button>
-                <Button type="submit">Guardar Cambios</Button>
+                <Button type="submit" disabled={submitting}>
+                  {submitting ? "Guardando..." : "Guardar Cambios"}
+                </Button>
               </div>
             </DialogFooter>
           </form>
@@ -251,7 +268,7 @@ export function EditarServicioModal({
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar servicio?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta acción no se puede deshacer. El servicio "{servicio.nombre}"
+              Esta acción no se puede deshacer. El servicio "{servicio.name}"
               será eliminado permanentemente.
             </AlertDialogDescription>
           </AlertDialogHeader>

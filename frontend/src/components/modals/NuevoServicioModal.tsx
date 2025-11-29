@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -20,18 +21,19 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
+import { Service, ServiceCategory } from "@/types/service";
 
 const servicioSchema = z.object({
-  codigo: z
+  code: z
     .string()
     .min(1, "El código es requerido")
     .max(20, "El código debe tener máximo 20 caracteres"),
-  nombre: z
+  name: z
     .string()
     .min(1, "El nombre es requerido")
     .max(200, "El nombre debe tener máximo 200 caracteres"),
-  categoria: z.string().min(1, "La categoría es requerida"),
-  precioBase: z
+  category: z.string().min(1, "La categoría es requerida"),
+  base_price: z
     .string()
     .min(1, "El precio es requerido")
     .refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
@@ -43,47 +45,57 @@ const servicioSchema = z.object({
 interface NuevoServicioModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  categories: ServiceCategory[];
+  onSubmit: (payload: Omit<Service, "id" | "category"> & { category: number }) =>
+    Promise<void>;
 }
 
 export function NuevoServicioModal({
   open,
   onOpenChange,
+  categories,
+  onSubmit,
 }: NuevoServicioModalProps) {
+  const [submitting, setSubmitting] = useState(false);
   const form = useForm<z.infer<typeof servicioSchema>>({
     resolver: zodResolver(servicioSchema),
     defaultValues: {
-      codigo: "",
-      nombre: "",
-      categoria: "",
-      precioBase: "",
+      code: "",
+      name: "",
+      category: "",
+      base_price: "",
       activo: true,
     },
   });
 
-  const categorias = [
-    "Compra Venta",
-    "Escrituras Públicas",
-    "Autenticaciones",
-    "Certificaciones",
-    "Poderes",
-    "Arrendamientos",
-    "Testamentos",
-    "Otros",
-  ];
+  const handleSubmit = async (data: z.infer<typeof servicioSchema>) => {
+    setSubmitting(true);
+    try {
+      await onSubmit({
+        code: data.code,
+        name: data.name,
+        category: Number(data.category),
+        base_price: Number(data.base_price),
+        active: data.activo,
+      });
 
-  const onSubmit = (data: z.infer<typeof servicioSchema>) => {
-    console.log({
-      ...data,
-      precioBase: Number(data.precioBase),
-    });
+      toast({
+        title: "Servicio creado",
+        description: "El servicio se ha creado exitosamente",
+      });
 
-    toast({
-      title: "Servicio creado",
-      description: "El servicio se ha creado exitosamente",
-    });
-
-    form.reset();
-    onOpenChange(false);
+      form.reset();
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Error al crear servicio", error);
+      toast({
+        title: "Error",
+        description: "No se pudo crear el servicio. Inténtalo nuevamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -93,17 +105,17 @@ export function NuevoServicioModal({
           <DialogTitle>Nuevo Servicio</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="codigo">Código</Label>
             <Input
               id="codigo"
               placeholder="SRV-001"
-              {...form.register("codigo")}
+              {...form.register("code")}
             />
-            {form.formState.errors.codigo && (
+            {form.formState.errors.code && (
               <p className="text-sm text-destructive">
-                {form.formState.errors.codigo.message}
+                {form.formState.errors.code.message}
               </p>
             )}
           </div>
@@ -113,11 +125,11 @@ export function NuevoServicioModal({
             <Input
               id="nombre"
               placeholder="Compra Venta de Vehículos"
-              {...form.register("nombre")}
+              {...form.register("name")}
             />
-            {form.formState.errors.nombre && (
+            {form.formState.errors.name && (
               <p className="text-sm text-destructive">
-                {form.formState.errors.nombre.message}
+                {form.formState.errors.name.message}
               </p>
             )}
           </div>
@@ -125,23 +137,23 @@ export function NuevoServicioModal({
           <div className="space-y-2">
             <Label htmlFor="categoria">Categoría</Label>
             <Select
-              value={form.watch("categoria")}
-              onValueChange={(value) => form.setValue("categoria", value)}
+              value={form.watch("category")}
+              onValueChange={(value) => form.setValue("category", value)}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Seleccionar categoría" />
               </SelectTrigger>
               <SelectContent>
-                {categorias.map((cat) => (
-                  <SelectItem key={cat} value={cat}>
-                    {cat}
+                {categories.map((cat) => (
+                  <SelectItem key={cat.id} value={cat.id.toString()}>
+                    {cat.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            {form.formState.errors.categoria && (
+            {form.formState.errors.category && (
               <p className="text-sm text-destructive">
-                {form.formState.errors.categoria.message}
+                {form.formState.errors.category.message}
               </p>
             )}
           </div>
@@ -158,12 +170,12 @@ export function NuevoServicioModal({
                 step="0.01"
                 placeholder="0.00"
                 className="pl-7"
-                {...form.register("precioBase")}
+                {...form.register("base_price")}
               />
             </div>
-            {form.formState.errors.precioBase && (
+            {form.formState.errors.base_price && (
               <p className="text-sm text-destructive">
-                {form.formState.errors.precioBase.message}
+                {form.formState.errors.base_price.message}
               </p>
             )}
           </div>
@@ -187,7 +199,9 @@ export function NuevoServicioModal({
             >
               Cancelar
             </Button>
-            <Button type="submit">Crear Servicio</Button>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? "Guardando..." : "Crear Servicio"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

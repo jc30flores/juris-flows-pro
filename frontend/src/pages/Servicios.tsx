@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, Edit, Briefcase, Tag } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -7,130 +7,117 @@ import { Label } from "@/components/ui/label";
 import { NuevoServicioModal } from "@/components/modals/NuevoServicioModal";
 import { EditarServicioModal } from "@/components/modals/EditarServicioModal";
 import { NuevaCategoriaModal } from "@/components/modals/NuevaCategoriaModal";
+import { api } from "@/lib/api";
+import {
+  Service,
+  ServiceCategory,
+  ServicePayload,
+} from "@/types/service";
 
 export default function Servicios() {
   const [modoEdicion, setModoEdicion] = useState(false);
   const [showNuevoModal, setShowNuevoModal] = useState(false);
   const [showEditarModal, setShowEditarModal] = useState(false);
   const [showCategoriaModal, setShowCategoriaModal] = useState(false);
-  const [servicioSeleccionado, setServicioSeleccionado] = useState<any>(null);
+  const [servicioSeleccionado, setServicioSeleccionado] = useState<Service | null>(
+    null,
+  );
+  const [services, setServices] = useState<Service[]>([]);
+  const [categories, setCategories] = useState<ServiceCategory[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string>("");
 
-  const servicios = [
-    {
-      id: 1,
-      codigo: "SRV-001",
-      nombre: "Compra Venta de Vehículos",
-      categoria: "Compra Venta",
-      precioBase: 150.0,
-      imponible: true,
-      activo: true,
-    },
-    {
-      id: 2,
-      codigo: "SRV-002",
-      nombre: "Escritura Pública: Compra Venta de Inmuebles",
-      categoria: "Escrituras Públicas",
-      precioBase: 450.0,
-      imponible: true,
-      activo: true,
-    },
-    {
-      id: 3,
-      codigo: "SRV-003",
-      nombre: "Escritura Pública: Promesa de Venta",
-      categoria: "Escrituras Públicas",
-      precioBase: 300.0,
-      imponible: true,
-      activo: true,
-    },
-    {
-      id: 4,
-      codigo: "SRV-004",
-      nombre: "Compra Venta de Arma de Fuego",
-      categoria: "Compra Venta",
-      precioBase: 120.0,
-      imponible: true,
-      activo: true,
-    },
-    {
-      id: 5,
-      codigo: "SRV-005",
-      nombre: "Autenticación de Documentos",
-      categoria: "Autenticaciones",
-      precioBase: 50.0,
-      imponible: true,
-      activo: true,
-    },
-    {
-      id: 6,
-      codigo: "SRV-006",
-      nombre: "Certificación de Documentos",
-      categoria: "Certificaciones",
-      precioBase: 40.0,
-      imponible: true,
-      activo: true,
-    },
-    {
-      id: 7,
-      codigo: "SRV-007",
-      nombre: "Escritura de Poder Especial",
-      categoria: "Poderes",
-      precioBase: 200.0,
-      imponible: true,
-      activo: true,
-    },
-    {
-      id: 8,
-      codigo: "SRV-008",
-      nombre: "Documento Autenticado de Arrendamiento",
-      categoria: "Arrendamientos",
-      precioBase: 180.0,
-      imponible: true,
-      activo: true,
-    },
-  ];
+  const fetchServices = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [servicesResponse, categoriesResponse] = await Promise.all([
+        api.get<Service[]>("/services/"),
+        api.get<ServiceCategory[]>("/service-categories/"),
+      ]);
+      setServices(servicesResponse.data);
+      setCategories(categoriesResponse.data);
+    } catch (err) {
+      console.error("Error al cargar servicios", err);
+      setError("No se pudieron cargar los servicios");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateService = async (payload: ServicePayload) => {
+    await api.post("/services/", payload);
+    await fetchServices();
+  };
+
+  const handleUpdateService = async (id: number, payload: Partial<ServicePayload>) => {
+    await api.patch(`/services/${id}/`, payload);
+    await fetchServices();
+  };
+
+  const handleDeleteService = async (id: number) => {
+    await api.delete(`/services/${id}/`);
+    setServices((prev) => prev.filter((service) => service.id !== id));
+  };
+
+  useEffect(() => {
+    fetchServices();
+  }, []);
+
+  const categoryLookup = useMemo(() => {
+    return categories.reduce<Record<number, string>>((acc, category) => {
+      acc[category.id] = category.name;
+      return acc;
+    }, {});
+  }, [categories]);
 
   return (
     <div className="space-y-4 md:space-y-6 overflow-x-hidden">
       {/* Título móvil */}
       <h2 className="text-lg font-semibold md:hidden">Servicios</h2>
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-end gap-3 md:gap-4">
-          <div className="flex items-center space-x-2">
-            <Switch
-              id="modo-edicion"
-              checked={modoEdicion}
-              onCheckedChange={setModoEdicion}
-            />
-            <Label htmlFor="modo-edicion" className="cursor-pointer">
-              Modo Edición
-            </Label>
-          </div>
-          {modoEdicion && (
-            <div className="flex gap-2 w-full sm:w-auto">
-              <Button 
-                variant="outline"
-                className="flex-1 sm:flex-initial"
-                onClick={() => setShowCategoriaModal(true)}
-              >
-                <Tag className="h-4 w-4 mr-2" />
-                <span className="md:hidden">Categoría</span>
-                <span className="hidden md:inline">Nueva Categoría</span>
-              </Button>
-              <Button 
-                className="bg-primary hover:bg-primary/90 flex-1 sm:flex-initial"
-                onClick={() => setShowNuevoModal(true)}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                <span className="md:hidden">Servicio</span>
-                <span className="hidden md:inline">Nuevo Servicio</span>
-              </Button>
-            </div>
-          )}
+        <div className="flex items-center space-x-2">
+          <Switch
+            id="modo-edicion"
+            checked={modoEdicion}
+            onCheckedChange={setModoEdicion}
+          />
+          <Label htmlFor="modo-edicion" className="cursor-pointer">
+            Modo Edición
+          </Label>
         </div>
+        {modoEdicion && (
+          <div className="flex gap-2 w-full sm:w-auto">
+            <Button
+              variant="outline"
+              className="flex-1 sm:flex-initial"
+              onClick={() => setShowCategoriaModal(true)}
+            >
+              <Tag className="h-4 w-4 mr-2" />
+              <span className="md:hidden">Categoría</span>
+              <span className="hidden md:inline">Nueva Categoría</span>
+            </Button>
+            <Button
+              className="bg-primary hover:bg-primary/90 flex-1 sm:flex-initial"
+              onClick={() => setShowNuevoModal(true)}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              <span className="md:hidden">Servicio</span>
+              <span className="hidden md:inline">Nuevo Servicio</span>
+            </Button>
+          </div>
+        )}
+      </div>
 
       {/* Tabla de Servicios */}
       <div className="rounded-lg border border-border bg-card shadow-elegant overflow-hidden">
         <div className="overflow-x-auto">
+          {loading && (
+            <div className="p-4 text-sm text-muted-foreground">Cargando servicios...</div>
+          )}
+          {error && !loading && (
+            <div className="p-4 text-sm text-destructive">{error}</div>
+          )}
           <table className="w-full">
             <thead className="bg-muted/50">
               <tr className="border-b border-border">
@@ -142,37 +129,48 @@ export default function Servicios() {
               </tr>
             </thead>
             <tbody>
-              {servicios.map((servicio) => (
-                <tr
-                  key={servicio.id}
-                  onClick={() => {
-                    if (modoEdicion) {
-                      setServicioSeleccionado(servicio);
-                      setShowEditarModal(true);
-                    }
-                  }}
-                  className={`border-b border-border hover:bg-muted/30 transition-colors ${
-                    modoEdicion ? "cursor-pointer" : ""
-                  }`}
-                >
-                  <td className="px-4 py-3 font-mono text-sm">{servicio.codigo}</td>
-                  <td className="px-4 py-3 font-medium">{servicio.nombre}</td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground">
-                    {servicio.categoria}
-                  </td>
-                  <td className="px-4 py-3 text-right font-semibold text-accent">
-                    ${servicio.precioBase.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <Badge
-                      variant={servicio.activo ? "default" : "secondary"}
-                      className="text-xs"
-                    >
-                      {servicio.activo ? "Activo" : "Inactivo"}
-                    </Badge>
+              {!loading &&
+                services.map((servicio) => (
+                  <tr
+                    key={servicio.id}
+                    onClick={() => {
+                      if (modoEdicion) {
+                        setServicioSeleccionado(servicio);
+                        setShowEditarModal(true);
+                      }
+                    }}
+                    className={`border-b border-border hover:bg-muted/30 transition-colors ${
+                      modoEdicion ? "cursor-pointer" : ""
+                    }`}
+                  >
+                    <td className="px-4 py-3 font-mono text-sm">{servicio.code}</td>
+                    <td className="px-4 py-3 font-medium">{servicio.name}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                      {categoryLookup[servicio.category] || "Sin categoría"}
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold text-accent">
+                      ${Number(servicio.base_price).toFixed(2)}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <Badge
+                        variant={servicio.active ? "default" : "secondary"}
+                        className="text-xs"
+                      >
+                        {servicio.active ? "Activo" : "Inactivo"}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              {!loading && services.length === 0 && (
+                <tr>
+                  <td
+                    className="px-4 py-3 text-sm text-muted-foreground"
+                    colSpan={5}
+                  >
+                    No hay servicios registrados.
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
@@ -181,11 +179,27 @@ export default function Servicios() {
       <NuevoServicioModal
         open={showNuevoModal}
         onOpenChange={setShowNuevoModal}
+        categories={categories}
+        onSubmit={async (payload) => {
+          await handleCreateService(payload);
+          setShowNuevoModal(false);
+        }}
       />
       <EditarServicioModal
         open={showEditarModal}
         onOpenChange={setShowEditarModal}
         servicio={servicioSeleccionado}
+        categories={categories}
+        onSubmit={async (payload) => {
+          if (!servicioSeleccionado) return;
+          await handleUpdateService(servicioSeleccionado.id, payload);
+          setShowEditarModal(false);
+        }}
+        onDelete={async () => {
+          if (!servicioSeleccionado) return;
+          await handleDeleteService(servicioSeleccionado.id);
+          setShowEditarModal(false);
+        }}
       />
       <NuevaCategoriaModal
         open={showCategoriaModal}
