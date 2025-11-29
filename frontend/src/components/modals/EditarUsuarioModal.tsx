@@ -1,13 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
-import { StaffUserPayload } from "@/types/staffUser";
+import { StaffUser, StaffUserPayload } from "@/types/staffUser";
 
 const usuarioSchema = z.object({
   nombre: z
@@ -39,18 +39,24 @@ const usuarioSchema = z.object({
   activo: z.boolean().default(true),
 });
 
-interface NuevoUsuarioModalProps {
+interface EditarUsuarioModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (payload: StaffUserPayload) => Promise<void>;
+  usuario: StaffUser | null;
+  onSubmit: (payload: Partial<StaffUserPayload>) => Promise<void>;
+  onDelete: () => Promise<void>;
 }
 
-export function NuevoUsuarioModal({
+export function EditarUsuarioModal({
   open,
   onOpenChange,
+  usuario,
   onSubmit,
-}: NuevoUsuarioModalProps) {
+  onDelete,
+}: EditarUsuarioModalProps) {
   const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
   const form = useForm<z.infer<typeof usuarioSchema>>({
     resolver: zodResolver(usuarioSchema),
     defaultValues: {
@@ -61,8 +67,19 @@ export function NuevoUsuarioModal({
     },
   });
 
+  useEffect(() => {
+    if (usuario && open) {
+      form.reset({
+        nombre: usuario.name || "",
+        email: usuario.email || "",
+        rol: usuario.role,
+        activo: usuario.active,
+      });
+    }
+  }, [usuario, open, form]);
+
   const handleSubmit = async (data: z.infer<typeof usuarioSchema>) => {
-    const payload: StaffUserPayload = {
+    const payload: Partial<StaffUserPayload> = {
       name: data.nombre,
       email: data.email || undefined,
       role: data.rol,
@@ -72,19 +89,16 @@ export function NuevoUsuarioModal({
     try {
       setSubmitting(true);
       await onSubmit(payload);
-
       toast({
-        title: "Usuario creado",
-        description: "El usuario se ha creado exitosamente",
+        title: "Usuario actualizado",
+        description: "Los cambios se guardaron correctamente.",
       });
-
-      form.reset();
       onOpenChange(false);
     } catch (error) {
-      console.error("Error al crear usuario", error);
+      console.error("Error al actualizar usuario", error);
       toast({
         title: "Error",
-        description: "No se pudo crear el usuario. Inténtalo nuevamente.",
+        description: "No se pudo actualizar el usuario.",
         variant: "destructive",
       });
     } finally {
@@ -92,21 +106,39 @@ export function NuevoUsuarioModal({
     }
   };
 
+  const handleDelete = async () => {
+    if (!usuario) return;
+    try {
+      setDeleting(true);
+      await onDelete();
+      toast({
+        title: "Usuario eliminado",
+        description: "El usuario se eliminó correctamente.",
+      });
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Error al eliminar usuario", error);
+      toast({
+        title: "Error",
+        description: "No se pudo eliminar el usuario.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Nuevo Usuario</DialogTitle>
+          <DialogTitle>Editar Usuario</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="nombre">Nombre Completo</Label>
-            <Input
-              id="nombre"
-              placeholder="Juan Alberto Pérez"
-              {...form.register("nombre")}
-            />
+            <Input id="nombre" {...form.register("nombre")} />
             {form.formState.errors.nombre && (
               <p className="text-sm text-destructive">
                 {form.formState.errors.nombre.message}
@@ -116,12 +148,7 @@ export function NuevoUsuarioModal({
 
           <div className="space-y-2">
             <Label htmlFor="email">Correo Electrónico</Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="usuario@cuska.local"
-              {...form.register("email")}
-            />
+            <Input id="email" type="email" {...form.register("email")} />
             {form.formState.errors.email && (
               <p className="text-sm text-destructive">
                 {form.formState.errors.email.message}
@@ -165,14 +192,22 @@ export function NuevoUsuarioModal({
           <DialogFooter className="gap-2">
             <Button
               type="button"
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deleting || submitting}
+            >
+              {deleting ? "Eliminando..." : "Eliminar"}
+            </Button>
+            <Button
+              type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              disabled={submitting}
+              disabled={deleting || submitting}
             >
               Cancelar
             </Button>
-            <Button type="submit" disabled={submitting}>
-              {submitting ? "Creando..." : "Crear Usuario"}
+            <Button type="submit" disabled={submitting || deleting}>
+              {submitting ? "Guardando..." : "Guardar Cambios"}
             </Button>
           </DialogFooter>
         </form>
