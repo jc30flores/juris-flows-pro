@@ -1,73 +1,22 @@
-# Welcome to your Lovable project
+# Cuska-OnOffice
 
-## Project info
+El repositorio ahora está organizado en dos áreas principales:
 
-**URL**: https://lovable.dev/projects/b18ff73c-6ace-4153-a8a5-5bf4c32fbd22
+- `frontend/`: aplicación Vite + React (Lovable) existente para la operación diaria.
+- `backend/`: carpeta reservada para la futura API Django + PostgreSQL, con documentación previa en `backend/docs/`.
 
-## How can I edit this code?
+## Ejecutar el frontend
 
-There are several ways of editing your application.
-
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/b18ff73c-6ace-4153-a8a5-5bf4c32fbd22) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```bash
+cd frontend
+npm install
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Los archivos originales del proyecto React viven dentro de `frontend/`, incluyendo `src/`, `public/`, configuraciones de Vite/Tailwind y bloqueos de dependencias.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Planificación del backend
 
-**Use GitHub Codespaces**
+El análisis funcional actual, propuesta de modelo de datos (base `policydb`, usuario `jarvis`) y el boceto de endpoints REST están documentados en [`backend/docs/system_overview.md`](backend/docs/system_overview.md).
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/b18ff73c-6ace-4153-a8a5-5bf4c32fbd22) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Todavía no se ha creado el proyecto Django ni la base de datos; esta etapa es únicamente de diseño y organización.
