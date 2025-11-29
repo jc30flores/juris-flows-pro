@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 
 const categoriaSchema = z.object({
   nombre: z.string().min(1, { message: "El nombre es requerido" }),
@@ -29,9 +30,10 @@ type CategoriaFormValues = z.infer<typeof categoriaSchema>;
 interface NuevaCategoriaModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCreated?: () => void | Promise<void>;
 }
 
-export function NuevaCategoriaModal({ open, onOpenChange }: NuevaCategoriaModalProps) {
+export function NuevaCategoriaModal({ open, onOpenChange, onCreated }: NuevaCategoriaModalProps) {
   const form = useForm<CategoriaFormValues>({
     resolver: zodResolver(categoriaSchema),
     defaultValues: {
@@ -39,11 +41,23 @@ export function NuevaCategoriaModal({ open, onOpenChange }: NuevaCategoriaModalP
     },
   });
 
-  const onSubmit = (data: CategoriaFormValues) => {
-    console.log("Nueva categoría:", data);
-    toast.success("Categoría creada exitosamente");
-    form.reset();
-    onOpenChange(false);
+  const onSubmit = async (data: CategoriaFormValues) => {
+    const payload = {
+      name: data.nombre.trim(),
+    };
+
+    try {
+      await api.post("/service-categories/", payload);
+      toast.success("Categoría creada exitosamente");
+      form.reset();
+      if (onCreated) {
+        await onCreated();
+      }
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Error al crear la categoría", error);
+      toast.error("No se pudo crear la categoría");
+    }
   };
 
   return (

@@ -204,6 +204,7 @@ export default function Servicios() {
       <NuevaCategoriaModal
         open={showCategoriaModal}
         onOpenChange={setShowCategoriaModal}
+        onCreated={fetchServices}
       />
     </div>
   );
