@@ -180,6 +180,7 @@ export default function Servicios() {
         open={showNuevoModal}
         onOpenChange={setShowNuevoModal}
         categories={categories}
+        services={services}
         onSubmit={async (payload) => {
           await handleCreateService(payload);
           setShowNuevoModal(false);

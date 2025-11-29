@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ClientPayload } from "@/types/client";
 
 const clienteSchemaBase = z.object({
@@ -32,8 +32,7 @@ const clienteSchemaBase = z.object({
     .max(200, "El nombre debe tener máximo 200 caracteres"),
   telefono: z
     .string()
-    .min(1, "El teléfono es requerido")
-    .regex(/^\d{4}-\d{4}$/, "El formato debe ser 0000-0000"),
+    .min(1, "El teléfono es requerido"),
   correo: z.string().email("El correo no es válido").optional().or(z.literal("")),
 });
 
@@ -49,14 +48,45 @@ const clienteCCFSchema = clienteSchemaBase.extend({
   nit: z
     .string()
     .min(1, "El NIT es requerido para CCF")
-    .regex(/^\d{4}-\d{6}-\d{3}-\d$/, "El formato debe ser 0000-000000-000-0"),
+    .regex(/^\d{1,14}$/, "Ingrese solo dígitos (máximo 14)"),
   nrc: z
     .string()
     .min(1, "El NRC es requerido para CCF")
-    .regex(/^\d{6,8}-?\d?$/, "El NRC debe tener entre 6 y 9 dígitos"),
+    .regex(/^\d{7,8}$/, "Ingrese 7 u 8 dígitos"),
 });
 
 const clienteSXSchema = clienteSchemaBase;
+
+const PHONE_LENGTHS: Record<string, number> = {
+  "+503": 8,
+  "+1": 10,
+};
+
+const getMaxPhoneDigits = (countryCode: string) => {
+  return PHONE_LENGTHS[countryCode] ?? 15;
+};
+
+const formatPhoneNumber = (countryCode: string, digits: string) => {
+  if (!digits) return "";
+
+  if (countryCode === "+503") {
+    const partA = digits.slice(0, 4);
+    const partB = digits.slice(4, 8);
+    return partB ? `${partA}-${partB}` : partA;
+  }
+
+  if (countryCode === "+1") {
+    const area = digits.slice(0, 3);
+    const first = digits.slice(3, 6);
+    const last = digits.slice(6, 10);
+
+    if (digits.length <= 3) return area ? `(${area}` : "";
+    if (digits.length <= 6) return `(${area}) ${first}`;
+    return `(${area}) ${first}-${last}`;
+  }
+
+  return digits;
+};
 
 interface NuevoClienteModalProps {
   open: boolean;
@@ -71,6 +101,8 @@ export function NuevoClienteModal({
 }: NuevoClienteModalProps) {
   const [tipoFiscal, setTipoFiscal] = useState<"CF" | "CCF" | "SX">("CF");
   const [submitting, setSubmitting] = useState(false);
+  const [countryCode, setCountryCode] = useState("+503");
+  const [phoneDigits, setPhoneDigits] = useState("");
 
   const getSchema = () => {
     switch (tipoFiscal) {
@@ -85,8 +117,10 @@ export function NuevoClienteModal({
     }
   };
 
+  const resolver = useMemo(() => zodResolver(getSchema()), [tipoFiscal]);
+
   const form = useForm<any>({
-    resolver: zodResolver(getSchema()),
+    resolver,
     defaultValues: {
       tipoFiscal: "CF",
       nombre: "",
@@ -98,6 +132,21 @@ export function NuevoClienteModal({
       correo: "",
     },
   });
+
+  const syncPhoneValue = (
+    digits: string,
+    currentCountryCode: string,
+    applyFormatting: boolean,
+  ) => {
+    const maxDigits = applyFormatting ? getMaxPhoneDigits(currentCountryCode) : 15;
+    const trimmed = digits.slice(0, maxDigits);
+    const formatted = applyFormatting
+      ? formatPhoneNumber(currentCountryCode, trimmed)
+      : trimmed;
+    const phoneValue = trimmed ? `${currentCountryCode} ${formatted}` : "";
+    setPhoneDigits(trimmed);
+    form.setValue("telefono", phoneValue, { shouldValidate: true });
+  };
 
   const handleSubmit = async (data: any) => {
     const payload: ClientPayload = {
@@ -118,6 +167,8 @@ export function NuevoClienteModal({
         description: "El cliente se ha creado exitosamente",
       });
       form.reset();
+      setPhoneDigits("");
+      setCountryCode("+503");
       onOpenChange(false);
     } catch (error) {
       console.error("Error al crear cliente", error);
@@ -139,13 +190,49 @@ export function NuevoClienteModal({
     form.setValue("nit", "");
     form.setValue("nrc", "");
     form.setValue("nombreComercial", "");
+    setPhoneDigits("");
+    setCountryCode("+503");
+    syncPhoneValue("", "+503", ["CF", "CCF"].includes(value));
+  };
+
+  const handleDuiChange = (value: string) => {
+    const digits = value.replace(/\D/g, "").slice(0, 9);
+    const formatted = digits.length > 8 ? `${digits.slice(0, 8)}-${digits.slice(8)}` : digits;
+    form.setValue("dui", formatted, { shouldValidate: true });
+  };
+
+  const handleNitChange = (value: string) => {
+    const digits = value.replace(/\D/g, "").slice(0, 14);
+    form.setValue("nit", digits, { shouldValidate: true });
+  };
+
+  const handleNrcChange = (value: string) => {
+    const digits = value.replace(/\D/g, "").slice(0, 8);
+    form.setValue("nrc", digits, { shouldValidate: true });
+  };
+
+  const handleCountryCodeChange = (value: string) => {
+    setCountryCode(value);
+    syncPhoneValue(
+      phoneDigits,
+      value,
+      ["CF", "CCF"].includes(tipoFiscal),
+    );
+  };
+
+  const handlePhoneChange = (value: string) => {
+    const rawDigits = value.replace(/\D/g, "");
+    const shouldFormat = ["CF", "CCF"].includes(tipoFiscal);
+    syncPhoneValue(rawDigits, countryCode, shouldFormat);
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Nuevo Cliente</DialogTitle>
+          <DialogTitle>
+            {tipoFiscal === "CCF" ? "Nuevo Contribuyente" : "Nuevo Cliente"}
+          </DialogTitle>
         </DialogHeader>
 
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
@@ -201,7 +288,8 @@ export function NuevoClienteModal({
                 <Input
                   id="dui"
                   placeholder="00000000-0"
-                  {...form.register("dui")}
+                  value={form.watch("dui") || ""}
+                  onChange={(event) => handleDuiChange(event.target.value)}
                 />
                 {form.formState.errors.dui && (
                   <p className="text-sm text-destructive">
@@ -217,8 +305,9 @@ export function NuevoClienteModal({
                   <Label htmlFor="nit">NIT</Label>
                   <Input
                     id="nit"
-                    placeholder="0000-000000-000-0"
-                    {...form.register("nit")}
+                    placeholder="00000000000000"
+                    value={form.watch("nit") || ""}
+                    onChange={(event) => handleNitChange(event.target.value)}
                   />
                   {form.formState.errors.nit && (
                     <p className="text-sm text-destructive">
@@ -232,7 +321,8 @@ export function NuevoClienteModal({
                   <Input
                     id="nrc"
                     placeholder="000000-0"
-                    {...form.register("nrc")}
+                    value={form.watch("nrc") || ""}
+                    onChange={(event) => handleNrcChange(event.target.value)}
                   />
                   {form.formState.errors.nrc && (
                     <p className="text-sm text-destructive">
@@ -245,11 +335,35 @@ export function NuevoClienteModal({
 
             <div className="space-y-2">
               <Label htmlFor="telefono">Teléfono</Label>
-              <Input
-                id="telefono"
-                placeholder="0000-0000"
-                {...form.register("telefono")}
-              />
+              <div className="flex gap-2">
+                <Select value={countryCode} onValueChange={handleCountryCodeChange}>
+                  <SelectTrigger className="w-[110px]">
+                    <SelectValue placeholder="Código" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="+503">+503</SelectItem>
+                    <SelectItem value="+1">+1</SelectItem>
+                    <SelectItem value="+52">+52</SelectItem>
+                    <SelectItem value="+34">+34</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  id="telefono"
+                  placeholder={
+                    countryCode === "+503"
+                      ? "0000-0000"
+                      : countryCode === "+1"
+                        ? "(000) 000-0000"
+                        : "Número"
+                  }
+                  value={
+                    ["CF", "CCF"].includes(tipoFiscal)
+                      ? formatPhoneNumber(countryCode, phoneDigits)
+                      : phoneDigits
+                  }
+                  onChange={(event) => handlePhoneChange(event.target.value)}
+                />
+              </div>
               {form.formState.errors.telefono && (
                 <p className="text-sm text-destructive">
                   {form.formState.errors.telefono.message as string}

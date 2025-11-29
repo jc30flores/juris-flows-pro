@@ -26,8 +26,9 @@ import { Service, ServiceCategory } from "@/types/service";
 const servicioSchema = z.object({
   code: z
     .string()
-    .min(1, "El código es requerido")
-    .max(20, "El código debe tener máximo 20 caracteres"),
+    .max(20, "El código debe tener máximo 20 caracteres")
+    .optional()
+    .or(z.literal("")),
   name: z
     .string()
     .min(1, "El nombre es requerido")
@@ -46,6 +47,7 @@ interface NuevoServicioModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   categories: ServiceCategory[];
+  services: Service[];
   onSubmit: (payload: Omit<Service, "id" | "category"> & { category: number }) =>
     Promise<void>;
 }
@@ -54,6 +56,7 @@ export function NuevoServicioModal({
   open,
   onOpenChange,
   categories,
+  services,
   onSubmit,
 }: NuevoServicioModalProps) {
   const [submitting, setSubmitting] = useState(false);
@@ -68,12 +71,44 @@ export function NuevoServicioModal({
     },
   });
 
+  const generateCode = () => {
+    const existingCodes = services
+      .map((service) => service.code.trim().toUpperCase())
+      .filter(Boolean);
+
+    let counter = 1;
+    // Incrementa hasta encontrar un correlativo libre
+    while (true) {
+      const candidate = `SRV-${String(counter).padStart(3, "0")}`;
+      if (!existingCodes.includes(candidate)) {
+        return candidate;
+      }
+      counter++;
+    }
+  };
+
   const handleSubmit = async (data: z.infer<typeof servicioSchema>) => {
     setSubmitting(true);
+    const normalizedInputCode = data.code?.trim().toUpperCase() || "";
+    const existingCodes = services
+      .map((service) => service.code.trim().toUpperCase())
+      .filter(Boolean);
+
+    if (normalizedInputCode && existingCodes.includes(normalizedInputCode)) {
+      setSubmitting(false);
+      toast({
+        title: "Código duplicado",
+        description: "Ya existe un servicio con ese código.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const codeToUse = normalizedInputCode || generateCode();
     try {
       await onSubmit({
-        code: data.code,
-        name: data.name,
+        code: codeToUse,
+        name: data.name.toUpperCase(),
         category: Number(data.category),
         base_price: Number(data.base_price),
         active: data.activo,
@@ -125,7 +160,10 @@ export function NuevoServicioModal({
             <Input
               id="nombre"
               placeholder="Compra Venta de Vehículos"
-              {...form.register("name")}
+              {...form.register("name", {
+                onChange: (event) =>
+                  form.setValue("name", event.target.value.toUpperCase()),
+              })}
             />
             {form.formState.errors.name && (
               <p className="text-sm text-destructive">
