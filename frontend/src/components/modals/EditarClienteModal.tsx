@@ -26,7 +26,8 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { toast } from "@/hooks/use-toast";
+import { Client, ClientPayload } from "@/types/client";
 
 const clienteSchemaBase = z.object({
   nombre: z.string().min(1, "El nombre es requerido"),
@@ -44,15 +45,21 @@ const clienteSchemaBase = z.object({
 interface EditarClienteModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  cliente: any;
+  cliente: Client | null;
+  onSubmit: (payload: Partial<ClientPayload>) => Promise<void>;
+  onDelete: () => Promise<void>;
 }
 
 export function EditarClienteModal({
   open,
   onOpenChange,
   cliente,
+  onSubmit,
+  onDelete,
 }: EditarClienteModalProps) {
   const [tipoFiscal, setTipoFiscal] = useState<"CF" | "CCF" | "SX">("CF");
+  const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const form = useForm<z.infer<typeof clienteSchemaBase>>({
     resolver: zodResolver(clienteSchemaBase),
@@ -72,14 +79,14 @@ export function EditarClienteModal({
 
   useEffect(() => {
     if (cliente && open) {
-      setTipoFiscal(cliente.tipoFiscal);
+      setTipoFiscal(cliente.client_type);
       form.reset({
-        nombre: cliente.nombre || "",
-        telefono: cliente.telefono || "",
-        correo: cliente.correo || "",
-        tipoFiscal: cliente.tipoFiscal || "CF",
+        nombre: cliente.full_name || "",
+        telefono: cliente.phone || "",
+        correo: cliente.email || "",
+        tipoFiscal: cliente.client_type || "CF",
         dui: cliente.dui || "",
-        nombreComercial: cliente.nombreComercial || "",
+        nombreComercial: cliente.company_name || "",
         nit: cliente.nit || "",
         nrc: cliente.nrc || "",
         giro: cliente.giro || "",
@@ -88,11 +95,60 @@ export function EditarClienteModal({
     }
   }, [cliente, open, form]);
 
-  const onSubmit = (values: z.infer<typeof clienteSchemaBase>) => {
-    console.log(values);
-    toast.success("Cliente actualizado exitosamente");
-    form.reset();
-    onOpenChange(false);
+  const handleSubmit = async (values: z.infer<typeof clienteSchemaBase>) => {
+    const payload: Partial<ClientPayload> = {
+      full_name: values.nombre,
+      company_name: values.nombreComercial || undefined,
+      client_type: values.tipoFiscal,
+      dui: values.dui || undefined,
+      nit: values.nit || undefined,
+      phone: values.telefono || undefined,
+      email: values.correo || undefined,
+    };
+
+    try {
+      setSubmitting(true);
+      await onSubmit(payload);
+      toast({
+        title: "Cliente actualizado",
+        description: "La información del cliente se guardó correctamente",
+      });
+      form.reset();
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Error al actualizar cliente", error);
+      toast({
+        title: "Error al actualizar",
+        description: "No se pudo actualizar el cliente. Intenta de nuevo.",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!cliente) return;
+    if (!window.confirm("¿Eliminar este cliente?")) return;
+
+    try {
+      setDeleting(true);
+      await onDelete();
+      toast({
+        title: "Cliente eliminado",
+        description: "El cliente se eliminó correctamente",
+      });
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Error al eliminar cliente", error);
+      toast({
+        title: "Error al eliminar",
+        description: "No se pudo eliminar el cliente. Intenta de nuevo.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleTipoFiscalChange = (value: string) => {
@@ -126,7 +182,7 @@ export function EditarClienteModal({
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
             <FormField
               control={form.control}
               name="tipoFiscal"
@@ -299,8 +355,17 @@ export function EditarClienteModal({
               >
                 Cancelar
               </Button>
-              <Button type="submit" className="flex-1">
-                Guardar Cambios
+              <Button
+                type="button"
+                variant="destructive"
+                className="flex-1"
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting ? "Eliminando..." : "Eliminar"}
+              </Button>
+              <Button type="submit" className="flex-1" disabled={submitting}>
+                {submitting ? "Guardando..." : "Guardar Cambios"}
               </Button>
             </div>
           </form>

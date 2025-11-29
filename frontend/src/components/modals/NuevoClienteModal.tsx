@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { useState } from "react";
+import { ClientPayload } from "@/types/client";
 
 const clienteSchemaBase = z.object({
   tipoFiscal: z.enum(["CF", "CCF", "SX"], {
@@ -60,13 +61,16 @@ const clienteSXSchema = clienteSchemaBase;
 interface NuevoClienteModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSubmit: (payload: ClientPayload) => Promise<void>;
 }
 
 export function NuevoClienteModal({
   open,
   onOpenChange,
+  onSubmit,
 }: NuevoClienteModalProps) {
   const [tipoFiscal, setTipoFiscal] = useState<"CF" | "CCF" | "SX">("CF");
+  const [submitting, setSubmitting] = useState(false);
 
   const getSchema = () => {
     switch (tipoFiscal) {
@@ -95,16 +99,36 @@ export function NuevoClienteModal({
     },
   });
 
-  const onSubmit = (data: any) => {
-    console.log(data);
+  const handleSubmit = async (data: any) => {
+    const payload: ClientPayload = {
+      full_name: data.nombre,
+      company_name: data.nombreComercial || undefined,
+      client_type: data.tipoFiscal,
+      dui: data.dui || undefined,
+      nit: data.nit || undefined,
+      phone: data.telefono || undefined,
+      email: data.correo || undefined,
+    };
 
-    toast({
-      title: "Cliente creado",
-      description: "El cliente se ha creado exitosamente",
-    });
-
-    form.reset();
-    onOpenChange(false);
+    try {
+      setSubmitting(true);
+      await onSubmit(payload);
+      toast({
+        title: "Cliente creado",
+        description: "El cliente se ha creado exitosamente",
+      });
+      form.reset();
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Error al crear cliente", error);
+      toast({
+        title: "Error al crear cliente",
+        description: "No se pudo guardar el cliente. Intenta de nuevo.",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleTipoFiscalChange = (value: "CF" | "CCF" | "SX") => {
@@ -124,7 +148,7 @@ export function NuevoClienteModal({
           <DialogTitle>Nuevo Cliente</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="tipoFiscal">Tipo Fiscal</Label>
             <Select value={tipoFiscal} onValueChange={handleTipoFiscalChange}>
@@ -257,7 +281,9 @@ export function NuevoClienteModal({
             >
               Cancelar
             </Button>
-            <Button type="submit">Crear Cliente</Button>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? "Guardando..." : "Crear Cliente"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
