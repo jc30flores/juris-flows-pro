@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -13,7 +14,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
+import { ExpensePayload } from "@/types/expense";
 
 const gastoSchema = z.object({
   nombre: z
@@ -41,15 +42,20 @@ const gastoSchema = z.object({
     .refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
       message: "El monto debe ser mayor a 0",
     }),
-  descripcion: z.string().optional(),
 });
 
 interface NuevoGastoModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSubmit: (payload: ExpensePayload) => Promise<void>;
 }
 
-export function NuevoGastoModal({ open, onOpenChange }: NuevoGastoModalProps) {
+export function NuevoGastoModal({
+  open,
+  onOpenChange,
+  onSubmit,
+}: NuevoGastoModalProps) {
+  const [submitting, setSubmitting] = useState(false);
   const form = useForm<z.infer<typeof gastoSchema>>({
     resolver: zodResolver(gastoSchema),
     defaultValues: {
@@ -57,24 +63,38 @@ export function NuevoGastoModal({ open, onOpenChange }: NuevoGastoModalProps) {
       proveedor: "",
       fecha: new Date(),
       total: "",
-      descripcion: "",
     },
   });
 
-  const onSubmit = (data: z.infer<typeof gastoSchema>) => {
-    console.log({
-      ...data,
-      total: Number(data.total),
-      fecha: format(data.fecha, "yyyy-MM-dd"),
-    });
+  const handleSubmit = async (data: z.infer<typeof gastoSchema>) => {
+    setSubmitting(true);
+    try {
+      const payload: ExpensePayload = {
+        name: data.nombre,
+        provider: data.proveedor,
+        date: format(data.fecha, "yyyy-MM-dd"),
+        total: Number(data.total),
+      };
 
-    toast({
-      title: "Gasto registrado",
-      description: "El gasto se ha registrado exitosamente",
-    });
+      await onSubmit(payload);
 
-    form.reset();
-    onOpenChange(false);
+      toast({
+        title: "Gasto registrado",
+        description: "El gasto se ha registrado exitosamente",
+      });
+
+      form.reset();
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Error al registrar gasto", error);
+      toast({
+        title: "Error",
+        description: "No se pudo registrar el gasto. Inténtalo nuevamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -84,7 +104,7 @@ export function NuevoGastoModal({ open, onOpenChange }: NuevoGastoModalProps) {
           <DialogTitle>Nuevo Gasto</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="nombre">Nombre del Gasto</Label>
             <Input
@@ -171,16 +191,6 @@ export function NuevoGastoModal({ open, onOpenChange }: NuevoGastoModalProps) {
             )}
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="descripcion">Descripción (Opcional)</Label>
-            <Textarea
-              id="descripcion"
-              placeholder="Detalles adicionales del gasto..."
-              rows={3}
-              {...form.register("descripcion")}
-            />
-          </div>
-
           <DialogFooter className="gap-2">
             <Button
               type="button"
@@ -189,7 +199,9 @@ export function NuevoGastoModal({ open, onOpenChange }: NuevoGastoModalProps) {
             >
               Cancelar
             </Button>
-            <Button type="submit">Registrar Gasto</Button>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? "Guardando..." : "Registrar Gasto"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

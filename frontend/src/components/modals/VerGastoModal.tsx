@@ -6,11 +6,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Expense } from "@/types/expense";
 
 interface VerGastoModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  gasto: any;
+  gasto: Expense | null;
 }
 
 export function VerGastoModal({
@@ -33,33 +34,26 @@ export function VerGastoModal({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-sm text-muted-foreground mb-1">Nombre</p>
-              <p className="font-medium">{gasto.nombre}</p>
+              <p className="font-medium">{gasto.name}</p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground mb-1">Proveedor</p>
-              <p className="font-medium">{gasto.proveedor}</p>
+              <p className="font-medium">{gasto.provider}</p>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-sm text-muted-foreground mb-1">Fecha</p>
-              <p className="font-medium">{gasto.fecha}</p>
+              <p className="font-medium">{gasto.date}</p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground mb-1">Total</p>
               <p className="font-bold text-lg text-primary">
-                ${gasto.total.toFixed(2)}
+                ${Number(gasto.total).toFixed(2)}
               </p>
             </div>
           </div>
-
-          {gasto.descripcion && (
-            <div>
-              <p className="text-sm text-muted-foreground mb-1">Descripción</p>
-              <p className="font-medium">{gasto.descripcion}</p>
-            </div>
-          )}
 
           <div className="flex justify-end pt-4">
             <Button onClick={() => onOpenChange(false)}>Cerrar</Button>
