@@ -26,6 +26,13 @@ python manage.py migrate
 python manage.py runserver
 ```
 
+Tras actualizar los modelos de la app `api`, recuerda ejecutar:
+
+```bash
+python manage.py makemigrations api
+python manage.py migrate
+```
+
 El backend expone un endpoint básico de salud en `/api/health/` que responde `{"status": "ok"}`.
 
 ## Documentación del sistema
