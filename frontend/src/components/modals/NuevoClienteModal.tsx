@@ -121,6 +121,8 @@ export function NuevoClienteModal({
   const [municipalityCode, setMunicipalityCode] = useState("");
   const [activityCode, setActivityCode] = useState("");
   const [activitySearch, setActivitySearch] = useState("");
+  const [departmentSearch, setDepartmentSearch] = useState("");
+  const [municipalitySearch, setMunicipalitySearch] = useState("");
   const [openDept, setOpenDept] = useState(false);
   const [openMunicipality, setOpenMunicipality] = useState(false);
   const [openActivity, setOpenActivity] = useState(false);
@@ -155,11 +157,18 @@ export function NuevoClienteModal({
   });
 
   const municipalitiesByDept = useMemo(
-    () =>
-      getMunicipalitiesByDept(departmentCode).sort((a, b) =>
+    () => {
+      const list = getMunicipalitiesByDept(departmentCode).sort((a, b) =>
         a.name.localeCompare(b.name),
-      ),
-    [departmentCode, getMunicipalitiesByDept],
+      );
+      const term = municipalitySearch.toLowerCase();
+      if (!term) return list;
+
+      return list.filter((municipality) =>
+        municipality.name.toLowerCase().includes(term),
+      );
+    },
+    [departmentCode, getMunicipalitiesByDept, municipalitySearch],
   );
 
   const selectedDepartment = useMemo(
@@ -188,6 +197,19 @@ export function NuevoClienteModal({
         activity.code.toLowerCase().includes(term),
     );
   }, [activitySearch, activities]);
+
+  const filteredDepartments = useMemo(() => {
+    const term = departmentSearch.toLowerCase();
+    const sorted = [...departments].sort((a, b) => a.name.localeCompare(b.name));
+
+    if (!term) return sorted;
+
+    return sorted.filter(
+      (dept) =>
+        dept.name.toLowerCase().includes(term) ||
+        dept.code.toLowerCase().includes(term),
+    );
+  }, [departmentSearch, departments]);
 
   const syncPhoneValue = (
     digits: string,
@@ -418,11 +440,15 @@ export function NuevoClienteModal({
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[320px] p-0">
-                  <Command>
-                    <CommandInput placeholder="Buscar departamento" />
+                  <Command className="max-h-72">
+                    <CommandInput
+                      placeholder="Buscar departamento..."
+                      value={departmentSearch}
+                      onValueChange={setDepartmentSearch}
+                    />
                     <CommandEmpty>Sin resultados</CommandEmpty>
-                    <CommandGroup>
-                      {departments.map((dept) => (
+                    <CommandGroup className="max-h-60 overflow-y-auto">
+                      {filteredDepartments.slice(0, 7).map((dept) => (
                         <CommandItem
                           key={dept.code}
                           value={`${dept.code}-${dept.name}`}
@@ -430,6 +456,8 @@ export function NuevoClienteModal({
                             setDepartmentCode(dept.code);
                             setMunicipalityCode("");
                             setOpenDept(false);
+                            setMunicipalitySearch("");
+                            setDepartmentSearch("");
                           }}
                         >
                           {dept.name}
@@ -461,10 +489,14 @@ export function NuevoClienteModal({
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[320px] p-0">
-                  <Command>
-                    <CommandInput placeholder="Buscar municipio" />
+                  <Command className="max-h-72">
+                    <CommandInput
+                      placeholder="Buscar municipio..."
+                      value={municipalitySearch}
+                      onValueChange={setMunicipalitySearch}
+                    />
                     <CommandEmpty>Sin resultados</CommandEmpty>
-                    <CommandGroup>
+                    <CommandGroup className="max-h-60 overflow-y-auto">
                       {municipalitiesByDept.map((municipality) => (
                         <CommandItem
                           key={municipality.id}
@@ -472,6 +504,7 @@ export function NuevoClienteModal({
                           onSelect={() => {
                             setMunicipalityCode(municipality.muni_code);
                             setOpenMunicipality(false);
+                            setMunicipalitySearch("");
                           }}
                         >
                           {municipality.name}
@@ -503,21 +536,22 @@ export function NuevoClienteModal({
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-[420px] p-0">
-                    <Command>
+                    <Command className="max-h-72">
                       <CommandInput
-                        placeholder="Buscar actividad"
+                        placeholder="Buscar actividad..."
                         value={activitySearch}
                         onValueChange={setActivitySearch}
                       />
                       <CommandEmpty>Sin resultados</CommandEmpty>
-                      <CommandGroup>
-                        {filteredActivities.map((activity) => (
+                      <CommandGroup className="max-h-60 overflow-y-auto">
+                        {filteredActivities.slice(0, 7).map((activity) => (
                           <CommandItem
                             key={activity.code}
                             value={`${activity.code}-${activity.description}`}
                             onSelect={() => {
                               setActivityCode(activity.code);
                               setOpenActivity(false);
+                              setActivitySearch("");
                             }}
                           >
                             {activity.description} ({activity.code})
