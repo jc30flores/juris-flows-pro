@@ -34,11 +34,19 @@ export interface InvoiceItemPayload {
   subtotal: number;
 }
 
+export interface SelectedServicePayload {
+  serviceId: number;
+  name: string;
+  price: number;
+  quantity: number;
+  subtotal: number;
+}
+
 export interface InvoicePayload {
   date: string;
   client: number;
   doc_type: InvoiceDocType;
   payment_method: PaymentMethod;
   total: number;
-  items: InvoiceItemPayload[];
+  services: SelectedServicePayload[];
 }

@@ -23,7 +23,13 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { Client } from "@/types/client";
 import { Service } from "@/types/service";
-import { Invoice, InvoicePayload, InvoiceDocType, PaymentMethod } from "@/types/invoice";
+import {
+  Invoice,
+  InvoicePayload,
+  InvoiceDocType,
+  PaymentMethod,
+  SelectedServicePayload,
+} from "@/types/invoice";
 
 const facturaSchema = z.object({
   date: z.string().min(1, "Debe seleccionar una fecha"),
@@ -51,6 +57,7 @@ interface ServicioSeleccionado {
   nombre: string;
   precio: number;
   cantidad: number;
+  subtotal: number;
 }
 
 export function NuevaFacturaModal({
@@ -84,7 +91,10 @@ export function NuevaFacturaModal({
 
       if (indexExistente !== -1) {
         const actualizados = [...prev];
-        actualizados[indexExistente].cantidad += 1;
+        const cantidad = actualizados[indexExistente].cantidad + 1;
+        actualizados[indexExistente].cantidad = cantidad;
+        actualizados[indexExistente].subtotal =
+          Number(actualizados[indexExistente].precio) * cantidad;
         return actualizados;
       }
 
@@ -95,6 +105,7 @@ export function NuevaFacturaModal({
           nombre: servicio.name,
           precio: Number(servicio.base_price),
           cantidad: 1,
+          subtotal: Number(servicio.base_price),
         },
       ];
     });
@@ -102,18 +113,29 @@ export function NuevaFacturaModal({
   };
 
   const eliminarServicio = (index: number) => {
-    setServiciosSeleccionados(serviciosSeleccionados.filter((_, i) => i !== index));
+    setServiciosSeleccionados((prev) => prev.filter((_, i) => i !== index));
   };
 
   const actualizarCantidad = (index: number, cantidad: number) => {
-    const nuevosServicios = [...serviciosSeleccionados];
-    nuevosServicios[index].cantidad = cantidad;
-    setServiciosSeleccionados(nuevosServicios);
+    setServiciosSeleccionados((prev) => {
+      const nuevosServicios = [...prev];
+      if (!nuevosServicios[index]) return prev;
+
+      const cantidadActualizada = Math.max(1, cantidad);
+      nuevosServicios[index] = {
+        ...nuevosServicios[index],
+        cantidad: cantidadActualizada,
+        subtotal: Number(
+          (nuevosServicios[index].precio * cantidadActualizada).toFixed(2),
+        ),
+      };
+      return nuevosServicios;
+    });
   };
 
   const calcularSubtotal = () => {
     return serviciosSeleccionados.reduce(
-      (acc, s) => acc + s.precio * s.cantidad,
+      (acc, s) => acc + s.subtotal,
       0
     );
   };
@@ -137,12 +159,15 @@ export function NuevaFacturaModal({
       return;
     }
 
-    const itemsPayload = serviciosSeleccionados.map((item) => ({
-      service: item.serviceId,
-      quantity: item.cantidad,
-      unit_price: item.precio,
-      subtotal: Number((item.precio * item.cantidad).toFixed(2)),
-    }));
+    const servicesPayload: SelectedServicePayload[] = serviciosSeleccionados.map(
+      (item) => ({
+        serviceId: item.serviceId,
+        name: item.nombre,
+        price: item.precio,
+        quantity: item.cantidad,
+        subtotal: Number((item.precio * item.cantidad).toFixed(2)),
+      }),
+    );
 
     const payload: InvoicePayload = {
       date: data.date,
@@ -150,7 +175,7 @@ export function NuevaFacturaModal({
       doc_type: data.tipoDTE as InvoiceDocType,
       payment_method: data.metodoPago as PaymentMethod,
       total: Number(calcularTotal().toFixed(2)),
-      items: itemsPayload,
+      services: servicesPayload,
     };
 
     try {
@@ -223,6 +248,8 @@ export function NuevaFacturaModal({
             nombre: service?.name || `Servicio ${item.service}`,
             precio: Number(item.unit_price),
             cantidad: item.quantity,
+            subtotal: Number(item.subtotal) ||
+              Number((Number(item.unit_price) * item.quantity).toFixed(2)),
           };
         }),
       );
@@ -448,7 +475,7 @@ export function NuevaFacturaModal({
                                 </div>
                               </td>
                               <td className="px-3 py-3 text-right text-sm font-medium whitespace-nowrap">
-                                ${(servicio.precio * servicio.cantidad).toFixed(2)}
+                                {servicio.subtotal.toFixed(2)}
                               </td>
                               <td className="px-3 py-3 text-center">
                                 <Button
@@ -526,7 +553,7 @@ export function NuevaFacturaModal({
                             </Button>
                           </div>
                           <span className="ml-auto font-medium">
-                            Subtotal: ${(servicio.precio * servicio.cantidad).toFixed(2)}
+                            Subtotal: {servicio.subtotal.toFixed(2)}
                           </span>
                         </div>
                       </div>
