@@ -42,6 +42,16 @@ import {
   CommandItem,
 } from "@/components/ui/command";
 
+const normalizeText = (value: string): string => {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
 const clienteSchemaBase = z.object({
   nombre: z.string().min(1, "El nombre es requerido"),
   telefono: z.string().min(1, "El teléfono es requerido"),
@@ -122,23 +132,16 @@ export function EditarClienteModal({
     [activities, activityCode],
   );
 
-  const normalizeText = (value: string): string =>
-    value
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9\s]/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-
   const filteredActivities = useMemo(() => {
-    const query = normalizeText(activitySearch || "");
-    if (!query) return activities;
+    const searchQuery = normalizeText(activitySearch || "");
 
-    return activities.filter((activity) => {
+    const filteredActivities = activities.filter((activity) => {
       const target = normalizeText(`${activity.description} ${activity.code}`);
-      return target.includes(query);
+      if (!searchQuery) return true;
+      return target.includes(searchQuery);
     });
+
+    return filteredActivities;
   }, [activitySearch, activities]);
 
   const visibleActivities = useMemo(
