@@ -31,10 +31,22 @@ import {
   Command,
   CommandEmpty,
   CommandGroup,
+  CommandList,
   CommandInput,
   CommandItem,
 } from "@/components/ui/command";
-import { normalizeText } from "@/lib/text-utils";
+
+const normalizeText = (value: string): string => {
+  if (!value) return "";
+  return value
+    .toString()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
 
 const clienteSchemaBase = z.object({
   tipoFiscal: z.enum(["CF", "CCF", "SX"], {
@@ -186,28 +198,6 @@ export function NuevoClienteModal({
   const selectedActivity = useMemo(
     () => activities.find((activity) => activity.code === activityCode),
     [activities, activityCode],
-  );
-
-  const filteredActivities = useMemo(() => {
-    const search = normalizeText(activitySearch || "");
-
-    const filtered = activities.filter((activity) => {
-      const base = `${activity.description ?? ""} ${activity.code ?? ""}`;
-      const normalizedBase = normalizeText(base);
-
-      if (!search) {
-        return true;
-      }
-
-      return normalizedBase.includes(search);
-    });
-
-    return filtered;
-  }, [activitySearch, activities]);
-
-  const visibleActivities = useMemo(
-    () => filteredActivities.slice(0, 7),
-    [filteredActivities],
   );
 
   const filteredDepartments = useMemo(() => {
@@ -548,28 +538,38 @@ export function NuevoClienteModal({
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-[420px] p-0">
-                    <Command className="max-h-72">
+                    <Command
+                      className="max-h-72"
+                      filter={(value, search) => {
+                        const normalizedValue = normalizeText(value);
+                        const normalizedSearch = normalizeText(search);
+                        if (!normalizedSearch) return 1;
+                        return normalizedValue.includes(normalizedSearch) ? 1 : 0;
+                      }}
+                    >
                       <CommandInput
                         placeholder="Buscar actividad..."
                         value={activitySearch}
                         onValueChange={setActivitySearch}
                       />
                       <CommandEmpty>Sin resultados</CommandEmpty>
-                      <CommandGroup className="max-h-60 overflow-y-auto">
-                        {visibleActivities.map((activity) => (
-                          <CommandItem
-                            key={activity.code}
-                            value={`${activity.code}-${activity.description}`}
-                            onSelect={() => {
-                              setActivityCode(activity.code);
-                              setOpenActivity(false);
-                              setActivitySearch("");
-                            }}
-                          >
-                            {activity.description} ({activity.code})
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
+                      <CommandList className="max-h-60 overflow-y-auto">
+                        <CommandGroup>
+                          {activities.map((activity) => (
+                            <CommandItem
+                              key={activity.code}
+                              value={`${activity.description} ${activity.code}`}
+                              onSelect={() => {
+                                setActivityCode(activity.code);
+                                setOpenActivity(false);
+                                setActivitySearch("");
+                              }}
+                            >
+                              {activity.description} ({activity.code})
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
                     </Command>
                   </PopoverContent>
                 </Popover>
