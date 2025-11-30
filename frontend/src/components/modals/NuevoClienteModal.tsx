@@ -21,6 +21,19 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { useMemo, useState } from "react";
 import { ClientPayload } from "@/types/client";
+import { useGeoData } from "@/hooks/useGeoData";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+} from "@/components/ui/command";
 
 const clienteSchemaBase = z.object({
   tipoFiscal: z.enum(["CF", "CCF", "SX"], {
@@ -103,6 +116,14 @@ export function NuevoClienteModal({
   const [submitting, setSubmitting] = useState(false);
   const [countryCode, setCountryCode] = useState("+503");
   const [phoneDigits, setPhoneDigits] = useState("");
+  const { departments, getMunicipalitiesByDept, activities, loading } = useGeoData();
+  const [departmentCode, setDepartmentCode] = useState("");
+  const [municipalityCode, setMunicipalityCode] = useState("");
+  const [activityCode, setActivityCode] = useState("");
+  const [activitySearch, setActivitySearch] = useState("");
+  const [openDept, setOpenDept] = useState(false);
+  const [openMunicipality, setOpenMunicipality] = useState(false);
+  const [openActivity, setOpenActivity] = useState(false);
 
   const getSchema = () => {
     switch (tipoFiscal) {
@@ -133,6 +154,41 @@ export function NuevoClienteModal({
     },
   });
 
+  const municipalitiesByDept = useMemo(
+    () =>
+      getMunicipalitiesByDept(departmentCode).sort((a, b) =>
+        a.name.localeCompare(b.name),
+      ),
+    [departmentCode, getMunicipalitiesByDept],
+  );
+
+  const selectedDepartment = useMemo(
+    () => departments.find((dept) => dept.code === departmentCode),
+    [departments, departmentCode],
+  );
+
+  const selectedMunicipality = useMemo(
+    () =>
+      municipalitiesByDept.find((municipality) => municipality.muni_code === municipalityCode),
+    [municipalitiesByDept, municipalityCode],
+  );
+
+  const selectedActivity = useMemo(
+    () => activities.find((activity) => activity.code === activityCode),
+    [activities, activityCode],
+  );
+
+  const filteredActivities = useMemo(() => {
+    const term = activitySearch.toLowerCase();
+    if (!term) return activities;
+
+    return activities.filter(
+      (activity) =>
+        activity.description.toLowerCase().includes(term) ||
+        activity.code.toLowerCase().includes(term),
+    );
+  }, [activitySearch, activities]);
+
   const syncPhoneValue = (
     digits: string,
     currentCountryCode: string,
@@ -157,6 +213,12 @@ export function NuevoClienteModal({
       nit: data.nit || undefined,
       phone: data.telefono || undefined,
       email: data.correo || undefined,
+      department_code: departmentCode || null,
+      municipality_code: municipalityCode || null,
+      activity_code:
+        ["CCF", "SX"].includes(data.tipoFiscal) && activityCode
+          ? activityCode
+          : null,
     };
 
     try {
@@ -169,6 +231,10 @@ export function NuevoClienteModal({
       form.reset();
       setPhoneDigits("");
       setCountryCode("+503");
+      setDepartmentCode("");
+      setMunicipalityCode("");
+      setActivityCode("");
+      setActivitySearch("");
       onOpenChange(false);
     } catch (error) {
       console.error("Error al crear cliente", error);
@@ -190,6 +256,9 @@ export function NuevoClienteModal({
     form.setValue("nit", "");
     form.setValue("nrc", "");
     form.setValue("nombreComercial", "");
+    if (value === "CF") {
+      setActivityCode("");
+    }
     setPhoneDigits("");
     setCountryCode("+503");
     syncPhoneValue("", "+503", ["CF", "CCF"].includes(value));
@@ -331,6 +400,134 @@ export function NuevoClienteModal({
                   )}
                 </div>
               </>
+            )}
+
+            <div className="space-y-2">
+              <Label>Departamento</Label>
+              <Popover open={openDept} onOpenChange={setOpenDept}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between"
+                    disabled={loading}
+                  >
+                    {selectedDepartment?.name ||
+                      (loading ? "Cargando..." : "Selecciona un departamento")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[320px] p-0">
+                  <Command>
+                    <CommandInput placeholder="Buscar departamento" />
+                    <CommandEmpty>Sin resultados</CommandEmpty>
+                    <CommandGroup>
+                      {departments.map((dept) => (
+                        <CommandItem
+                          key={dept.code}
+                          value={`${dept.code}-${dept.name}`}
+                          onSelect={() => {
+                            setDepartmentCode(dept.code);
+                            setMunicipalityCode("");
+                            setOpenDept(false);
+                          }}
+                        >
+                          {dept.name}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Municipio</Label>
+              <Popover open={openMunicipality} onOpenChange={setOpenMunicipality}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between"
+                    disabled={!departmentCode || loading}
+                  >
+                    {selectedMunicipality?.name ||
+                      (!departmentCode
+                        ? "Selecciona un departamento"
+                        : loading
+                          ? "Cargando..."
+                          : "Selecciona un municipio")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[320px] p-0">
+                  <Command>
+                    <CommandInput placeholder="Buscar municipio" />
+                    <CommandEmpty>Sin resultados</CommandEmpty>
+                    <CommandGroup>
+                      {municipalitiesByDept.map((municipality) => (
+                        <CommandItem
+                          key={municipality.id}
+                          value={`${municipality.muni_code}-${municipality.name}`}
+                          onSelect={() => {
+                            setMunicipalityCode(municipality.muni_code);
+                            setOpenMunicipality(false);
+                          }}
+                        >
+                          {municipality.name}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {["CCF", "SX"].includes(tipoFiscal) && (
+              <div className="space-y-2 md:col-span-2">
+                <Label>Giro o descripción de actividad</Label>
+                <Popover open={openActivity} onOpenChange={setOpenActivity}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      role="combobox"
+                      className="w-full justify-between"
+                      disabled={loading}
+                    >
+                      {selectedActivity
+                        ? `${selectedActivity.description} (${selectedActivity.code})`
+                        : loading
+                          ? "Cargando..."
+                          : "Selecciona una actividad"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[420px] p-0">
+                    <Command>
+                      <CommandInput
+                        placeholder="Buscar actividad"
+                        value={activitySearch}
+                        onValueChange={setActivitySearch}
+                      />
+                      <CommandEmpty>Sin resultados</CommandEmpty>
+                      <CommandGroup>
+                        {filteredActivities.map((activity) => (
+                          <CommandItem
+                            key={activity.code}
+                            value={`${activity.code}-${activity.description}`}
+                            onSelect={() => {
+                              setActivityCode(activity.code);
+                              setOpenActivity(false);
+                            }}
+                          >
+                            {activity.description} ({activity.code})
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
             )}
 
             <div className="space-y-2">

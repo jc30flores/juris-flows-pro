@@ -40,6 +40,9 @@ class Client(models.Model):
     nit = models.CharField(max_length=25, blank=True)
     phone = models.CharField(max_length=30, blank=True)
     email = models.EmailField(blank=True)
+    department_code = models.CharField(max_length=4, blank=True, null=True)
+    municipality_code = models.CharField(max_length=4, blank=True, null=True)
+    activity_code = models.CharField(max_length=10, blank=True, null=True)
 
     def __str__(self) -> str:
         return self.company_name or self.full_name
@@ -130,3 +133,53 @@ class StaffUser(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name} ({self.role})"
+
+
+class GeoDepartment(models.Model):
+    code = models.CharField(max_length=2, primary_key=True)
+    name = models.TextField()
+    normalized = models.TextField()
+    updated_at = models.DateTimeField()
+    version = models.IntegerField()
+
+    class Meta:
+        db_table = "geo_departments"
+        managed = False
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class GeoMunicipality(models.Model):
+    id = models.IntegerField(primary_key=True)
+    dept_code = models.CharField(max_length=4)
+    muni_code = models.CharField(max_length=4)
+    name = models.TextField()
+    normalized = models.TextField()
+    updated_at = models.DateTimeField()
+    version = models.IntegerField()
+
+    class Meta:
+        db_table = "geo_municipalities"
+        managed = False
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Activity(models.Model):
+    code = models.CharField(max_length=10, primary_key=True)
+    description = models.TextField()
+    normalized = models.TextField()
+    updated_at = models.DateTimeField()
+    version = models.IntegerField()
+
+    class Meta:
+        db_table = "activities_catalog"
+        managed = False
+        ordering = ["description"]
+
+    def __str__(self) -> str:
+        return f"{self.code} - {self.description}"

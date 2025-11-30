@@ -1,8 +1,11 @@
 from rest_framework import serializers
 
 from .models import (
+    Activity,
     Client,
     Expense,
+    GeoDepartment,
+    GeoMunicipality,
     Invoice,
     InvoiceItem,
     Service,
@@ -76,3 +79,29 @@ class StaffUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = StaffUser
         fields = "__all__"
+
+
+class GeoDepartmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GeoDepartment
+        fields = ["code", "name", "normalized", "updated_at", "version"]
+
+
+class GeoMunicipalitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GeoMunicipality
+        fields = [
+            "id",
+            "dept_code",
+            "muni_code",
+            "name",
+            "normalized",
+            "updated_at",
+            "version",
+        ]
+
+
+class ActivitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Activity
+        fields = ["code", "description", "normalized", "updated_at", "version"]

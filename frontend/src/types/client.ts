@@ -12,6 +12,9 @@ export interface Client {
   nrc?: string | null;
   giro?: string | null;
   direccion?: string | null;
+  department_code?: string | null;
+  municipality_code?: string | null;
+  activity_code?: string | null;
 }
 
 export interface ClientPayload {
@@ -22,4 +25,7 @@ export interface ClientPayload {
   nit?: string;
   phone?: string;
   email?: string;
+  department_code?: string | null;
+  municipality_code?: string | null;
+  activity_code?: string | null;
 }

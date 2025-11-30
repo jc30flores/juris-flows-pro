@@ -1,8 +1,11 @@
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    ActivityViewSet,
     ClientViewSet,
     ExpenseViewSet,
+    GeoDepartmentViewSet,
+    GeoMunicipalityViewSet,
     InvoiceItemViewSet,
     InvoiceViewSet,
     ServiceCategoryViewSet,
@@ -18,5 +21,8 @@ router.register(r"invoices", InvoiceViewSet)
 router.register(r"invoice-items", InvoiceItemViewSet)
 router.register(r"expenses", ExpenseViewSet)
 router.register(r"staff-users", StaffUserViewSet)
+router.register(r"geo/departments", GeoDepartmentViewSet)
+router.register(r"geo/municipalities", GeoMunicipalityViewSet)
+router.register(r"activities", ActivityViewSet)
 
 urlpatterns = router.urls
