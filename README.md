@@ -1,73 +1,40 @@
-# Welcome to your Lovable project
+# Cuska-OnOffice
 
-## Project info
+El repositorio está dividido en dos áreas principales:
 
-**URL**: https://lovable.dev/projects/b18ff73c-6ace-4153-a8a5-5bf4c32fbd22
+- `frontend/`: aplicación Vite + React (Lovable) para la operación diaria. Usa un cliente axios central en `frontend/src/lib/api.ts` apuntando a `${VITE_API_URL}/api`.
+- `backend/`: proyecto Django (`abogados_backend`) y documentación para la API y el modelo de datos PostgreSQL.
 
-## How can I edit this code?
+## Ejecutar el frontend
 
-There are several ways of editing your application.
-
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/b18ff73c-6ace-4153-a8a5-5bf4c32fbd22) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```bash
+cd frontend
+npm install
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Configura un archivo `.env` en `frontend/` (ver `.env.example`) si necesitas sobreescribir `VITE_API_URL` (por defecto `http://localhost:8000`).
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Backend
 
-**Use GitHub Codespaces**
+```bash
+cd backend
+# crear y activar un entorno virtual (por ejemplo, python -m venv .venv && source .venv/bin/activate)
+pip install -r requirements.txt
+# configura las variables de entorno según .env.example
+python manage.py migrate
+python manage.py runserver
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+Tras actualizar los modelos de la app `api`, recuerda ejecutar:
 
-## What technologies are used for this project?
+```bash
+python manage.py makemigrations api
+python manage.py migrate
+```
 
-This project is built with:
+El backend expone un endpoint básico de salud en `/api/health/` que responde `{"status": "ok"}`.
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Documentación del sistema
 
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/b18ff73c-6ace-4153-a8a5-5bf4c32fbd22) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+El análisis funcional, propuesta de modelo de datos en PostgreSQL (`abogados`, owner `jarvis`) y el boceto de endpoints REST están en [`backend/docs/system_overview.md`](backend/docs/system_overview.md).
