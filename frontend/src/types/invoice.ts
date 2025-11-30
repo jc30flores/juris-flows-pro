@@ -35,12 +35,10 @@ export interface InvoiceItemPayload {
 }
 
 export interface InvoicePayload {
-  number: string;
   date: string;
   client: number;
   doc_type: InvoiceDocType;
   payment_method: PaymentMethod;
-  dte_status: DteStatus;
   total: number;
-  items?: InvoiceItemPayload[];
+  items: InvoiceItemPayload[];
 }
