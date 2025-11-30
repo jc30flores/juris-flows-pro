@@ -34,16 +34,7 @@ import {
   CommandInput,
   CommandItem,
 } from "@/components/ui/command";
-
-const normalizeText = (value: string): string => {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-};
+import { normalizeText } from "@/lib/text-utils";
 
 const clienteSchemaBase = z.object({
   tipoFiscal: z.enum(["CF", "CCF", "SX"], {
@@ -198,15 +189,20 @@ export function NuevoClienteModal({
   );
 
   const filteredActivities = useMemo(() => {
-    const searchQuery = normalizeText(activitySearch || "");
+    const search = normalizeText(activitySearch || "");
 
-    const filteredActivities = activities.filter((activity) => {
-      const target = normalizeText(`${activity.description} ${activity.code}`);
-      if (!searchQuery) return true;
-      return target.includes(searchQuery);
+    const filtered = activities.filter((activity) => {
+      const base = `${activity.description ?? ""} ${activity.code ?? ""}`;
+      const normalizedBase = normalizeText(base);
+
+      if (!search) {
+        return true;
+      }
+
+      return normalizedBase.includes(search);
     });
 
-    return filteredActivities;
+    return filtered;
   }, [activitySearch, activities]);
 
   const visibleActivities = useMemo(
