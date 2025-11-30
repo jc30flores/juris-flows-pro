@@ -70,36 +70,35 @@ class StaffUserViewSet(viewsets.ModelViewSet):
 
 
 class GeoDepartmentViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = GeoDepartment.objects.all()
+    queryset = GeoDepartment.objects.all().order_by("name")
     serializer_class = GeoDepartmentSerializer
     permission_classes = [permissions.AllowAny]
     pagination_class = None
 
 
 class GeoMunicipalityViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = GeoMunicipality.objects.all().order_by("name")
     serializer_class = GeoMunicipalitySerializer
     permission_classes = [permissions.AllowAny]
     pagination_class = None
 
     def get_queryset(self):
-        queryset = GeoMunicipality.objects.all()
+        qs = super().get_queryset()
         dept_code = self.request.query_params.get("dept_code")
         if dept_code:
-            queryset = queryset.filter(dept_code=dept_code)
-        return queryset
+            qs = qs.filter(dept_code=dept_code)
+        return qs
 
 
 class ActivityViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Activity.objects.all().order_by("description")
     serializer_class = ActivitySerializer
     permission_classes = [permissions.AllowAny]
     pagination_class = None
 
     def get_queryset(self):
-        queryset = Activity.objects.all()
+        qs = super().get_queryset()
         search = self.request.query_params.get("search")
         if search:
-            queryset = queryset.filter(
-                models.Q(description__icontains=search)
-                | models.Q(normalized__icontains=search)
-            )
-        return queryset
+            qs = qs.filter(description__icontains=search)
+        return qs
