@@ -10,9 +10,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
+import { ServiceSelectorModal } from "@/components/modals/ServiceSelectorModal";
 import { api } from "@/lib/api";
 import { Client } from "@/types/client";
-import { Invoice, InvoicePayload } from "@/types/invoice";
+import { Invoice, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
 import { Service } from "@/types/service";
 import { toast } from "@/hooks/use-toast";
 
@@ -20,6 +21,7 @@ export default function POS() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [showNuevaFacturaModal, setShowNuevaFacturaModal] = useState(false);
+  const [showServiceSelectorModal, setShowServiceSelectorModal] = useState(false);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -27,6 +29,7 @@ export default function POS() {
   const [error, setError] = useState("");
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [mode, setMode] = useState<"create" | "edit">("create");
+  const [selectedServices, setSelectedServices] = useState<SelectedServicePayload[]>([]);
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -64,6 +67,9 @@ export default function POS() {
     await fetchInitialData();
     setSelectedInvoice(null);
     setMode("create");
+    setSelectedServices([]);
+    setShowNuevaFacturaModal(false);
+    setShowServiceSelectorModal(false);
   };
 
   const handleDeleteInvoice = async (invoiceId: number) => {
@@ -116,13 +122,45 @@ export default function POS() {
   const handleOpenCreate = () => {
     setMode("create");
     setSelectedInvoice(null);
-    setShowNuevaFacturaModal(true);
+    setSelectedServices([]);
+    setShowServiceSelectorModal(true);
+    setShowNuevaFacturaModal(false);
   };
 
   const handleOpenEdit = (invoice: Invoice) => {
     setMode("edit");
     setSelectedInvoice(invoice);
+    const items = invoice.items || [];
+    const mappedServices = items.map((item) => {
+      const service = services.find((s) => s.id === item.service);
+      const price = Number(item.unit_price || service?.base_price || 0);
+      const quantity = item.quantity || 1;
+      return {
+        serviceId: item.service,
+        name: service?.name || `Servicio ${item.service}`,
+        price,
+        quantity,
+        subtotal: Number((price * quantity).toFixed(2)),
+      } as SelectedServicePayload;
+    });
+
+    setSelectedServices(mappedServices);
+    setShowServiceSelectorModal(false);
     setShowNuevaFacturaModal(true);
+  };
+
+  const handleConfirmServices = (servicesSelected: SelectedServicePayload[]) => {
+    setSelectedServices(servicesSelected);
+    setShowServiceSelectorModal(false);
+    setShowNuevaFacturaModal(true);
+  };
+
+  const handleCancelSelection = () => {
+    setSelectedServices([]);
+    setShowServiceSelectorModal(false);
+    setShowNuevaFacturaModal(false);
+    setSelectedInvoice(null);
+    setMode("create");
   };
 
   return (
@@ -339,20 +377,29 @@ export default function POS() {
         </div>
       </div>
 
+      <ServiceSelectorModal
+        open={showServiceSelectorModal}
+        onCancel={handleCancelSelection}
+        onConfirm={handleConfirmServices}
+        services={services}
+        initialSelected={selectedServices}
+      />
+
       <NuevaFacturaModal
         open={showNuevaFacturaModal}
         onOpenChange={(open) => {
-          setShowNuevaFacturaModal(open);
           if (!open) {
-            setSelectedInvoice(null);
-            setMode("create");
+            handleCancelSelection();
+          } else {
+            setShowNuevaFacturaModal(true);
           }
         }}
         onSubmit={handleSaveInvoice}
         clients={clients}
-        services={services}
         invoice={selectedInvoice}
         mode={mode}
+        selectedServices={selectedServices}
+        onCancel={handleCancelSelection}
       />
     </div>
   );

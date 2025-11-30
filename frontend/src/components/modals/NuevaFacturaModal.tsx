@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -22,7 +21,6 @@ import {
 } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { Client } from "@/types/client";
-import { Service } from "@/types/service";
 import {
   Invoice,
   InvoicePayload,
@@ -47,17 +45,10 @@ interface NuevaFacturaModalProps {
   onOpenChange: (open: boolean) => void;
   onSubmit: (payload: InvoicePayload) => Promise<void>;
   clients: Client[];
-  services: Service[];
   invoice?: Invoice | null;
   mode?: "create" | "edit";
-}
-
-interface ServicioSeleccionado {
-  serviceId: number;
-  nombre: string;
-  precio: number;
-  cantidad: number;
-  subtotal: number;
+  selectedServices: SelectedServicePayload[];
+  onCancel: () => void;
 }
 
 export function NuevaFacturaModal({
@@ -65,12 +56,11 @@ export function NuevaFacturaModal({
   onOpenChange,
   onSubmit,
   clients,
-  services,
   invoice,
   mode = "create",
+  selectedServices,
+  onCancel,
 }: NuevaFacturaModalProps) {
-  const [serviciosSeleccionados, setServiciosSeleccionados] = useState<ServicioSeleccionado[]>([]);
-  const [busquedaServicio, setBusquedaServicio] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const form = useForm<z.infer<typeof facturaSchema>>({
@@ -83,61 +73,8 @@ export function NuevaFacturaModal({
     },
   });
 
-  const agregarServicio = (servicio: Service) => {
-    setServiciosSeleccionados((prev) => {
-      const indexExistente = prev.findIndex(
-        (item) => item.serviceId === servicio.id,
-      );
-
-      if (indexExistente !== -1) {
-        const actualizados = [...prev];
-        const cantidad = actualizados[indexExistente].cantidad + 1;
-        actualizados[indexExistente].cantidad = cantidad;
-        actualizados[indexExistente].subtotal =
-          Number(actualizados[indexExistente].precio) * cantidad;
-        return actualizados;
-      }
-
-      return [
-        ...prev,
-        {
-          serviceId: servicio.id,
-          nombre: servicio.name,
-          precio: Number(servicio.base_price),
-          cantidad: 1,
-          subtotal: Number(servicio.base_price),
-        },
-      ];
-    });
-    setBusquedaServicio("");
-  };
-
-  const eliminarServicio = (index: number) => {
-    setServiciosSeleccionados((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const actualizarCantidad = (index: number, cantidad: number) => {
-    setServiciosSeleccionados((prev) => {
-      const nuevosServicios = [...prev];
-      if (!nuevosServicios[index]) return prev;
-
-      const cantidadActualizada = Math.max(1, cantidad);
-      nuevosServicios[index] = {
-        ...nuevosServicios[index],
-        cantidad: cantidadActualizada,
-        subtotal: Number(
-          (nuevosServicios[index].precio * cantidadActualizada).toFixed(2),
-        ),
-      };
-      return nuevosServicios;
-    });
-  };
-
   const calcularSubtotal = () => {
-    return serviciosSeleccionados.reduce(
-      (acc, s) => acc + s.subtotal,
-      0
-    );
+    return selectedServices.reduce((acc, s) => acc + Number(s.subtotal), 0);
   };
 
   const calcularIVA = () => {
@@ -150,7 +87,7 @@ export function NuevaFacturaModal({
   };
 
   const onSubmitForm = async (data: z.infer<typeof facturaSchema>) => {
-    if (serviciosSeleccionados.length === 0) {
+    if (selectedServices.length === 0) {
       toast({
         title: "Error",
         description: "Debe agregar al menos un servicio",
@@ -159,13 +96,13 @@ export function NuevaFacturaModal({
       return;
     }
 
-    const servicesPayload: SelectedServicePayload[] = serviciosSeleccionados.map(
+    const servicesPayload: SelectedServicePayload[] = selectedServices.map(
       (item) => ({
         serviceId: item.serviceId,
-        name: item.nombre,
-        price: item.precio,
-        quantity: item.cantidad,
-        subtotal: Number((item.precio * item.cantidad).toFixed(2)),
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        subtotal: Number((item.price * item.quantity).toFixed(2)),
       }),
     );
 
@@ -191,8 +128,6 @@ export function NuevaFacturaModal({
         tipoDTE: "CF",
         metodoPago: "Efectivo",
       });
-      setServiciosSeleccionados([]);
-      setBusquedaServicio("");
       onOpenChange(false);
     } catch (error) {
       console.error("Error al guardar factura", error);
@@ -216,20 +151,6 @@ export function NuevaFacturaModal({
     [clients],
   );
 
-  const serviciosFiltrados = useMemo(() => {
-    const query = busquedaServicio.toLowerCase().trim();
-    return services.filter((servicio) => {
-      if (!query) return true;
-      const textoBusqueda = `${servicio.name} ${servicio.code}`.toLowerCase();
-      return textoBusqueda.includes(query);
-    });
-  }, [busquedaServicio, services]);
-
-  const agregarPrimeraCoincidencia = () => {
-    if (!busquedaServicio.trim() || serviciosFiltrados.length === 0) return;
-    agregarServicio(serviciosFiltrados[0]);
-  };
-
   useEffect(() => {
     if (mode === "edit" && invoice) {
       form.reset({
@@ -238,22 +159,6 @@ export function NuevaFacturaModal({
         tipoDTE: invoice.doc_type,
         metodoPago: invoice.payment_method as PaymentMethod,
       });
-
-      const items = invoice.items || [];
-      setServiciosSeleccionados(
-        items.map((item) => {
-          const service = services.find((s) => s.id === item.service);
-          return {
-            serviceId: item.service,
-            nombre: service?.name || `Servicio ${item.service}`,
-            precio: Number(item.unit_price),
-            cantidad: item.quantity,
-            subtotal: Number(item.subtotal) ||
-              Number((Number(item.unit_price) * item.quantity).toFixed(2)),
-          };
-        }),
-      );
-      setBusquedaServicio("");
     }
 
     if (mode === "create" && open) {
@@ -263,13 +168,19 @@ export function NuevaFacturaModal({
         tipoDTE: "CF",
         metodoPago: "Efectivo",
       });
-      setServiciosSeleccionados([]);
-      setBusquedaServicio("");
     }
-  }, [invoice, mode, open, services, form]);
+  }, [invoice, mode, open, form]);
+
+  const handleDialogChange = (value: boolean) => {
+    if (!value) {
+      onCancel();
+    } else {
+      onOpenChange(value);
+    }
+  };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
@@ -363,198 +274,56 @@ export function NuevaFacturaModal({
             </div>
 
             <div className="md:col-span-2 space-y-4">
-              <div className="space-y-2">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <Label htmlFor="buscarServicio">Servicios</Label>
-                  <div className="relative w-full sm:max-w-xs">
-                    <Input
-                      id="buscarServicio"
-                      placeholder="Buscar servicio por nombre o texto"
-                      value={busquedaServicio}
-                      onChange={(e) => setBusquedaServicio(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          agregarPrimeraCoincidencia();
-                        }
-                      }}
-                    />
-
-                    <div className="absolute left-0 right-0 z-20 mt-1 overflow-hidden rounded-md border border-border bg-background shadow-md">
-                      {serviciosFiltrados.length > 0 ? (
-                        <div className="max-h-56 overflow-y-auto">
-                          {serviciosFiltrados.map((servicio) => (
-                            <button
-                              key={servicio.id}
-                              type="button"
-                              className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted"
-                              onClick={() => agregarServicio(servicio)}
-                            >
-                              <span className="font-medium">{servicio.name}</span>
-                              <span className="text-xs text-muted-foreground">
-                                ${Number(servicio.base_price).toFixed(2)} · {servicio.code}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="px-3 py-2 text-sm text-muted-foreground">
-                          No se encontraron servicios
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
+              <div className="flex items-center justify-between">
+                <Label>Resumen de servicios</Label>
+                <span className="text-sm text-muted-foreground">
+                  Total: ${calcularTotal().toFixed(2)}
+                </span>
               </div>
 
-              {serviciosSeleccionados.length > 0 ? (
+              {selectedServices.length > 0 ? (
                 <div className="space-y-3">
-                  <div className="hidden overflow-hidden rounded-lg border border-border sm:block">
-                    <div className="overflow-x-auto scrollbar-thin">
-                      <table className="w-full min-w-[600px]">
-                        <thead className="bg-muted/50">
-                          <tr className="border-b border-border">
-                            <th className="px-3 py-3 text-left text-sm font-medium min-w-[180px]">
-                              Servicio
-                            </th>
-                            <th className="px-3 py-3 text-right text-sm font-medium w-[120px]">
-                              Precio
-                            </th>
-                            <th className="px-3 py-3 text-center text-sm font-medium w-[140px]">
-                              Cantidad
-                            </th>
-                            <th className="px-3 py-3 text-right text-sm font-medium w-[120px]">
-                              Subtotal
-                            </th>
-                            <th className="px-3 py-3 text-center text-sm font-medium w-[80px]">
-                              Quitar
-                            </th>
+                  <div className="hidden sm:block overflow-x-auto rounded-lg border border-border">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-medium">Servicio</th>
+                          <th className="px-4 py-3 text-center font-medium">Cantidad</th>
+                          <th className="px-4 py-3 text-right font-medium">Subtotal</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedServices.map((servicio) => (
+                          <tr key={servicio.serviceId} className="border-t border-border">
+                            <td className="px-4 py-3">
+                              <p className="font-medium leading-tight">{servicio.name}</p>
+                              <p className="text-xs text-muted-foreground">ID: {servicio.serviceId}</p>
+                            </td>
+                            <td className="px-4 py-3 text-center">{servicio.quantity}</td>
+                            <td className="px-4 py-3 text-right font-semibold">
+                              ${Number(servicio.subtotal).toFixed(2)}
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {serviciosSeleccionados.map((servicio, index) => (
-                            <tr key={servicio.serviceId} className="border-b border-border">
-                              <td className="px-3 py-3 text-sm">{servicio.nombre}</td>
-                              <td className="px-3 py-3 text-right text-sm whitespace-nowrap">
-                                ${servicio.precio.toFixed(2)}
-                              </td>
-                              <td className="px-3 py-3 text-center">
-                                <div className="inline-flex items-center gap-2">
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="outline"
-                                    className="h-8 w-8"
-                                    onClick={() =>
-                                      actualizarCantidad(index, Math.max(1, servicio.cantidad - 1))
-                                    }
-                                  >
-                                    -
-                                  </Button>
-                                  <Input
-                                    type="number"
-                                    min="1"
-                                    value={servicio.cantidad}
-                                    onChange={(e) =>
-                                      actualizarCantidad(
-                                        index,
-                                        Math.max(1, Number(e.target.value) || 1),
-                                      )
-                                    }
-                                    className="w-16 text-center"
-                                  />
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="outline"
-                                    className="h-8 w-8"
-                                    onClick={() => actualizarCantidad(index, servicio.cantidad + 1)}
-                                  >
-                                    +
-                                  </Button>
-                                </div>
-                              </td>
-                              <td className="px-3 py-3 text-right text-sm font-medium whitespace-nowrap">
-                                {servicio.subtotal.toFixed(2)}
-                              </td>
-                              <td className="px-3 py-3 text-center">
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => eliminarServicio(index)}
-                                >
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
 
-                  <div className="space-y-2 sm:hidden">
-                    {serviciosSeleccionados.map((servicio, index) => (
+                  <div className="grid gap-3 sm:hidden">
+                    {selectedServices.map((servicio) => (
                       <div
                         key={servicio.serviceId}
-                        className="rounded-lg border border-border p-3 space-y-2"
+                        className="rounded-lg border border-border p-3 space-y-1"
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="text-sm font-medium leading-tight">{servicio.nombre}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Código: {services.find((s) => s.id === servicio.serviceId)?.code || "-"}
-                            </p>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => eliminarServicio(index)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                        <p className="text-sm font-medium leading-tight">{servicio.name}</p>
+                        <p className="text-xs text-muted-foreground">ID: {servicio.serviceId}</p>
+                        <div className="flex items-center justify-between text-sm">
+                          <span>Cantidad:</span>
+                          <span className="font-medium">{servicio.quantity}</span>
                         </div>
-                        <div className="flex flex-wrap items-center gap-3 text-sm">
-                          <span className="font-medium">${servicio.precio.toFixed(2)}</span>
-                          <div className="inline-flex items-center gap-2">
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="outline"
-                              className="h-8 w-8"
-                              onClick={() =>
-                                actualizarCantidad(index, Math.max(1, servicio.cantidad - 1))
-                              }
-                            >
-                              -
-                            </Button>
-                            <Input
-                              type="number"
-                              min="1"
-                              value={servicio.cantidad}
-                              onChange={(e) =>
-                                actualizarCantidad(
-                                  index,
-                                  Math.max(1, Number(e.target.value) || 1),
-                                )
-                              }
-                              className="w-16 text-center"
-                            />
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="outline"
-                              className="h-8 w-8"
-                              onClick={() => actualizarCantidad(index, servicio.cantidad + 1)}
-                            >
-                              +
-                            </Button>
-                          </div>
-                          <span className="ml-auto font-medium">
-                            Subtotal: {servicio.subtotal.toFixed(2)}
-                          </span>
+                        <div className="flex items-center justify-between text-sm">
+                          <span>Subtotal:</span>
+                          <span className="font-semibold">${Number(servicio.subtotal).toFixed(2)}</span>
                         </div>
                       </div>
                     ))}
@@ -562,13 +331,13 @@ export function NuevaFacturaModal({
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  Agrega servicios para verlos aquí.
+                  Selecciona servicios antes de crear la factura.
                 </p>
               )}
             </div>
           </div>
 
-          {serviciosSeleccionados.length > 0 && (
+          {selectedServices.length > 0 && (
             <div className="space-y-2 bg-muted/50 p-4 rounded-lg">
               <div className="flex justify-between text-sm">
                 <span>Subtotal:</span>
@@ -589,11 +358,11 @@ export function NuevaFacturaModal({
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={onCancel}
             >
               Cancelar
             </Button>
-            <Button type="submit" disabled={submitting}>
+            <Button type="submit" disabled={submitting || selectedServices.length === 0}>
               {mode === "edit" ? "Guardar Cambios" : "Crear Factura"}
             </Button>
           </DialogFooter>
