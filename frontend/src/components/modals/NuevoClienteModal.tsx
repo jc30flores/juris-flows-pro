@@ -189,20 +189,27 @@ export function NuevoClienteModal({
 
   const normalizeText = (value: string): string =>
     value
+      .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, "");
+      .replace(/[^a-z0-9\s]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
 
   const filteredActivities = useMemo(() => {
-    const normalizedSearch = normalizeText(activitySearch || "");
-    if (!normalizedSearch) return activities;
+    const query = normalizeText(activitySearch || "");
+    if (!query) return activities;
 
     return activities.filter((activity) => {
-      const haystack = normalizeText(`${activity.description} ${activity.code}`);
-      return haystack.includes(normalizedSearch);
+      const target = normalizeText(`${activity.description} ${activity.code}`);
+      return target.includes(query);
     });
   }, [activitySearch, activities]);
+
+  const visibleActivities = useMemo(
+    () => filteredActivities.slice(0, 7),
+    [filteredActivities],
+  );
 
   const filteredDepartments = useMemo(() => {
     const term = departmentSearch.toLowerCase();
@@ -550,7 +557,7 @@ export function NuevoClienteModal({
                       />
                       <CommandEmpty>Sin resultados</CommandEmpty>
                       <CommandGroup className="max-h-60 overflow-y-auto">
-                        {filteredActivities.slice(0, 7).map((activity) => (
+                        {visibleActivities.map((activity) => (
                           <CommandItem
                             key={activity.code}
                             value={`${activity.code}-${activity.description}`}

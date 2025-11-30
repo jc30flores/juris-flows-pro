@@ -122,16 +122,29 @@ export function EditarClienteModal({
     [activities, activityCode],
   );
 
-  const filteredActivities = useMemo(() => {
-    const term = activitySearch.toLowerCase();
-    if (!term) return activities;
+  const normalizeText = (value: string): string =>
+    value
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9\s]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
 
-    return activities.filter(
-      (activity) =>
-        activity.description.toLowerCase().includes(term) ||
-        activity.code.toLowerCase().includes(term),
-    );
+  const filteredActivities = useMemo(() => {
+    const query = normalizeText(activitySearch || "");
+    if (!query) return activities;
+
+    return activities.filter((activity) => {
+      const target = normalizeText(`${activity.description} ${activity.code}`);
+      return target.includes(query);
+    });
   }, [activitySearch, activities]);
+
+  const visibleActivities = useMemo(
+    () => filteredActivities.slice(0, 7),
+    [filteredActivities],
+  );
 
   useEffect(() => {
     if (cliente && open) {
@@ -490,7 +503,7 @@ export function EditarClienteModal({
                       />
                       <CommandEmpty>Sin resultados</CommandEmpty>
                       <CommandGroup>
-                        {filteredActivities.map((activity) => (
+                        {visibleActivities.map((activity) => (
                           <CommandItem
                             key={activity.code}
                             value={`${activity.code}-${activity.description}`}
