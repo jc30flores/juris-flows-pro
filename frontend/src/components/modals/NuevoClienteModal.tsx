@@ -187,15 +187,21 @@ export function NuevoClienteModal({
     [activities, activityCode],
   );
 
-  const filteredActivities = useMemo(() => {
-    const term = activitySearch.toLowerCase();
-    if (!term) return activities;
+  const normalizeText = (value: string): string =>
+    value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, "");
 
-    return activities.filter(
-      (activity) =>
-        activity.description.toLowerCase().includes(term) ||
-        activity.code.toLowerCase().includes(term),
-    );
+  const filteredActivities = useMemo(() => {
+    const normalizedSearch = normalizeText(activitySearch || "");
+    if (!normalizedSearch) return activities;
+
+    return activities.filter((activity) => {
+      const haystack = normalizeText(`${activity.description} ${activity.code}`);
+      return haystack.includes(normalizedSearch);
+    });
   }, [activitySearch, activities]);
 
   const filteredDepartments = useMemo(() => {
