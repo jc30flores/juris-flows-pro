@@ -340,12 +340,12 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         "porcentajeDescuento": 0,
         "saldoFavor": 0,
         "totalNoGravado": 0,
-        "totalGravada": float(total_gross),
+        "totalGravada": float(total_base),
         "descuExenta": 0,
-        "subTotal": float(total_gross),
+        "subTotal": float(total_base),
         "totalLetras": amount_to_spanish_words(total_gross),
         "descuNoSuj": 0,
-        "subTotalVentas": float(total_gross),
+        "subTotalVentas": float(total_base),
         "reteRenta": 0,
         "tributos": None,
         "totalNoSuj": 0,
@@ -415,7 +415,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         request_payload=payload,
     )
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/factura"
+    url = "https://t12101304761012.cheros.dev/api/v1/dte/credito-fiscal"
     headers = {
         "Authorization": "Bearer api_k_12101304761012",
         "Content-Type": "application/json",
@@ -598,7 +598,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         "porcentajeDescuento": 0,
         "saldoFavor": 0,
         "totalNoGravado": 0,
-        "totalGravada": float(total_gross),
+        "totalGravada": float(total_base),
         "descuExenta": 0,
         "subTotal": float(total_base),
         "totalLetras": total_letras,
@@ -677,7 +677,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         request_payload=payload,
     )
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/factura"
+    url = "https://t12101304761012.cheros.dev/api/v1/dte/credito-fiscal"
     headers = {
         "Authorization": "Bearer api_k_12101304761012",
         "Content-Type": "application/json",
@@ -891,7 +891,7 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         request_payload=payload,
     )
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/factura"
+    url = "https://t12101304761012.cheros.dev/api/v1/dte/sujeto-excluido"
     headers = {
         "Authorization": "Bearer api_k_12101304761012",
         "Content-Type": "application/json",
