@@ -150,17 +150,14 @@ def amount_to_words_usd(amount) -> str:
 def interpret_dte_response(response_data: dict) -> Tuple[str, str, str]:
     """
     Retorna (estado_interno, estado_hacienda, mensaje_usuario).
-    - estado_interno: "ACEPTADO" o "RECHAZADO"
-    - estado_hacienda: valor de 'estado' de Hacienda (p.ej. "RECIBIDO", "RECHAZADO")
+    - estado_interno: "ACEPTADO" | "RECHAZADO" | "PENDIENTE"
+    - estado_hacienda: valor de 'estado' de Hacienda (p.ej. "RECIBIDO", "RECHAZADO", "SIN_RESPUESTA")
     - mensaje_usuario: texto que se usará para mostrar al usuario
     """
 
-    success = response_data.get("success", True) if isinstance(response_data, dict) else True
+    success = response_data.get("success") if isinstance(response_data, dict) else None
 
-    hacienda_resp = {}
-    message = ""
-
-    if success:
+    if success is True:
         data = response_data.get("data") if isinstance(response_data, dict) else None
         if not data and isinstance(response_data, dict):
             data = response_data
@@ -168,30 +165,35 @@ def interpret_dte_response(response_data: dict) -> Tuple[str, str, str]:
         if not hacienda_resp and isinstance(data, dict):
             hacienda_resp = data
         estado_hacienda = (hacienda_resp or {}).get("estado", "") if isinstance(hacienda_resp, dict) else ""
-        if estado_hacienda in ("RECIBIDO", "PROCESADO", "ACEPTADO"):
-            message = "DTE aceptado por Hacienda."
-            return "ACEPTADO", estado_hacienda, message
 
+        if estado_hacienda in ("RECIBIDO", "PROCESADO", "ACEPTADO"):
+            return "ACEPTADO", estado_hacienda, "DTE aceptado por Hacienda."
+
+        estado_hacienda = estado_hacienda or "DESCONOCIDO"
+        return (
+            "PENDIENTE",
+            estado_hacienda,
+            "DTE enviado, en espera de confirmación de Hacienda.",
+        )
+
+    if success is False:
+        error = response_data.get("error") if isinstance(response_data, dict) else {}
+        hacienda_resp = error.get("hacienda_response") if isinstance(error, dict) else {}
+        estado_hacienda = hacienda_resp.get("estado", "RECHAZADO") if isinstance(hacienda_resp, dict) else "RECHAZADO"
         desc = None
         if isinstance(hacienda_resp, dict):
             desc = hacienda_resp.get("descripcionMsg")
-        if not desc and isinstance(data, dict):
-            desc = data.get("message")
-        desc = desc or "El DTE no fue aceptado por Hacienda."
-        message = f"Hacienda no aceptó el DTE: {desc}"
-        return "RECHAZADO", estado_hacienda or "DESCONOCIDO", message
+        if not desc and isinstance(error, dict):
+            desc = error.get("message")
+        desc = desc or "El DTE fue rechazado por Hacienda."
+        mensaje_usuario = f"Hacienda rechazó el DTE: {desc}"
+        return "RECHAZADO", estado_hacienda, mensaje_usuario
 
-    error = response_data.get("error") if isinstance(response_data, dict) else {}
-    hacienda_resp = error.get("hacienda_response") if isinstance(error, dict) else {}
-    estado_hacienda = hacienda_resp.get("estado", "RECHAZADO") if isinstance(hacienda_resp, dict) else "RECHAZADO"
-    desc = None
-    if isinstance(hacienda_resp, dict):
-        desc = hacienda_resp.get("descripcionMsg")
-    if not desc and isinstance(error, dict):
-        desc = error.get("message")
-    desc = desc or "El DTE fue rechazado por Hacienda."
-    message = f"Hacienda rechazó el DTE: {desc}"
-    return "RECHAZADO", estado_hacienda, message
+    return (
+        "PENDIENTE",
+        "SIN_RESPUESTA",
+        "DTE en estado PENDIENTE: la respuesta de la API no se pudo interpretar.",
+    )
 
 
 EMITTER_INFO = {
@@ -428,6 +430,31 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
 
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=30)
+    except requests.exceptions.RequestException as exc:
+        print("Error sending DTE:", exc)
+
+        record.response_payload = {
+            "success": None,
+            "error": {
+                "type": "network_error",
+                "message": str(exc),
+            },
+        }
+        record.hacienda_state = "SIN_RESPUESTA"
+        record.status = "PENDIENTE"
+        record.save(update_fields=["response_payload", "hacienda_state", "status"])
+
+        invoice.dte_status = "PENDIENTE"
+        invoice.save(update_fields=["dte_status"])
+
+        invoice._dte_message = (
+            "No se pudo contactar con la API de DTE (problema de red o indisponibilidad). "
+            "El DTE se ha dejado en estado PENDIENTE para reenviarlo más tarde."
+        )
+
+        return record
+
+    try:
         try:
             response_data = response.json()
         except ValueError:
@@ -440,21 +467,21 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
         estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
         record.hacienda_state = estado_hacienda or record.hacienda_state
-        record.status = estado_interno if response.ok else "RECHAZADO"
+        record.status = estado_interno
         record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
 
-        invoice.dte_status = Invoice.APPROVED if estado_interno == "ACEPTADO" else Invoice.REJECTED
+        invoice.dte_status = estado_interno
         invoice.save(update_fields=["dte_status"])
         invoice._dte_message = user_message
         return record
     except Exception as exc:  # noqa: BLE001
         logger.exception("Error sending CF DTE", exc_info=exc)
         record.response_payload = {"error": str(exc)}
-        record.status = "ERROR"
-        record.hacienda_state = "ERROR"
+        record.status = "PENDIENTE"
+        record.hacienda_state = "SIN_RESPUESTA"
         record.save(update_fields=["response_payload", "status", "hacienda_state"])
-        invoice.dte_status = Invoice.REJECTED
-        invoice._dte_message = "Error al enviar DTE a Hacienda."
+        invoice.dte_status = "PENDIENTE"
+        invoice._dte_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
         invoice.save(update_fields=["dte_status"])
         return record
 
@@ -651,6 +678,31 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
 
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=30)
+    except requests.exceptions.RequestException as exc:
+        print("Error sending DTE:", exc)
+
+        record.response_payload = {
+            "success": None,
+            "error": {
+                "type": "network_error",
+                "message": str(exc),
+            },
+        }
+        record.hacienda_state = "SIN_RESPUESTA"
+        record.status = "PENDIENTE"
+        record.save(update_fields=["response_payload", "hacienda_state", "status"])
+
+        invoice.dte_status = "PENDIENTE"
+        invoice.save(update_fields=["dte_status"])
+
+        invoice._dte_message = (
+            "No se pudo contactar con la API de DTE (problema de red o indisponibilidad). "
+            "El DTE se ha dejado en estado PENDIENTE para reenviarlo más tarde."
+        )
+
+        return record
+
+    try:
         try:
             response_data = response.json()
         except ValueError:
@@ -663,21 +715,21 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
         estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
         record.hacienda_state = estado_hacienda or record.hacienda_state
-        record.status = estado_interno if response.ok else "RECHAZADO"
+        record.status = estado_interno
         record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
 
-        invoice.dte_status = Invoice.APPROVED if estado_interno == "ACEPTADO" else Invoice.REJECTED
+        invoice.dte_status = estado_interno
         invoice.save(update_fields=["dte_status"])
         invoice._dte_message = user_message
         return record
     except Exception as exc:  # noqa: BLE001
         logger.exception("Error sending CCF DTE", exc_info=exc)
         record.response_payload = {"error": str(exc)}
-        record.status = "ERROR"
-        record.hacienda_state = "ERROR"
+        record.status = "PENDIENTE"
+        record.hacienda_state = "SIN_RESPUESTA"
         record.save(update_fields=["response_payload", "status", "hacienda_state"])
-        invoice.dte_status = Invoice.REJECTED
-        invoice._dte_message = "Error al enviar DTE a Hacienda."
+        invoice.dte_status = "PENDIENTE"
+        invoice._dte_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
         invoice.save(update_fields=["dte_status"])
         return record
 
@@ -840,6 +892,31 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
 
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=30)
+    except requests.exceptions.RequestException as exc:
+        print("Error sending DTE:", exc)
+
+        record.response_payload = {
+            "success": None,
+            "error": {
+                "type": "network_error",
+                "message": str(exc),
+            },
+        }
+        record.hacienda_state = "SIN_RESPUESTA"
+        record.status = "PENDIENTE"
+        record.save(update_fields=["response_payload", "hacienda_state", "status"])
+
+        invoice.dte_status = "PENDIENTE"
+        invoice.save(update_fields=["dte_status"])
+
+        invoice._dte_message = (
+            "No se pudo contactar con la API de DTE (problema de red o indisponibilidad). "
+            "El DTE se ha dejado en estado PENDIENTE para reenviarlo más tarde."
+        )
+
+        return record
+
+    try:
         try:
             response_data = response.json()
         except ValueError:
@@ -852,20 +929,20 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
         estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
         record.hacienda_state = estado_hacienda or record.hacienda_state
-        record.status = estado_interno if response.ok else "RECHAZADO"
+        record.status = estado_interno
         record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
 
-        invoice.dte_status = Invoice.APPROVED if estado_interno == "ACEPTADO" else Invoice.REJECTED
+        invoice.dte_status = estado_interno
         invoice.save(update_fields=["dte_status"])
         invoice._dte_message = user_message
         return record
     except Exception as exc:  # noqa: BLE001
         logger.exception("Error sending SE DTE", exc_info=exc)
         record.response_payload = {"error": str(exc)}
-        record.status = "ERROR"
-        record.hacienda_state = "ERROR"
+        record.status = "PENDIENTE"
+        record.hacienda_state = "SIN_RESPUESTA"
         record.save(update_fields=["response_payload", "status", "hacienda_state"])
-        invoice.dte_status = Invoice.REJECTED
-        invoice._dte_message = "Error al enviar DTE a Hacienda."
+        invoice.dte_status = "PENDIENTE"
+        invoice._dte_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
         invoice.save(update_fields=["dte_status"])
         return record
