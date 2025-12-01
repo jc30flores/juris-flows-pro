@@ -1,3 +1,4 @@
+import json
 import logging
 import random
 import uuid
@@ -216,6 +217,9 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
+    print("\nJSON DTE ENVIO:\n")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
     record = DTERecord.objects.create(
         invoice=invoice,
         dte_type="CF",
@@ -241,6 +245,9 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
             response_data = response.json()
         except ValueError:
             response_data = {"raw_text": response.text}
+
+        print("\nJSON API RESPUESTA:\n")
+        print(json.dumps(response_data, indent=2, ensure_ascii=False))
 
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
@@ -424,6 +431,9 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
+    print("\nJSON DTE ENVIO:\n")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
     record = DTERecord.objects.create(
         invoice=invoice,
         dte_type="CCF",
@@ -449,6 +459,9 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
             response_data = response.json()
         except ValueError:
             response_data = {"raw_text": response.text}
+
+        print("\nJSON API RESPUESTA:\n")
+        print(json.dumps(response_data, indent=2, ensure_ascii=False))
 
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
@@ -599,6 +612,9 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
+    print("\nJSON DTE ENVIO:\n")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
     record = DTERecord.objects.create(
         invoice=invoice,
         dte_type="SE",
@@ -624,6 +640,9 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
             response_data = response.json()
         except ValueError:
             response_data = {"raw_text": response.text}
+
+        print("\nJSON API RESPUESTA:\n")
+        print(json.dumps(response_data, indent=2, ensure_ascii=False))
 
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
