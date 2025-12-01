@@ -539,6 +539,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
     items: list[InvoiceItem] = list(invoice.items.select_related("service"))
     cuerpo_documento = []
     total_gross = Decimal("0.00")
+    total_base = Decimal("0.00")
     total_iva = Decimal("0.00")
 
     for index, item in enumerate(items, start=1):
@@ -548,6 +549,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         line_base, iva_line = split_gross_amount_with_tax(gross_line)
 
         total_gross += gross_line
+        total_base += line_base
         total_iva += iva_line
 
         service: Service | None = getattr(item, "service", None)
@@ -576,6 +578,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         )
 
     total_gross = _round_2(total_gross)
+    total_base = _round_2(total_base)
     total_iva = _round_2(total_iva)
     total_operacion = _round_2(total_gross)
     total_letras = amount_to_spanish_words(total_operacion)
@@ -595,12 +598,12 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         "porcentajeDescuento": 0,
         "saldoFavor": 0,
         "totalNoGravado": 0,
-        "totalGravada": float(total_gross),
+        "totalGravada": float(total_base),
         "descuExenta": 0,
-        "subTotal": float(total_gross),
+        "subTotal": float(total_base),
         "totalLetras": total_letras,
         "descuNoSuj": 0,
-        "subTotalVentas": float(total_gross),
+        "subTotalVentas": float(total_base),
         "reteRenta": 0,
         "tributos": [
             {
