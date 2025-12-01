@@ -1,6 +1,7 @@
 from django.db import models
 from rest_framework import permissions, status, viewsets
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .models import (
     Activity,
@@ -14,6 +15,7 @@ from .models import (
     ServiceCategory,
     StaffUser,
 )
+from .connectivity import CONNECTIVITY_STATUS
 from .serializers import (
     ActivitySerializer,
     ClientSerializer,
@@ -32,6 +34,13 @@ class ServiceCategoryViewSet(viewsets.ModelViewSet):
     queryset = ServiceCategory.objects.all()
     serializer_class = ServiceCategorySerializer
     permission_classes = [permissions.AllowAny]
+
+
+class ConnectivityStatusView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        return Response(CONNECTIVITY_STATUS)
 
 
 class ServiceViewSet(viewsets.ModelViewSet):

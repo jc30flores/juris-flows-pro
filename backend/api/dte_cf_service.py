@@ -8,6 +8,7 @@ from typing import Tuple
 import requests
 from django.utils import timezone
 
+from .connectivity import get_connectivity_status as _connectivity_status_snapshot
 from .models import DTERecord, Invoice, InvoiceItem, Service
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,10 @@ def split_gross_amount_with_tax(gross) -> tuple[Decimal, Decimal]:
     iva = _round_2(iva_unrounded)
     base = gross_dec - iva
     return base, iva
+
+
+def get_connectivity_status():
+    return _connectivity_status_snapshot()
 
 
 UNIDADES = [

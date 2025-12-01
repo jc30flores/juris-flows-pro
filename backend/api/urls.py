@@ -1,7 +1,9 @@
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
     ActivityViewSet,
+    ConnectivityStatusView,
     ClientViewSet,
     ExpenseViewSet,
     GeoDepartmentViewSet,
@@ -25,4 +27,6 @@ router.register(r"geo/departments", GeoDepartmentViewSet)
 router.register(r"geo/municipalities", GeoMunicipalityViewSet)
 router.register(r"activities", ActivityViewSet)
 
-urlpatterns = router.urls
+urlpatterns = router.urls + [
+    path("status/connectivity/", ConnectivityStatusView.as_view(), name="connectivity-status"),
+]
