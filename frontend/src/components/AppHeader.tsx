@@ -67,8 +67,8 @@ export function AppHeader() {
             className="flex-shrink-0"
             onClick={logout}
           >
-            <LogOut className="h-4 w-4 mr-2" />
-            Cerrar sesión
+            <LogOut className="h-4 w-4" />
+            <span className="sr-only">Cerrar sesión</span>
           </Button>
         </div>
       </div>
