@@ -1,6 +1,8 @@
 import logging
 from decimal import Decimal
+import logging
 
+from django.contrib.auth.hashers import make_password
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -189,9 +191,23 @@ class ExpenseSerializer(serializers.ModelSerializer):
 
 
 class StaffUserSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
     class Meta:
         model = StaffUser
-        fields = "__all__"
+        fields = ["id", "full_name", "username", "role", "is_active", "password"]
+
+    def create(self, validated_data):
+        pwd = validated_data.pop("password", None)
+        if pwd:
+            validated_data["password"] = make_password(pwd)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        pwd = validated_data.pop("password", None)
+        if pwd:
+            instance.password = make_password(pwd)
+        return super().update(instance, validated_data)
 
 
 class GeoDepartmentSerializer(serializers.ModelSerializer):

@@ -1,4 +1,4 @@
-import { Moon, Sun, User } from "lucide-react";
+import { Moon, Sun, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NavLink } from "@/components/NavLink";
 import { useTheme } from "next-themes";
@@ -9,6 +9,7 @@ import {
   Users,
   UserCog,
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 const menuItems = [
   { title: "FACTURADOR", url: "/pos", icon: Receipt },
@@ -20,6 +21,7 @@ const menuItems = [
 
 export function AppHeader() {
   const { theme, setTheme } = useTheme();
+  const { logout } = useAuth();
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60">
@@ -59,9 +61,14 @@ export function AppHeader() {
             <span className="sr-only">Cambiar tema</span>
           </Button>
 
-          <Button variant="ghost" size="icon" className="flex-shrink-0">
-            <User className="h-6 w-6" />
-            <span className="sr-only">Usuario</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-shrink-0"
+            onClick={logout}
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            Cerrar sesión
           </Button>
         </div>
       </div>

@@ -1,3 +1,4 @@
+from django.contrib.auth.hashers import check_password
 from django.db import models
 from rest_framework import permissions, status, viewsets
 from rest_framework.response import Response
@@ -92,6 +93,49 @@ class StaffUserViewSet(viewsets.ModelViewSet):
     queryset = StaffUser.objects.all()
     serializer_class = StaffUserSerializer
     permission_classes = [permissions.AllowAny]
+
+
+class LoginView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        username = request.data.get("username")
+        password = request.data.get("password")
+
+        if not username or not password:
+            return Response(
+                {"detail": "Usuario y contraseña son requeridos."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user = StaffUser.objects.get(username=username, is_active=True)
+        except StaffUser.DoesNotExist:
+            return Response(
+                {"detail": "Usuario o contraseña incorrectos."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if not check_password(password, user.password):
+            return Response(
+                {"detail": "Usuario o contraseña incorrectos."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        data = {
+            "id": user.id,
+            "username": user.username,
+            "full_name": user.full_name,
+            "role": user.role,
+        }
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class LogoutView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class GeoDepartmentViewSet(viewsets.ReadOnlyModelViewSet):

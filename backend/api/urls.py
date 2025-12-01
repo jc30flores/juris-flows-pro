@@ -10,6 +10,8 @@ from .views import (
     GeoMunicipalityViewSet,
     InvoiceItemViewSet,
     InvoiceViewSet,
+    LoginView,
+    LogoutView,
     ServiceCategoryViewSet,
     ServiceViewSet,
     StaffUserViewSet,
@@ -29,4 +31,6 @@ router.register(r"activities", ActivityViewSet)
 
 urlpatterns = router.urls + [
     path("status/connectivity/", ConnectivityStatusView.as_view(), name="connectivity-status"),
+    path("auth/login/", LoginView.as_view(), name="login"),
+    path("auth/logout/", LogoutView.as_view(), name="logout"),
 ]

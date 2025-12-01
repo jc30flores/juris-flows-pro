@@ -173,13 +173,14 @@ class StaffUser(models.Model):
         (CONTADOR, "Contador"),
     ]
 
-    name = models.CharField(max_length=150)
-    email = models.EmailField(blank=True)
+    full_name = models.CharField(max_length=255)
+    username = models.CharField(max_length=150, unique=True)
+    password = models.CharField(max_length=128)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
-    active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True)
 
     def __str__(self) -> str:
-        return f"{self.name} ({self.role})"
+        return f"{self.full_name} ({self.role})"
 
 
 class GeoDepartment(models.Model):

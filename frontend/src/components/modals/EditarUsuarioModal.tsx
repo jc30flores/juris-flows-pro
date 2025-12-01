@@ -28,11 +28,11 @@ const usuarioSchema = z.object({
     .string()
     .min(1, "El nombre es requerido")
     .max(100, "El nombre debe tener máximo 100 caracteres"),
-  email: z
+  usuario: z
     .string()
-    .email("El correo no es válido")
-    .optional()
-    .or(z.literal("") as unknown as z.ZodOptional<z.ZodString>),
+    .min(1, "El usuario es requerido")
+    .max(150, "El usuario debe tener máximo 150 caracteres"),
+  password: z.string().optional(),
   rol: z.enum(["ADMIN", "COLABORADOR", "CONTADOR"], {
     required_error: "Debe seleccionar un rol",
   }),
@@ -61,7 +61,8 @@ export function EditarUsuarioModal({
     resolver: zodResolver(usuarioSchema),
     defaultValues: {
       nombre: "",
-      email: "",
+      usuario: "",
+      password: "",
       rol: "COLABORADOR",
       activo: true,
     },
@@ -70,21 +71,26 @@ export function EditarUsuarioModal({
   useEffect(() => {
     if (usuario && open) {
       form.reset({
-        nombre: usuario.name || "",
-        email: usuario.email || "",
+        nombre: usuario.full_name || "",
+        usuario: usuario.username || "",
+        password: "",
         rol: usuario.role,
-        activo: usuario.active,
+        activo: usuario.is_active,
       });
     }
   }, [usuario, open, form]);
 
   const handleSubmit = async (data: z.infer<typeof usuarioSchema>) => {
     const payload: Partial<StaffUserPayload> = {
-      name: data.nombre,
-      email: data.email || undefined,
+      full_name: data.nombre,
+      username: data.usuario,
       role: data.rol,
-      active: data.activo,
+      is_active: data.activo,
     };
+
+    if (data.password) {
+      payload.password = data.password;
+    }
 
     try {
       setSubmitting(true);
@@ -147,11 +153,21 @@ export function EditarUsuarioModal({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="email">Correo Electrónico</Label>
-            <Input id="email" type="email" {...form.register("email")} />
-            {form.formState.errors.email && (
+            <Label htmlFor="usuario">Usuario</Label>
+            <Input id="usuario" {...form.register("usuario")} />
+            {form.formState.errors.usuario && (
               <p className="text-sm text-destructive">
-                {form.formState.errors.email.message}
+                {form.formState.errors.usuario.message}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="password">Contraseña (dejar vacía para mantener)</Label>
+            <Input id="password" type="password" {...form.register("password")} />
+            {form.formState.errors.password && (
+              <p className="text-sm text-destructive">
+                {form.formState.errors.password.message}
               </p>
             )}
           </div>

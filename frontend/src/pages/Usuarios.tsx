@@ -59,8 +59,8 @@ export default function Usuarios() {
     const query = search.toLowerCase();
     return users.filter((user) => {
       return (
-        user.name.toLowerCase().includes(query) ||
-        (user.email?.toLowerCase() || "").includes(query) ||
+        user.full_name.toLowerCase().includes(query) ||
+        user.username.toLowerCase().includes(query) ||
         user.role.toLowerCase().includes(query)
       );
     });
@@ -98,7 +98,7 @@ export default function Usuarios() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Buscar por nombre o email..."
+            placeholder="Buscar por nombre, usuario o rol..."
             className="pl-9"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -127,7 +127,8 @@ export default function Usuarios() {
                 <UserCog className="h-5 w-5 text-primary" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-base truncate">{usuario.name}</p>
+                <p className="font-semibold text-base truncate">{usuario.full_name}</p>
+                <p className="text-xs text-muted-foreground truncate">{usuario.username}</p>
                 <Badge variant="outline" className={getRolBadgeColor(usuario.role)}>
                   {usuario.role}
                 </Badge>
@@ -164,8 +165,8 @@ export default function Usuarios() {
             <thead className="bg-muted/50">
               <tr className="border-b border-border">
                 <th className="px-4 py-3 text-left text-sm font-medium">Nombre</th>
+                <th className="px-4 py-3 text-left text-sm font-medium">Usuario</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Rol</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Correo</th>
                 <th className="px-4 py-3 text-right text-sm font-medium">Acciones</th>
               </tr>
             </thead>
@@ -197,7 +198,8 @@ export default function Usuarios() {
                     key={usuario.id}
                     className="border-b border-border hover:bg-muted/30 transition-colors"
                   >
-                    <td className="px-4 py-3 font-medium">{usuario.name}</td>
+                    <td className="px-4 py-3 font-medium">{usuario.full_name}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{usuario.username}</td>
                     <td className="px-4 py-3">
                       <Badge
                         variant="outline"
@@ -205,9 +207,6 @@ export default function Usuarios() {
                       >
                         {usuario.role}
                       </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">
-                      {usuario.email || "-"}
                     </td>
                     <td className="px-4 py-3 text-right space-x-2">
                       <Button
