@@ -30,6 +30,13 @@ import {
 } from "@/types/invoice";
 import { Textarea } from "@/components/ui/textarea";
 
+const IVA_RATE = 0.13;
+
+const round2 = (value: number): number => {
+  if (isNaN(value)) return 0;
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+};
+
 const facturaSchema = z.object({
   date: z.string().min(1, "Debe seleccionar una fecha"),
   clienteId: z.string().min(1, "Debe seleccionar un cliente"),
@@ -67,27 +74,33 @@ export function NuevaFacturaModal({
 
   const form = useForm<z.infer<typeof facturaSchema>>({
     resolver: zodResolver(facturaSchema),
-    defaultValues: {
-      date: new Date().toISOString().split("T")[0],
-      tipoDTE: "CF",
-      metodoPago: "Efectivo",
-      clienteId: "",
-      observations: "",
-    },
+  defaultValues: {
+    date: new Date().toISOString().split("T")[0],
+    tipoDTE: "CF",
+    metodoPago: "Efectivo",
+    clienteId: "",
+    observations: "",
+  },
   });
 
-  const calcularSubtotal = () => {
-    return selectedServices.reduce((acc, s) => acc + Number(s.subtotal), 0);
-  };
+  const grossTotal = useMemo(
+    () =>
+      selectedServices.reduce((sum, item) => {
+        const qty = Number(item.quantity) || 0;
+        const priceWithVat = Number(item.price) || 0;
+        return sum + qty * priceWithVat;
+      }, 0),
+    [selectedServices],
+  );
 
-  const calcularIVA = () => {
-    const subtotal = calcularSubtotal();
-    return subtotal * 0.13;
-  };
+  const subtotal = useMemo(
+    () => round2(grossTotal / (1 + IVA_RATE)),
+    [grossTotal],
+  );
 
-  const calcularTotal = () => {
-    return calcularSubtotal() + calcularIVA();
-  };
+  const iva = useMemo(() => round2(subtotal * IVA_RATE), [subtotal]);
+
+  const total = useMemo(() => round2(subtotal + iva), [subtotal, iva]);
 
   const onSubmitForm = async (data: z.infer<typeof facturaSchema>) => {
     if (selectedServices.length === 0) {
@@ -114,7 +127,7 @@ export function NuevaFacturaModal({
       client: parseInt(data.clienteId, 10),
       doc_type: data.tipoDTE as InvoiceDocType,
       payment_method: data.metodoPago as PaymentMethod,
-      total: Number(calcularTotal().toFixed(2)),
+      total,
       observations: data.observations || "",
       services: servicesPayload,
     };
@@ -284,7 +297,7 @@ export function NuevaFacturaModal({
               <div className="flex items-center justify-between">
                 <Label>Resumen de servicios</Label>
                 <span className="text-sm text-muted-foreground">
-                  Total: ${calcularTotal().toFixed(2)}
+                  Total: ${total.toFixed(2)}
                 </span>
               </div>
 
@@ -358,15 +371,15 @@ export function NuevaFacturaModal({
             <div className="space-y-2 bg-muted/50 p-4 rounded-lg">
               <div className="flex justify-between text-sm">
                 <span>Subtotal:</span>
-                <span className="font-medium">${calcularSubtotal().toFixed(2)}</span>
+                <span className="font-medium">${subtotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span>IVA (13%):</span>
-                <span className="font-medium">${calcularIVA().toFixed(2)}</span>
+                <span className="font-medium">${iva.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-lg font-bold border-t border-border pt-2">
                 <span>Total:</span>
-                <span>${calcularTotal().toFixed(2)}</span>
+                <span>${total.toFixed(2)}</span>
               </div>
             </div>
           )}
