@@ -135,7 +135,7 @@ def _number_to_words(n: int) -> str:
     return f"{prefix} {_number_to_words_0_999(resto)}"
 
 
-def amount_to_words_usd(amount) -> str:
+def amount_to_spanish_words(amount) -> str:
     dec = Decimal(str(amount))
     dec = _round_2(dec)
     enteros = int(dec)
@@ -343,7 +343,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         "totalGravada": float(total_gross),
         "descuExenta": 0,
         "subTotal": float(total_gross),
-        "totalLetras": amount_to_words_usd(total_gross),
+        "totalLetras": amount_to_spanish_words(total_gross),
         "descuNoSuj": 0,
         "subTotalVentas": float(total_gross),
         "reteRenta": 0,
@@ -538,7 +538,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
 
     items: list[InvoiceItem] = list(invoice.items.select_related("service"))
     cuerpo_documento = []
-    total_gravada = Decimal("0.00")
+    total_gross = Decimal("0.00")
     total_iva = Decimal("0.00")
 
     for index, item in enumerate(items, start=1):
@@ -547,7 +547,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         gross_line = quantity * unit_price
         line_base, iva_line = split_gross_amount_with_tax(gross_line)
 
-        total_gravada += line_base
+        total_gross += gross_line
         total_iva += iva_line
 
         service: Service | None = getattr(item, "service", None)
@@ -570,15 +570,15 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
                 "psv": 0,
                 "precioUni": float(_round_2(unit_price)),
                 "descripcion": descripcion,
-                "ventaGravada": float(_round_2(line_base)),
+                "ventaGravada": float(_round_2(gross_line)),
                 "numeroDocumento": None,
             }
         )
 
-    total_gravada = _round_2(total_gravada)
+    total_gross = _round_2(total_gross)
     total_iva = _round_2(total_iva)
-    total_operacion = _round_2(total_gravada + total_iva)
-    total_letras = f"{float(total_operacion)} DOLARES"
+    total_operacion = _round_2(total_gross)
+    total_letras = amount_to_spanish_words(total_operacion)
 
     resumen = {
         "totalDescu": 0,
@@ -595,12 +595,12 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         "porcentajeDescuento": 0,
         "saldoFavor": 0,
         "totalNoGravado": 0,
-        "totalGravada": float(total_gravada),
+        "totalGravada": float(total_gross),
         "descuExenta": 0,
-        "subTotal": float(total_gravada),
+        "subTotal": float(total_gross),
         "totalLetras": total_letras,
         "descuNoSuj": 0,
-        "subTotalVentas": float(total_gravada),
+        "subTotalVentas": float(total_gross),
         "reteRenta": 0,
         "tributos": [
             {
@@ -843,7 +843,7 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         "reteRenta": 0,
         "condicionOperacion": 1,
         "ivaRete1": 0,
-        "totalLetras": f"{_format_currency(total_pagar)} DOLARES",
+        "totalLetras": amount_to_spanish_words(total_pagar),
         "totalCompra": _format_currency(total_compra),
         "totalPagar": _format_currency(total_pagar),
     }
