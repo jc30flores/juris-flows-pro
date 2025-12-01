@@ -15,7 +15,7 @@ from .models import (
     ServiceCategory,
     StaffUser,
 )
-from .connectivity import CONNECTIVITY_STATUS
+from .connectivity import get_connectivity_status
 from .serializers import (
     ActivitySerializer,
     ClientSerializer,
@@ -40,7 +40,7 @@ class ConnectivityStatusView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        return Response(CONNECTIVITY_STATUS)
+        return Response(get_connectivity_status())
 
 
 class ServiceViewSet(viewsets.ModelViewSet):

@@ -2,7 +2,7 @@ import logging
 import random
 import threading
 import time
-from typing import Dict
+from typing import Dict, Tuple
 
 import requests
 from django.conf import settings
@@ -23,13 +23,13 @@ CONNECTIVITY_STATUS: Dict[str, Dict[str, object]] = {
     "internet": {
         "ok": False,
         "last_ok": None,
-        "last_fail": None,
+        "last_error": None,
         "reason": "init",
     },
     "api": {
         "ok": False,
         "last_ok": None,
-        "last_fail": None,
+        "last_error": None,
         "reason": "init",
     },
 }
@@ -62,37 +62,28 @@ class ConnectivitySentinel:
         if ok:
             entry["last_ok"] = now_iso
         else:
-            entry["last_fail"] = now_iso
+            entry["last_error"] = now_iso
+
+    def _check_target(self, target: str, url: str) -> Tuple[bool, str]:
+        try:
+            response = requests.get(url, timeout=self.timeout)
+            if response.status_code in (200, 204):
+                return True, "ok"
+            return False, f"status_{response.status_code}"
+        except requests.RequestException as exc:  # pragma: no cover - external IO
+            logger.warning("Connectivity check failed for %s: %s", target, exc)
+            return False, f"network_error:{exc}"
 
     def run_once(self) -> None:
-        internet_ok = False
-        internet_reason = "none"
-        try:
-            response = requests.get(self.internet_url, timeout=self.timeout)
-            if response.status_code in (200, 204):
-                internet_ok = True
-            else:
-                internet_reason = f"status_{response.status_code}"
-        except requests.RequestException as exc:
-            internet_reason = f"network_error: {exc}"
-
+        internet_ok, internet_reason = self._check_target("internet", self.internet_url)
         self._mark_status("internet", internet_ok, internet_reason if not internet_ok else "none")
 
         if not internet_ok:
+            # Without internet, API state is unknown/dependent
             self._mark_status("api", False, "internet_down")
             return
 
-        api_ok = False
-        api_reason = "none"
-        try:
-            response = requests.get(self.api_url, timeout=self.timeout)
-            if response.status_code == 200:
-                api_ok = True
-            else:
-                api_reason = f"status_{response.status_code}"
-        except requests.RequestException as exc:
-            api_reason = f"network_error: {exc}"
-
+        api_ok, api_reason = self._check_target("api", self.api_url)
         self._mark_status("api", api_ok, api_reason if not api_ok else "none")
 
     def _loop(self) -> None:
