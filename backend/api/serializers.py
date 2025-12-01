@@ -1,8 +1,10 @@
+import logging
 from decimal import Decimal
 
 from django.utils import timezone
 from rest_framework import serializers
 
+from .dte_cf_service import send_cf_dte_for_invoice
 from .models import (
     Activity,
     Client,
@@ -15,6 +17,8 @@ from .models import (
     ServiceCategory,
     StaffUser,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ServiceCategorySerializer(serializers.ModelSerializer):
@@ -86,6 +90,13 @@ class InvoiceSerializer(serializers.ModelSerializer):
         )
 
         self._upsert_items(invoice, normalized_items, replace=True)
+        try:
+            if invoice.doc_type == Invoice.CF:
+                send_cf_dte_for_invoice(invoice)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "Error sending CF DTE for invoice %s", invoice.id, exc_info=exc
+            )
         return invoice
 
     def update(self, instance, validated_data):

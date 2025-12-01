@@ -21,6 +21,7 @@ export interface Invoice {
   doc_type: InvoiceDocType;
   payment_method: PaymentMethod;
   dte_status: DteStatus;
+  observations?: string;
   total: number | string;
   created_at: string;
   updated_at: string;
@@ -48,5 +49,6 @@ export interface InvoicePayload {
   doc_type: InvoiceDocType;
   payment_method: PaymentMethod;
   total: number;
+  observations?: string;
   services: SelectedServicePayload[];
 }

@@ -28,6 +28,7 @@ import {
   PaymentMethod,
   SelectedServicePayload,
 } from "@/types/invoice";
+import { Textarea } from "@/components/ui/textarea";
 
 const facturaSchema = z.object({
   date: z.string().min(1, "Debe seleccionar una fecha"),
@@ -38,6 +39,7 @@ const facturaSchema = z.object({
   metodoPago: z.enum(["Efectivo", "Tarjeta", "Transferencia", "Cheque"], {
     required_error: "Debe seleccionar un método de pago",
   }),
+  observations: z.string().optional(),
 });
 
 interface NuevaFacturaModalProps {
@@ -70,6 +72,7 @@ export function NuevaFacturaModal({
       tipoDTE: "CF",
       metodoPago: "Efectivo",
       clienteId: "",
+      observations: "",
     },
   });
 
@@ -112,6 +115,7 @@ export function NuevaFacturaModal({
       doc_type: data.tipoDTE as InvoiceDocType,
       payment_method: data.metodoPago as PaymentMethod,
       total: Number(calcularTotal().toFixed(2)),
+      observations: data.observations || "",
       services: servicesPayload,
     };
 
@@ -127,6 +131,7 @@ export function NuevaFacturaModal({
         clienteId: "",
         tipoDTE: "CF",
         metodoPago: "Efectivo",
+        observations: "",
       });
       onOpenChange(false);
     } catch (error) {
@@ -158,6 +163,7 @@ export function NuevaFacturaModal({
         clienteId: invoice.client.toString(),
         tipoDTE: invoice.doc_type,
         metodoPago: invoice.payment_method as PaymentMethod,
+        observations: invoice.observations || "",
       });
     }
 
@@ -167,6 +173,7 @@ export function NuevaFacturaModal({
         clienteId: "",
         tipoDTE: "CF",
         metodoPago: "Efectivo",
+        observations: "",
       });
     }
   }, [invoice, mode, open, form]);
@@ -335,6 +342,16 @@ export function NuevaFacturaModal({
                 </p>
               )}
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="observations">Observaciones</Label>
+            <Textarea
+              id="observations"
+              placeholder="Comentarios u observaciones adicionales"
+              rows={3}
+              {...form.register("observations")}
+            />
           </div>
 
           {selectedServices.length > 0 && (
