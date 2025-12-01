@@ -33,8 +33,21 @@ import { Textarea } from "@/components/ui/textarea";
 const IVA_RATE = 0.13;
 
 const round2 = (value: number): number => {
-  if (isNaN(value)) return 0;
+  if (!isFinite(value)) return 0;
+  // ROUND HALF UP: si el tercer decimal >= 5, sube el segundo
   return Math.round((value + Number.EPSILON) * 100) / 100;
+};
+
+const splitGrossAmount = (gross: number) => {
+  // gross = total con IVA incluido
+  const grossRounded = round2(gross); // Aseguramos 2 decimales base
+  const baseUnrounded = grossRounded / (1 + IVA_RATE);
+  const ivaUnrounded = grossRounded - baseUnrounded;
+
+  const iva = round2(ivaUnrounded); // redondeo correcto de IVA
+  const subtotal = round2(grossRounded - iva); // lo que queda es la base
+
+  return { subtotal, iva, total: grossRounded };
 };
 
 const facturaSchema = z.object({
@@ -93,14 +106,10 @@ export function NuevaFacturaModal({
     [selectedServices],
   );
 
-  const subtotal = useMemo(
-    () => round2(grossTotal / (1 + IVA_RATE)),
+  const { subtotal, iva, total } = useMemo(
+    () => splitGrossAmount(grossTotal),
     [grossTotal],
   );
-
-  const iva = useMemo(() => round2(subtotal * IVA_RATE), [subtotal]);
-
-  const total = useMemo(() => round2(subtotal + iva), [subtotal, iva]);
 
   const onSubmitForm = async (data: z.infer<typeof facturaSchema>) => {
     if (selectedServices.length === 0) {
