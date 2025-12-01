@@ -70,7 +70,6 @@ class ConnectivitySentinel:
             response = requests.get(url, timeout=self.timeout)
             status_code = response.status_code
             if status_code in (200, 204):
-                print(f"[CONNECTIVITY] {target_name.upper()} OK (status={status_code})")
                 return True, "ok"
             reason = f"status_{status_code}"
             print(f"[CONNECTIVITY] {target_name.upper()} FAIL (status={status_code}, reason={reason})")
@@ -81,7 +80,6 @@ class ConnectivitySentinel:
             return False, f"network_error:{exc}"
 
     def run_once(self) -> None:
-        print("[CONNECTIVITY] Ejecutando chequeo de conectividad...")
         internet_ok, internet_reason = self._check_target("internet", self.internet_url)
         self._mark_status("internet", internet_ok, internet_reason if not internet_ok else "none")
 
