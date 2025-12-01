@@ -7,14 +7,14 @@ export interface Client {
   client_type: ClientType;
   dui?: string | null;
   nit?: string | null;
+  nrc?: string | null;
   phone?: string | null;
   email?: string | null;
-  nrc?: string | null;
-  giro?: string | null;
   direccion?: string | null;
   department_code?: string | null;
   municipality_code?: string | null;
   activity_code?: string | null;
+  activity_description?: string | null;
 }
 
 export interface ClientPayload {
@@ -23,9 +23,12 @@ export interface ClientPayload {
   client_type: ClientType;
   dui?: string;
   nit?: string;
+  nrc?: string;
   phone?: string;
   email?: string;
+  direccion?: string;
   department_code?: string | null;
   municipality_code?: string | null;
   activity_code?: string | null;
+  activity_description?: string | null;
 }

@@ -38,11 +38,14 @@ class Client(models.Model):
     client_type = models.CharField(max_length=3, choices=CLIENT_TYPE_CHOICES)
     dui = models.CharField(max_length=25, blank=True)
     nit = models.CharField(max_length=25, blank=True)
+    nrc = models.CharField(max_length=10, blank=True)
     phone = models.CharField(max_length=30, blank=True)
     email = models.EmailField(blank=True)
+    direccion = models.TextField(blank=True, default="")
     department_code = models.CharField(max_length=4, blank=True, null=True)
     municipality_code = models.CharField(max_length=4, blank=True, null=True)
     activity_code = models.CharField(max_length=10, blank=True, null=True)
+    activity_description = models.CharField(max_length=255, blank=True, default="")
 
     def __str__(self) -> str:
         return self.company_name or self.full_name

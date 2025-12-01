@@ -64,7 +64,6 @@ const clienteSchemaBase = z.object({
   nombreComercial: z.string().optional(),
   nit: z.string().optional(),
   nrc: z.string().optional(),
-  giro: z.string().optional(),
   direccion: z.string().optional(),
 });
 
@@ -90,6 +89,7 @@ export function EditarClienteModal({
   const [departmentCode, setDepartmentCode] = useState("");
   const [municipalityCode, setMunicipalityCode] = useState("");
   const [activityCode, setActivityCode] = useState("");
+  const [activityDescription, setActivityDescription] = useState("");
   const [activitySearch, setActivitySearch] = useState("");
   const [openDept, setOpenDept] = useState(false);
   const [openMunicipality, setOpenMunicipality] = useState(false);
@@ -106,10 +106,11 @@ export function EditarClienteModal({
       nombreComercial: "",
       nit: "",
       nrc: "",
-      giro: "",
       direccion: "",
     },
   });
+
+  const digitsOnly = (value: string) => value.replace(/\D/g, "");
 
   const municipalitiesByDept = useMemo(
     () =>
@@ -135,12 +136,19 @@ export function EditarClienteModal({
     [activities, activityCode],
   );
 
+  const activityLabel = selectedActivity
+    ? `${selectedActivity.description} (${selectedActivity.code})`
+    : activityDescription
+    ? `${activityDescription}${activityCode ? ` (${activityCode})` : ""}`
+    : "";
+
   useEffect(() => {
     if (cliente && open) {
       setTipoFiscal(cliente.client_type);
       setDepartmentCode(cliente.department_code || "");
       setMunicipalityCode(cliente.municipality_code || "");
       setActivityCode(cliente.activity_code || "");
+      setActivityDescription(cliente.activity_description || "");
       form.reset({
         nombre: cliente.full_name || "",
         telefono: cliente.phone || "",
@@ -150,27 +158,52 @@ export function EditarClienteModal({
         nombreComercial: cliente.company_name || "",
         nit: cliente.nit || "",
         nrc: cliente.nrc || "",
-        giro: cliente.giro || "",
         direccion: cliente.direccion || "",
       });
     }
   }, [cliente, open, form]);
 
   const handleSubmit = async (values: z.infer<typeof clienteSchemaBase>) => {
+    const nitDigits = digitsOnly(values.nit || "");
+    if (nitDigits && nitDigits.length !== 14) {
+      toast({
+        title: "NIT inválido",
+        description: "El NIT debe tener 14 dígitos",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const nrcDigits = digitsOnly(values.nrc || "");
+    if (nrcDigits && (nrcDigits.length < 6 || nrcDigits.length > 8)) {
+      toast({
+        title: "NRC inválido",
+        description: "El NRC debe tener entre 6 y 8 dígitos",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const payload: Partial<ClientPayload> = {
       full_name: values.nombre,
       company_name: values.nombreComercial || undefined,
       client_type: values.tipoFiscal,
       dui: values.dui || undefined,
-      nit: values.nit || undefined,
+      nit: nitDigits || undefined,
+      nrc: nrcDigits || undefined,
       phone: values.telefono || undefined,
       email: values.correo || undefined,
+      direccion: values.direccion || undefined,
       department_code: departmentCode || null,
       municipality_code: municipalityCode || null,
       activity_code:
         ["CCF", "SX"].includes(values.tipoFiscal) && activityCode
           ? activityCode
           : null,
+      activity_description:
+        ["CCF", "SX"].includes(values.tipoFiscal)
+          ? activityDescription || undefined
+          : undefined,
     };
 
     try {
@@ -227,17 +260,17 @@ export function EditarClienteModal({
       form.setValue("nombreComercial", "");
       form.setValue("nit", "");
       form.setValue("nrc", "");
-      form.setValue("giro", "");
       form.setValue("direccion", "");
       setActivityCode("");
+      setActivityDescription("");
     } else if (newTipo === "SX") {
       form.setValue("dui", "");
       form.setValue("nombreComercial", "");
       form.setValue("nit", "");
       form.setValue("nrc", "");
-      form.setValue("giro", "");
       form.setValue("direccion", "");
       setActivityCode("");
+      setActivityDescription("");
     }
   };
 
@@ -335,7 +368,13 @@ export function EditarClienteModal({
                     <FormItem>
                       <FormLabel>NIT</FormLabel>
                       <FormControl>
-                        <Input placeholder="0000-000000-000-0" {...field} />
+                        <Input
+                          placeholder="0000-000000-000-0"
+                          {...field}
+                          onChange={(event) =>
+                            field.onChange(digitsOnly(event.target.value).slice(0, 14))
+                          }
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -348,20 +387,13 @@ export function EditarClienteModal({
                     <FormItem>
                       <FormLabel>NRC</FormLabel>
                       <FormControl>
-                        <Input placeholder="000000-0" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="giro"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Giro</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Actividad económica" {...field} />
+                        <Input
+                          placeholder="000000-0"
+                          {...field}
+                          onChange={(event) =>
+                            field.onChange(digitsOnly(event.target.value).slice(0, 8))
+                          }
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -476,8 +508,8 @@ export function EditarClienteModal({
                       className="w-full justify-between"
                       disabled={loading}
                     >
-                      {selectedActivity
-                        ? `${selectedActivity.description} (${selectedActivity.code})`
+                      {activityLabel
+                        ? activityLabel
                         : loading
                           ? "Cargando..."
                           : "Selecciona una actividad"}
@@ -506,6 +538,7 @@ export function EditarClienteModal({
                               value={`${activity.description} ${activity.code}`}
                               onSelect={() => {
                                 setActivityCode(activity.code);
+                                setActivityDescription(activity.description);
                                 setOpenActivity(false);
                               }}
                             >

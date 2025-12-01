@@ -499,16 +499,23 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
     client_name = (client.company_name if client else "") or (client.full_name if client else "") or "CLIENTE"
     client_trade_name = client.company_name if client and client.company_name else client_name
     client_nit = (client.nit if client else "") or ""
-    client_nrc = getattr(client, "nrc", "") or ""
+    raw_nrc = getattr(client, "nrc", "") or ""
+    client_nrc_digits = "".join(ch for ch in raw_nrc if str(ch).isdigit())
+    client_nrc = (
+        client_nrc_digits if 6 <= len(client_nrc_digits) <= 8 else None
+    )
     client_phone = (client.phone if client else "") or "00000000"
     client_email = (client.email if client else "") or None
-    client_cod_act = getattr(client, "activity_code", None)
-    client_desc_act = getattr(client, "activity_description", None)
+    client_cod_act = getattr(client, "activity_code", None) or None
+    client_desc_act = (
+        getattr(client, "activity_description", None) or None
+    )
 
     client_address = {
         "municipio": (client.municipality_code if client else None)
         or emitter_address.get("municipio", "22"),
-        "complemento": emitter_address.get("complemento", ""),
+        "complemento": (getattr(client, "direccion", None) or "")
+        or emitter_address.get("complemento", ""),
         "departamento": (client.department_code if client else None)
         or emitter_address.get("departamento", "12"),
     }
@@ -519,11 +526,15 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         "direccion": client_address,
         "correo": client_email,
         "nit": client_nit,
-        "nrc": client_nrc,
         "telefono": client_phone,
-        "codActividad": client_cod_act,
-        "descActividad": client_desc_act,
     }
+
+    if client_nrc:
+        receptor["nrc"] = client_nrc
+    if client_cod_act:
+        receptor["codActividad"] = client_cod_act
+    if client_desc_act or client_cod_act:
+        receptor["descActividad"] = client_desc_act or "Actividad no especificada"
 
     items: list[InvoiceItem] = list(invoice.items.select_related("service"))
     cuerpo_documento = []
