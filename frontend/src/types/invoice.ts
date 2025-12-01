@@ -2,7 +2,13 @@ export type InvoiceDocType = "CF" | "CCF" | "SX";
 
 export type PaymentMethod = "Efectivo" | "Tarjeta" | "Transferencia" | "Cheque";
 
-export type DteStatus = "Aprobado" | "Pendiente" | "Rechazado";
+export type DteStatus =
+  | "Aprobado"
+  | "Pendiente"
+  | "Rechazado"
+  | "ACEPTADO"
+  | "RECHAZADO"
+  | "ERROR";
 
 export interface InvoiceItem {
   id: number;
@@ -21,6 +27,8 @@ export interface Invoice {
   doc_type: InvoiceDocType;
   payment_method: PaymentMethod;
   dte_status: DteStatus;
+  dte_message?: string;
+  observations?: string;
   total: number | string;
   created_at: string;
   updated_at: string;
@@ -34,13 +42,20 @@ export interface InvoiceItemPayload {
   subtotal: number;
 }
 
+export interface SelectedServicePayload {
+  service_id: number;
+  name: string;
+  price: number;
+  quantity: number;
+  subtotal: number;
+}
+
 export interface InvoicePayload {
-  number: string;
   date: string;
   client: number;
   doc_type: InvoiceDocType;
   payment_method: PaymentMethod;
-  dte_status: DteStatus;
   total: number;
-  items?: InvoiceItemPayload[];
+  observations?: string;
+  services: SelectedServicePayload[];
 }
