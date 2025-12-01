@@ -65,16 +65,23 @@ class ConnectivitySentinel:
             entry["last_error"] = now_iso
 
     def _check_target(self, target: str, url: str) -> Tuple[bool, str]:
+        target_name = target.lower()
         try:
             response = requests.get(url, timeout=self.timeout)
-            if response.status_code in (200, 204):
+            status_code = response.status_code
+            if status_code in (200, 204):
+                print(f"[CONNECTIVITY] {target_name.upper()} OK (status={status_code})")
                 return True, "ok"
-            return False, f"status_{response.status_code}"
+            reason = f"status_{status_code}"
+            print(f"[CONNECTIVITY] {target_name.upper()} FAIL (status={status_code}, reason={reason})")
+            return False, reason
         except requests.RequestException as exc:  # pragma: no cover - external IO
             logger.warning("Connectivity check failed for %s: %s", target, exc)
+            print(f"[CONNECTIVITY] {target_name.upper()} ERROR de red: {exc}")
             return False, f"network_error:{exc}"
 
     def run_once(self) -> None:
+        print("[CONNECTIVITY] Ejecutando chequeo de conectividad...")
         internet_ok, internet_reason = self._check_target("internet", self.internet_url)
         self._mark_status("internet", internet_ok, internet_reason if not internet_ok else "none")
 
@@ -92,6 +99,7 @@ class ConnectivitySentinel:
                 self.run_once()
             except Exception:  # pragma: no cover - defensive
                 logger.exception("Connectivity sentinel run_once failed")
+            print("[CONNECTIVITY] Centinela en ejecución (loop de chequeo).")
             sleep_for = self.interval + random.uniform(0, max(1.0, self.interval * 0.1))
             time.sleep(sleep_for)
 
