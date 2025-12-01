@@ -598,7 +598,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         "porcentajeDescuento": 0,
         "saldoFavor": 0,
         "totalNoGravado": 0,
-        "totalGravada": float(total_base),
+        "totalGravada": float(total_gross),
         "descuExenta": 0,
         "subTotal": float(total_base),
         "totalLetras": total_letras,
