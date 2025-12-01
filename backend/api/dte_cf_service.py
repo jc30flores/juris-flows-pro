@@ -154,51 +154,39 @@ def amount_to_words_usd(amount) -> str:
 
 def interpret_dte_response(response_data: dict) -> Tuple[str, str, str]:
     """
-    Retorna (estado_interno, estado_hacienda, mensaje_usuario).
-    - estado_interno: "ACEPTADO" | "RECHAZADO" | "PENDIENTE"
-    - estado_hacienda: valor de 'estado' de Hacienda (p.ej. "RECIBIDO", "RECHAZADO", "SIN_RESPUESTA")
-    - mensaje_usuario: texto que se usará para mostrar al usuario
+    Retorna (estado_interno, estado_hacienda, mensaje_usuario):
+      - estado_interno: "ACEPTADO" | "RECHAZADO" | "PENDIENTE"
+      - estado_hacienda: string devuelto por Hacienda (o "SIN_RESPUESTA")
+      - mensaje_usuario: mensaje para mostrar en frontend
     """
+    success = response_data.get("success", None)
 
-    success = response_data.get("success") if isinstance(response_data, dict) else None
-
-    if success is True:
-        data = response_data.get("data") if isinstance(response_data, dict) else None
-        if not data and isinstance(response_data, dict):
-            data = response_data
-        hacienda_resp = data.get("hacienda_response") if isinstance(data, dict) else None
-        if not hacienda_resp and isinstance(data, dict):
-            hacienda_resp = data
-        estado_hacienda = (hacienda_resp or {}).get("estado", "") if isinstance(hacienda_resp, dict) else ""
-
-        if estado_hacienda in ("RECIBIDO", "PROCESADO", "ACEPTADO"):
-            return "ACEPTADO", estado_hacienda, "DTE aceptado por Hacienda."
-
-        estado_hacienda = estado_hacienda or "DESCONOCIDO"
-        return (
-            "PENDIENTE",
-            estado_hacienda,
-            "DTE enviado, en espera de confirmación de Hacienda.",
-        )
-
+    # Caso de rechazo explícito de Hacienda (success = false)
     if success is False:
-        error = response_data.get("error") if isinstance(response_data, dict) else {}
-        hacienda_resp = error.get("hacienda_response") if isinstance(error, dict) else {}
-        estado_hacienda = hacienda_resp.get("estado", "RECHAZADO") if isinstance(hacienda_resp, dict) else "RECHAZADO"
-        desc = None
-        if isinstance(hacienda_resp, dict):
-            desc = hacienda_resp.get("descripcionMsg")
-        if not desc and isinstance(error, dict):
-            desc = error.get("message")
-        desc = desc or "El DTE fue rechazado por Hacienda."
-        mensaje_usuario = f"Hacienda rechazó el DTE: {desc}"
-        return "RECHAZADO", estado_hacienda, mensaje_usuario
+        error = response_data.get("error") or {}
+        hresp = error.get("respuesta_hacienda") or error.get("hacienda_response") or {}
+        estado_h = hresp.get("estado", "RECHAZADO")
+        desc = hresp.get("descripcionMsg") or error.get("message") or "El DTE fue rechazado por Hacienda."
+        msg = f"Hacienda rechazó el DTE: {desc}"
+        return "RECHAZADO", estado_h, msg
 
-    return (
-        "PENDIENTE",
-        "SIN_RESPUESTA",
-        "DTE en estado PENDIENTE: la respuesta de la API no se pudo interpretar.",
-    )
+    # Caso de éxito (success = true)
+    if success is True:
+        hresp = response_data.get("respuesta_hacienda") or response_data.get("hacienda_response") or {}
+        estado_h = hresp.get("estado", "")
+        desc = hresp.get("descripcionMsg", "")
+
+        # ACEPTADO: estado PROCESADO/RECIBIDO (Documento procesado exitosamente)
+        if estado_h in ("PROCESADO", "RECIBIDO") or desc.upper().strip() == "RECIBIDO":
+            msg = "DTE aceptado por Hacienda (RECIBIDO)."
+            return "ACEPTADO", estado_h or "RECIBIDO", msg
+
+        # Cualquier otro estado con success=true → dejamos PENDIENTE
+        msg = f"DTE enviado, en espera de confirmación de Hacienda (estado='{estado_h or 'DESCONOCIDO'}')."
+        return "PENDIENTE", estado_h or "DESCONOCIDO", msg
+
+    # Cualquier otro caso (sin campo success, HTML, etc.) → PENDIENTE
+    return "PENDIENTE", "SIN_RESPUESTA", "DTE en estado PENDIENTE: la respuesta de la API no se pudo interpretar."
 
 
 EMITTER_INFO = {
@@ -471,7 +459,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
         estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
-        record.hacienda_state = estado_hacienda or record.hacienda_state
+        record.hacienda_state = estado_hacienda
         record.status = estado_interno
         record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
 
@@ -719,7 +707,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
         estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
-        record.hacienda_state = estado_hacienda or record.hacienda_state
+        record.hacienda_state = estado_hacienda
         record.status = estado_interno
         record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
 
@@ -933,7 +921,7 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
         estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
-        record.hacienda_state = estado_hacienda or record.hacienda_state
+        record.hacienda_state = estado_hacienda
         record.status = estado_interno
         record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
 
