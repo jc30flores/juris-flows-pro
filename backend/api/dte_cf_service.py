@@ -270,9 +270,9 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
     random_suffix = "".join(str(random.randint(0, 9)) for _ in range(15))
     numero_control = f"DTE-01-M002P001-{random_suffix}"
 
-    now = timezone.localtime()
-    fec_emi = invoice.date.isoformat()
-    hor_emi = now.strftime("%H:%M:%S")
+    now_local = timezone.localtime()
+    fec_emi = now_local.date().isoformat()
+    hor_emi = now_local.strftime("%H:%M:%S")
 
     receptor, receiver_nit, receiver_name = _build_receptor(invoice)
     items: list[InvoiceItem] = list(invoice.items.select_related("service"))
@@ -489,9 +489,9 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
     random_suffix = "".join(str(random.randint(0, 9)) for _ in range(15))
     numero_control = f"DTE-03-M002P001-{random_suffix}"
 
-    now = timezone.localtime()
-    fec_emi = invoice.date.isoformat()
-    hor_emi = now.strftime("%H:%M:%S")
+    now_local = timezone.localtime()
+    fec_emi = now_local.date().isoformat()
+    hor_emi = now_local.strftime("%H:%M:%S")
 
     client = getattr(invoice, "client", None)
     emitter_address = EMITTER_INFO["direccion"]
@@ -737,9 +737,9 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
     random_suffix = "".join(str(random.randint(0, 9)) for _ in range(15))
     numero_control = f"DTE-14-M002P001-{random_suffix}"
 
-    now = timezone.localtime()
-    fec_emi = invoice.date.isoformat()
-    hor_emi = now.strftime("%H:%M:%S")
+    now_local = timezone.localtime()
+    fec_emi = now_local.date().isoformat()
+    hor_emi = now_local.strftime("%H:%M:%S")
 
     client = getattr(invoice, "client", None)
     se_tipo_documento = "13"
