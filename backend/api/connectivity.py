@@ -99,7 +99,6 @@ class ConnectivitySentinel:
                 self.run_once()
             except Exception:  # pragma: no cover - defensive
                 logger.exception("Connectivity sentinel run_once failed")
-            print("[CONNECTIVITY] Centinela en ejecución (loop de chequeo).")
             sleep_for = self.interval + random.uniform(0, max(1.0, self.interval * 0.1))
             time.sleep(sleep_for)
 
