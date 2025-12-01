@@ -136,7 +136,7 @@ export default function POS() {
       const price = Number(item.unit_price || service?.base_price || 0);
       const quantity = item.quantity || 1;
       return {
-        serviceId: item.service,
+        service_id: item.service,
         name: service?.name || `Servicio ${item.service}`,
         price,
         quantity,

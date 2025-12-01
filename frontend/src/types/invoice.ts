@@ -35,7 +35,7 @@ export interface InvoiceItemPayload {
 }
 
 export interface SelectedServicePayload {
-  serviceId: number;
+  service_id: number;
   name: string;
   price: number;
   quantity: number;

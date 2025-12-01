@@ -98,7 +98,7 @@ export function NuevaFacturaModal({
 
     const servicesPayload: SelectedServicePayload[] = selectedServices.map(
       (item) => ({
-        serviceId: item.serviceId,
+        service_id: item.service_id,
         name: item.name,
         price: item.price,
         quantity: item.quantity,
@@ -294,10 +294,10 @@ export function NuevaFacturaModal({
                       </thead>
                       <tbody>
                         {selectedServices.map((servicio) => (
-                          <tr key={servicio.serviceId} className="border-t border-border">
+                          <tr key={servicio.service_id} className="border-t border-border">
                             <td className="px-4 py-3">
                               <p className="font-medium leading-tight">{servicio.name}</p>
-                              <p className="text-xs text-muted-foreground">ID: {servicio.serviceId}</p>
+                              <p className="text-xs text-muted-foreground">ID: {servicio.service_id}</p>
                             </td>
                             <td className="px-4 py-3 text-center">{servicio.quantity}</td>
                             <td className="px-4 py-3 text-right font-semibold">
@@ -310,13 +310,13 @@ export function NuevaFacturaModal({
                   </div>
 
                   <div className="grid gap-3 sm:hidden">
-                    {selectedServices.map((servicio) => (
-                      <div
-                        key={servicio.serviceId}
-                        className="rounded-lg border border-border p-3 space-y-1"
-                      >
-                        <p className="text-sm font-medium leading-tight">{servicio.name}</p>
-                        <p className="text-xs text-muted-foreground">ID: {servicio.serviceId}</p>
+                  {selectedServices.map((servicio) => (
+                    <div
+                      key={servicio.service_id}
+                      className="rounded-lg border border-border p-3 space-y-1"
+                    >
+                      <p className="text-sm font-medium leading-tight">{servicio.name}</p>
+                      <p className="text-xs text-muted-foreground">ID: {servicio.service_id}</p>
                         <div className="flex items-center justify-between text-sm">
                           <span>Cantidad:</span>
                           <span className="font-medium">{servicio.quantity}</span>

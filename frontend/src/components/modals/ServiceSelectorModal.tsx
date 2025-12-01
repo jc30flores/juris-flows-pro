@@ -42,7 +42,7 @@ export function ServiceSelectorModal({
 
   const updateQuantity = (service: Service, delta: number) => {
     setSelected((prev) => {
-      const existingIndex = prev.findIndex((item) => item.serviceId === service.id);
+      const existingIndex = prev.findIndex((item) => item.service_id === service.id);
       if (existingIndex !== -1) {
         const updated = [...prev];
         const current = updated[existingIndex];
@@ -65,7 +65,7 @@ export function ServiceSelectorModal({
       return [
         ...prev,
         {
-          serviceId: service.id,
+          service_id: service.id,
           name: service.name,
           price,
           quantity: 1,
@@ -176,10 +176,10 @@ export function ServiceSelectorModal({
                     </thead>
                     <tbody>
                       {selected.map((item) => (
-                        <tr key={item.serviceId} className="border-t border-border">
+                        <tr key={item.service_id} className="border-t border-border">
                           <td className="px-4 py-3">
                             <p className="font-medium leading-tight">{item.name}</p>
-                            <p className="text-xs text-muted-foreground">ID: {item.serviceId}</p>
+                            <p className="text-xs text-muted-foreground">ID: {item.service_id}</p>
                           </td>
                           <td className="px-4 py-3 text-center">{item.quantity}</td>
                           <td className="px-4 py-3 text-right font-semibold">
@@ -194,11 +194,11 @@ export function ServiceSelectorModal({
                 <div className="grid gap-3 sm:hidden">
                   {selected.map((item) => (
                     <div
-                      key={item.serviceId}
+                      key={item.service_id}
                       className="rounded-lg border border-border p-3 space-y-1"
                     >
                       <p className="text-sm font-medium leading-tight">{item.name}</p>
-                      <p className="text-xs text-muted-foreground">ID: {item.serviceId}</p>
+                      <p className="text-xs text-muted-foreground">ID: {item.service_id}</p>
                       <div className="flex items-center justify-between text-sm">
                         <span>Cantidad:</span>
                         <span className="font-medium">{item.quantity}</span>

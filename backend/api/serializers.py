@@ -36,6 +36,9 @@ class ClientSerializer(serializers.ModelSerializer):
 
 
 class InvoiceItemSerializer(serializers.ModelSerializer):
+    service_id = serializers.IntegerField(write_only=True, required=False)
+    service = ServiceSerializer(read_only=True)
+
     class Meta:
         model = InvoiceItem
         fields = "__all__"
@@ -43,7 +46,9 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
 
 
 class InvoiceServiceInputSerializer(serializers.Serializer):
-    serviceId = serializers.IntegerField()
+    service_id = serializers.IntegerField(required=False)
+    serviceId = serializers.IntegerField(required=False)
+    service = serializers.IntegerField(required=False)
     name = serializers.CharField(required=False, allow_blank=True)
     price = serializers.DecimalField(max_digits=10, decimal_places=2)
     quantity = serializers.IntegerField(min_value=1)
@@ -107,7 +112,11 @@ class InvoiceSerializer(serializers.ModelSerializer):
     def _normalize_services(self, services_data):
         normalized_items = []
         for service_data in services_data or []:
-            service_id = service_data.get("serviceId") or service_data.get("service")
+            service_id = (
+                service_data.get("service_id")
+                or service_data.get("serviceId")
+                or service_data.get("service")
+            )
             if not service_id:
                 continue
             quantity = service_data.get("quantity", 1)
@@ -124,7 +133,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
             normalized_items.append(
                 {
-                    "service": service_id,
+                    "service_id": service_id,
                     "quantity": quantity,
                     "unit_price": unit_price,
                     "subtotal": subtotal,
@@ -138,6 +147,19 @@ class InvoiceSerializer(serializers.ModelSerializer):
             invoice.items.all().delete()
 
         for item_data in items_data:
+            service_value = item_data.pop("service_id", None) or item_data.pop(
+                "service",
+                None,
+            )
+
+            if service_value is None:
+                continue
+
+            if isinstance(service_value, Service):
+                item_data["service"] = service_value
+            elif service_value is not None:
+                item_data["service_id"] = service_value
+
             InvoiceItem.objects.create(invoice=invoice, **item_data)
 
 
