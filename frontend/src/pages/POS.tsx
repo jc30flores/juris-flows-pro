@@ -17,6 +17,25 @@ import { Invoice, InvoicePayload, SelectedServicePayload } from "@/types/invoice
 import { Service } from "@/types/service";
 import { toast } from "@/hooks/use-toast";
 
+const getDteBadgeStyle = (status: string | undefined) => {
+  const normalized = status?.toUpperCase();
+  if (normalized === "ACEPTADO" || status === "Aprobado") {
+    return "bg-success/10 text-success";
+  }
+  if (normalized === "RECHAZADO" || status === "Rechazado" || normalized === "ERROR") {
+    return "bg-destructive/10 text-destructive";
+  }
+  return "bg-warning/10 text-warning";
+};
+
+const getDteDisplayStatus = (status: string | undefined) => {
+  const normalized = status?.toUpperCase();
+  if (normalized === "ACEPTADO") return "ACEPTADO";
+  if (normalized === "RECHAZADO") return "RECHAZADO";
+  if (normalized === "PENDIENTE") return "Pendiente";
+  return status || "";
+};
+
 export default function POS() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -58,18 +77,58 @@ export default function POS() {
   }, []);
 
   const handleSaveInvoice = async (payload: InvoicePayload) => {
-    if (selectedInvoice) {
-      await api.patch(`/invoices/${selectedInvoice.id}/`, payload);
-    } else {
-      await api.post("/invoices/", payload);
-    }
+    try {
+      if (selectedInvoice) {
+        await api.patch(`/invoices/${selectedInvoice.id}/`, payload);
+        toast({
+          title: "Factura actualizada",
+          description: "Los cambios se guardaron correctamente.",
+        });
+      } else {
+        const response = await api.post<Invoice>("/invoices/", payload);
+        const invoice = response.data;
 
-    await fetchInitialData();
-    setSelectedInvoice(null);
-    setMode("create");
-    setSelectedServices([]);
-    setShowNuevaFacturaModal(false);
-    setShowServiceSelectorModal(false);
+        const normalizedStatus = invoice.dte_status?.toUpperCase();
+        if (normalizedStatus === "ACEPTADO" || invoice.dte_status === "Aprobado") {
+          toast({
+            title: "Factura creada",
+            description:
+              invoice.dte_message || "Factura creada y DTE aceptado por Hacienda.",
+          });
+        } else if (
+          normalizedStatus === "RECHAZADO" ||
+          invoice.dte_status === "Rechazado" ||
+          normalizedStatus === "ERROR"
+        ) {
+          toast({
+            title: "DTE rechazado",
+            description:
+              invoice.dte_message ||
+              "Factura creada, pero el DTE fue rechazado por Hacienda. Revisa los datos.",
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Factura creada",
+            description: "DTE pendiente de envío o procesamiento.",
+          });
+        }
+      }
+
+      await fetchInitialData();
+      setSelectedInvoice(null);
+      setMode("create");
+      setSelectedServices([]);
+      setShowNuevaFacturaModal(false);
+      setShowServiceSelectorModal(false);
+    } catch (err) {
+      console.error("Error al guardar factura", err);
+      toast({
+        title: "No se pudo guardar la factura",
+        description: "Revisa los datos e intenta nuevamente.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleDeleteInvoice = async (invoiceId: number) => {
@@ -227,13 +286,11 @@ export default function POS() {
                   <p className="text-sm text-muted-foreground">{venta.date}</p>
                 </div>
                 <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${
-                    venta.dte_status === "Aprobado"
-                      ? "bg-success/10 text-success"
-                      : "bg-warning/10 text-warning"
-                  }`}
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${getDteBadgeStyle(
+                    venta.dte_status,
+                  )}`}
                 >
-                  {venta.dte_status}
+                  {getDteDisplayStatus(venta.dte_status)}
                 </span>
               </div>
               <div className="space-y-2 text-sm">
@@ -329,15 +386,11 @@ export default function POS() {
                     <td className="px-4 py-3 text-sm">{venta.payment_method}</td>
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                          venta.dte_status === "Aprobado"
-                            ? "bg-success/10 text-success"
-                            : venta.dte_status === "Pendiente"
-                              ? "bg-warning/10 text-warning"
-                              : "bg-destructive/10 text-destructive"
-                        }`}
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getDteBadgeStyle(
+                          venta.dte_status,
+                        )}`}
                       >
-                        {venta.dte_status}
+                        {getDteDisplayStatus(venta.dte_status)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-semibold">${Number(venta.total).toFixed(2)}</td>

@@ -2,7 +2,13 @@ export type InvoiceDocType = "CF" | "CCF" | "SX";
 
 export type PaymentMethod = "Efectivo" | "Tarjeta" | "Transferencia" | "Cheque";
 
-export type DteStatus = "Aprobado" | "Pendiente" | "Rechazado";
+export type DteStatus =
+  | "Aprobado"
+  | "Pendiente"
+  | "Rechazado"
+  | "ACEPTADO"
+  | "RECHAZADO"
+  | "ERROR";
 
 export interface InvoiceItem {
   id: number;
@@ -21,6 +27,7 @@ export interface Invoice {
   doc_type: InvoiceDocType;
   payment_method: PaymentMethod;
   dte_status: DteStatus;
+  dte_message?: string;
   observations?: string;
   total: number | string;
   created_at: string;

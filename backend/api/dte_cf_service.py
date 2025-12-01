@@ -3,11 +3,12 @@ import logging
 import random
 import uuid
 from decimal import Decimal, ROUND_HALF_UP
+from typing import Tuple
 
 import requests
 from django.utils import timezone
 
-from .models import DTERecord, InvoiceItem, Service
+from .models import DTERecord, Invoice, InvoiceItem, Service
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +145,53 @@ def amount_to_words_usd(amount) -> str:
     palabras_centavos = _number_to_words(centavos)
     etiqueta_centavos = "CENTAVO" if centavos == 1 else "CENTAVOS"
     return f"{palabras_enteros} {moneda} CON {palabras_centavos} {etiqueta_centavos}"
+
+
+def interpret_dte_response(response_data: dict) -> Tuple[str, str, str]:
+    """
+    Retorna (estado_interno, estado_hacienda, mensaje_usuario).
+    - estado_interno: "ACEPTADO" o "RECHAZADO"
+    - estado_hacienda: valor de 'estado' de Hacienda (p.ej. "RECIBIDO", "RECHAZADO")
+    - mensaje_usuario: texto que se usará para mostrar al usuario
+    """
+
+    success = response_data.get("success", True) if isinstance(response_data, dict) else True
+
+    hacienda_resp = {}
+    message = ""
+
+    if success:
+        data = response_data.get("data") if isinstance(response_data, dict) else None
+        if not data and isinstance(response_data, dict):
+            data = response_data
+        hacienda_resp = data.get("hacienda_response") if isinstance(data, dict) else None
+        if not hacienda_resp and isinstance(data, dict):
+            hacienda_resp = data
+        estado_hacienda = (hacienda_resp or {}).get("estado", "") if isinstance(hacienda_resp, dict) else ""
+        if estado_hacienda in ("RECIBIDO", "PROCESADO", "ACEPTADO"):
+            message = "DTE aceptado por Hacienda."
+            return "ACEPTADO", estado_hacienda, message
+
+        desc = None
+        if isinstance(hacienda_resp, dict):
+            desc = hacienda_resp.get("descripcionMsg")
+        if not desc and isinstance(data, dict):
+            desc = data.get("message")
+        desc = desc or "El DTE no fue aceptado por Hacienda."
+        message = f"Hacienda no aceptó el DTE: {desc}"
+        return "RECHAZADO", estado_hacienda or "DESCONOCIDO", message
+
+    error = response_data.get("error") if isinstance(response_data, dict) else {}
+    hacienda_resp = error.get("hacienda_response") if isinstance(error, dict) else {}
+    estado_hacienda = hacienda_resp.get("estado", "RECHAZADO") if isinstance(hacienda_resp, dict) else "RECHAZADO"
+    desc = None
+    if isinstance(hacienda_resp, dict):
+        desc = hacienda_resp.get("descripcionMsg")
+    if not desc and isinstance(error, dict):
+        desc = error.get("message")
+    desc = desc or "El DTE fue rechazado por Hacienda."
+    message = f"Hacienda rechazó el DTE: {desc}"
+    return "RECHAZADO", estado_hacienda, message
 
 
 EMITTER_INFO = {
@@ -390,16 +438,24 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
 
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
-        record.hacienda_state = response_data.get("estado", "") if isinstance(response_data, dict) else ""
-        record.status = "ACEPTADO" if response.ok else "RECHAZADO"
-        record.save()
+        estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
+        record.hacienda_state = estado_hacienda or record.hacienda_state
+        record.status = estado_interno if response.ok else "RECHAZADO"
+        record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
+
+        invoice.dte_status = Invoice.APPROVED if estado_interno == "ACEPTADO" else Invoice.REJECTED
+        invoice.save(update_fields=["dte_status"])
+        invoice._dte_message = user_message
         return record
     except Exception as exc:  # noqa: BLE001
         logger.exception("Error sending CF DTE", exc_info=exc)
         record.response_payload = {"error": str(exc)}
         record.status = "ERROR"
         record.hacienda_state = "ERROR"
-        record.save()
+        record.save(update_fields=["response_payload", "status", "hacienda_state"])
+        invoice.dte_status = Invoice.REJECTED
+        invoice._dte_message = "Error al enviar DTE a Hacienda."
+        invoice.save(update_fields=["dte_status"])
         return record
 
 
@@ -605,16 +661,24 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
 
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
-        record.hacienda_state = response_data.get("estado", "") if isinstance(response_data, dict) else ""
-        record.status = "ACEPTADO" if response.ok else "RECHAZADO"
-        record.save()
+        estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
+        record.hacienda_state = estado_hacienda or record.hacienda_state
+        record.status = estado_interno if response.ok else "RECHAZADO"
+        record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
+
+        invoice.dte_status = Invoice.APPROVED if estado_interno == "ACEPTADO" else Invoice.REJECTED
+        invoice.save(update_fields=["dte_status"])
+        invoice._dte_message = user_message
         return record
     except Exception as exc:  # noqa: BLE001
         logger.exception("Error sending CCF DTE", exc_info=exc)
         record.response_payload = {"error": str(exc)}
         record.status = "ERROR"
         record.hacienda_state = "ERROR"
-        record.save()
+        record.save(update_fields=["response_payload", "status", "hacienda_state"])
+        invoice.dte_status = Invoice.REJECTED
+        invoice._dte_message = "Error al enviar DTE a Hacienda."
+        invoice.save(update_fields=["dte_status"])
         return record
 
 
@@ -786,14 +850,22 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
 
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
-        record.hacienda_state = response_data.get("estado", "") if isinstance(response_data, dict) else ""
-        record.status = "ACEPTADO" if response.ok else "RECHAZADO"
-        record.save()
+        estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
+        record.hacienda_state = estado_hacienda or record.hacienda_state
+        record.status = estado_interno if response.ok else "RECHAZADO"
+        record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
+
+        invoice.dte_status = Invoice.APPROVED if estado_interno == "ACEPTADO" else Invoice.REJECTED
+        invoice.save(update_fields=["dte_status"])
+        invoice._dte_message = user_message
         return record
     except Exception as exc:  # noqa: BLE001
         logger.exception("Error sending SE DTE", exc_info=exc)
         record.response_payload = {"error": str(exc)}
         record.status = "ERROR"
         record.hacienda_state = "ERROR"
-        record.save()
+        record.save(update_fields=["response_payload", "status", "hacienda_state"])
+        invoice.dte_status = Invoice.REJECTED
+        invoice._dte_message = "Error al enviar DTE a Hacienda."
+        invoice.save(update_fields=["dte_status"])
         return record
