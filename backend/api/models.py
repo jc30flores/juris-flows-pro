@@ -84,12 +84,59 @@ class Invoice(models.Model):
     doc_type = models.CharField(max_length=3, choices=DOC_TYPE_CHOICES)
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
     dte_status = models.CharField(max_length=20, choices=DTE_STATUS_CHOICES)
+    observations = models.TextField(blank=True, default="")
     total = models.DecimalField(max_digits=12, decimal_places=2)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self) -> str:
         return self.number
+
+
+class DTERecord(models.Model):
+    # Relación con la factura interna
+    invoice = models.ForeignKey(
+        "Invoice",
+        on_delete=models.CASCADE,
+        related_name="dte_records",
+    )
+
+    # Datos clave del DTE
+    dte_type = models.CharField(max_length=20)
+    status = models.CharField(max_length=20, default="PENDIENTE")
+
+    # Identificadores importantes para buscar rápido
+    control_number = models.CharField(max_length=100, blank=True, default="")
+    hacienda_uuid = models.CharField(max_length=100, blank=True, default="")
+    hacienda_state = models.CharField(max_length=50, blank=True, default="")
+
+    # Datos clave de emisor / receptor / monto
+    issuer_nit = models.CharField(max_length=32, blank=True, default="")
+    receiver_nit = models.CharField(max_length=32, blank=True, default="")
+    receiver_name = models.CharField(max_length=255, blank=True, default="")
+    issue_date = models.DateField(null=True, blank=True)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    # JSON completo enviado y recibido
+    request_payload = models.JSONField()
+    response_payload = models.JSONField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "api_dte_record"
+        indexes = [
+            models.Index(fields=["dte_type"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["control_number"]),
+            models.Index(fields=["hacienda_uuid"]),
+            models.Index(fields=["issue_date"]),
+            models.Index(fields=["receiver_nit"]),
+        ]
+
+    def __str__(self):
+        return f"DTE {self.id} - {self.dte_type} - {self.status}"
 
 
 class InvoiceItem(models.Model):

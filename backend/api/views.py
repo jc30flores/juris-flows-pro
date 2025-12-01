@@ -1,5 +1,7 @@
 from django.db import models
-from rest_framework import permissions, viewsets
+from rest_framework import permissions, status, viewsets
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .models import (
     Activity,
@@ -13,6 +15,7 @@ from .models import (
     ServiceCategory,
     StaffUser,
 )
+from .connectivity import get_connectivity_status
 from .serializers import (
     ActivitySerializer,
     ClientSerializer,
@@ -33,6 +36,13 @@ class ServiceCategoryViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.AllowAny]
 
 
+class ConnectivityStatusView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        return Response(get_connectivity_status())
+
+
 class ServiceViewSet(viewsets.ModelViewSet):
     queryset = Service.objects.select_related("category").all()
     serializer_class = ServiceSerializer
@@ -49,6 +59,21 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     queryset = Invoice.objects.select_related("client").prefetch_related("items").all()
     serializer_class = InvoiceSerializer
     permission_classes = [permissions.AllowAny]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        invoice = serializer.save()
+
+        headers = self.get_success_headers(serializer.data)
+        data = self.get_serializer(invoice).data
+
+        dte_message = getattr(invoice, "_dte_message", None)
+        if dte_message:
+            data["dte_message"] = dte_message
+
+        return Response(data, status=status.HTTP_201_CREATED, headers=headers)
 
 
 class InvoiceItemViewSet(viewsets.ModelViewSet):

@@ -10,16 +10,37 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
+import { ServiceSelectorModal } from "@/components/modals/ServiceSelectorModal";
 import { api } from "@/lib/api";
 import { Client } from "@/types/client";
-import { Invoice, InvoicePayload } from "@/types/invoice";
+import { Invoice, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
 import { Service } from "@/types/service";
 import { toast } from "@/hooks/use-toast";
+
+const getDteBadgeStyle = (status: string | undefined) => {
+  const normalized = status?.toUpperCase();
+  if (normalized === "ACEPTADO" || status === "Aprobado") {
+    return "bg-success/10 text-success";
+  }
+  if (normalized === "RECHAZADO" || status === "Rechazado" || normalized === "ERROR") {
+    return "bg-destructive/10 text-destructive";
+  }
+  return "bg-warning/10 text-warning";
+};
+
+const getDteDisplayStatus = (status: string | undefined) => {
+  const normalized = status?.toUpperCase();
+  if (normalized === "ACEPTADO") return "ACEPTADO";
+  if (normalized === "RECHAZADO") return "RECHAZADO";
+  if (normalized === "PENDIENTE") return "Pendiente";
+  return status || "";
+};
 
 export default function POS() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [showNuevaFacturaModal, setShowNuevaFacturaModal] = useState(false);
+  const [showServiceSelectorModal, setShowServiceSelectorModal] = useState(false);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -27,6 +48,7 @@ export default function POS() {
   const [error, setError] = useState("");
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [mode, setMode] = useState<"create" | "edit">("create");
+  const [selectedServices, setSelectedServices] = useState<SelectedServicePayload[]>([]);
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -55,15 +77,58 @@ export default function POS() {
   }, []);
 
   const handleSaveInvoice = async (payload: InvoicePayload) => {
-    if (selectedInvoice) {
-      await api.patch(`/invoices/${selectedInvoice.id}/`, payload);
-    } else {
-      await api.post("/invoices/", payload);
-    }
+    try {
+      if (selectedInvoice) {
+        await api.patch(`/invoices/${selectedInvoice.id}/`, payload);
+        toast({
+          title: "Factura actualizada",
+          description: "Los cambios se guardaron correctamente.",
+        });
+      } else {
+        const response = await api.post<Invoice>("/invoices/", payload);
+        const invoice = response.data;
 
-    await fetchInitialData();
-    setSelectedInvoice(null);
-    setMode("create");
+        const normalizedStatus = invoice.dte_status?.toUpperCase();
+        if (normalizedStatus === "ACEPTADO" || invoice.dte_status === "Aprobado") {
+          toast({
+            title: "Factura creada",
+            description:
+              invoice.dte_message || "Factura creada y DTE aceptado por Hacienda.",
+          });
+        } else if (
+          normalizedStatus === "RECHAZADO" ||
+          invoice.dte_status === "Rechazado" ||
+          normalizedStatus === "ERROR"
+        ) {
+          toast({
+            title: "DTE rechazado",
+            description:
+              invoice.dte_message ||
+              "Factura creada, pero el DTE fue rechazado por Hacienda. Revisa los datos.",
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Factura creada",
+            description: "DTE pendiente de envío o procesamiento.",
+          });
+        }
+      }
+
+      await fetchInitialData();
+      setSelectedInvoice(null);
+      setMode("create");
+      setSelectedServices([]);
+      setShowNuevaFacturaModal(false);
+      setShowServiceSelectorModal(false);
+    } catch (err) {
+      console.error("Error al guardar factura", err);
+      toast({
+        title: "No se pudo guardar la factura",
+        description: "Revisa los datos e intenta nuevamente.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleDeleteInvoice = async (invoiceId: number) => {
@@ -113,16 +178,55 @@ export default function POS() {
     });
   }, [clientLookup, filter, invoices, search]);
 
+  const totalInvoicesAmount = useMemo(() => {
+    return filteredInvoices.reduce((sum, invoice) => {
+      const total = Number(invoice.total) || 0;
+      return sum + total;
+    }, 0);
+  }, [filteredInvoices]);
+
   const handleOpenCreate = () => {
     setMode("create");
     setSelectedInvoice(null);
-    setShowNuevaFacturaModal(true);
+    setSelectedServices([]);
+    setShowServiceSelectorModal(true);
+    setShowNuevaFacturaModal(false);
   };
 
   const handleOpenEdit = (invoice: Invoice) => {
     setMode("edit");
     setSelectedInvoice(invoice);
+    const items = invoice.items || [];
+    const mappedServices = items.map((item) => {
+      const service = services.find((s) => s.id === item.service);
+      const price = Number(item.unit_price || service?.base_price || 0);
+      const quantity = item.quantity || 1;
+      return {
+        service_id: item.service,
+        name: service?.name || `Servicio ${item.service}`,
+        price,
+        quantity,
+        subtotal: Number((price * quantity).toFixed(2)),
+      } as SelectedServicePayload;
+    });
+
+    setSelectedServices(mappedServices);
+    setShowServiceSelectorModal(false);
     setShowNuevaFacturaModal(true);
+  };
+
+  const handleConfirmServices = (servicesSelected: SelectedServicePayload[]) => {
+    setSelectedServices(servicesSelected);
+    setShowServiceSelectorModal(false);
+    setShowNuevaFacturaModal(true);
+  };
+
+  const handleCancelSelection = () => {
+    setSelectedServices([]);
+    setShowServiceSelectorModal(false);
+    setShowNuevaFacturaModal(false);
+    setSelectedInvoice(null);
+    setMode("create");
   };
 
   return (
@@ -140,32 +244,39 @@ export default function POS() {
         </Button>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3 md:gap-4">
-        <div className="flex-1">
-          <Input
-            placeholder="Buscar por número, cliente..."
-            className="w-full"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+      <div className="flex flex-col gap-2 md:gap-3">
+        <div className="flex flex-col sm:flex-row gap-3 md:gap-4">
+          <div className="flex-1">
+            <Input
+              placeholder="Buscar por número, cliente..."
+              className="w-full"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-2">
+            <Select value={filter} onValueChange={setFilter}>
+              <SelectTrigger className="w-full sm:w-[180px]">
+                <Filter className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Filtrar por..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="today">Hoy</SelectItem>
+                <SelectItem value="week">Esta Semana</SelectItem>
+                <SelectItem value="month">Este Mes</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" className="flex-shrink-0">
+              <Download className="h-4 w-4 md:mr-2" />
+              <span className="hidden md:inline">Exportar</span>
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger className="w-full sm:w-[180px]">
-              <Filter className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="Filtrar por..." />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="today">Hoy</SelectItem>
-              <SelectItem value="week">Esta Semana</SelectItem>
-              <SelectItem value="month">Este Mes</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline" className="flex-shrink-0">
-            <Download className="h-4 w-4 md:mr-2" />
-            <span className="hidden md:inline">Exportar</span>
-          </Button>
+        <div className="flex justify-end text-sm md:text-base font-semibold text-muted-foreground">
+          <span>
+            Total facturado (según filtros): ${totalInvoicesAmount.toFixed(2)}
+          </span>
         </div>
       </div>
 
@@ -189,13 +300,11 @@ export default function POS() {
                   <p className="text-sm text-muted-foreground">{venta.date}</p>
                 </div>
                 <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${
-                    venta.dte_status === "Aprobado"
-                      ? "bg-success/10 text-success"
-                      : "bg-warning/10 text-warning"
-                  }`}
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${getDteBadgeStyle(
+                    venta.dte_status,
+                  )}`}
                 >
-                  {venta.dte_status}
+                  {getDteDisplayStatus(venta.dte_status)}
                 </span>
               </div>
               <div className="space-y-2 text-sm">
@@ -291,15 +400,11 @@ export default function POS() {
                     <td className="px-4 py-3 text-sm">{venta.payment_method}</td>
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                          venta.dte_status === "Aprobado"
-                            ? "bg-success/10 text-success"
-                            : venta.dte_status === "Pendiente"
-                              ? "bg-warning/10 text-warning"
-                              : "bg-destructive/10 text-destructive"
-                        }`}
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getDteBadgeStyle(
+                          venta.dte_status,
+                        )}`}
                       >
-                        {venta.dte_status}
+                        {getDteDisplayStatus(venta.dte_status)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-semibold">${Number(venta.total).toFixed(2)}</td>
@@ -339,20 +444,29 @@ export default function POS() {
         </div>
       </div>
 
+      <ServiceSelectorModal
+        open={showServiceSelectorModal}
+        onCancel={handleCancelSelection}
+        onConfirm={handleConfirmServices}
+        services={services}
+        initialSelected={selectedServices}
+      />
+
       <NuevaFacturaModal
         open={showNuevaFacturaModal}
         onOpenChange={(open) => {
-          setShowNuevaFacturaModal(open);
           if (!open) {
-            setSelectedInvoice(null);
-            setMode("create");
+            handleCancelSelection();
+          } else {
+            setShowNuevaFacturaModal(true);
           }
         }}
         onSubmit={handleSaveInvoice}
         clients={clients}
-        services={services}
         invoice={selectedInvoice}
         mode={mode}
+        selectedServices={selectedServices}
+        onCancel={handleCancelSelection}
       />
     </div>
   );
