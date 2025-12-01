@@ -463,3 +463,178 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         record.hacienda_state = "ERROR"
         record.save()
         return record
+
+
+def send_se_dte_for_invoice(invoice) -> DTERecord:
+    """
+    Construye el JSON DTE para tipo Sujeto Excluido (14) a partir de la factura y sus items,
+    lo envía al endpoint externo y registra el request/response en DTERecord.
+    """
+
+    codigo_generacion = str(uuid.uuid4()).upper()
+    random_suffix = "".join(str(random.randint(0, 9)) for _ in range(15))
+    numero_control = f"DTE-14-M002P001-{random_suffix}"
+
+    now = timezone.localtime()
+    fec_emi = invoice.date.isoformat()
+    hor_emi = now.strftime("%H:%M:%S")
+
+    client = getattr(invoice, "client", None)
+    se_tipo_documento = "13"
+    se_nombre = (client.company_name if client else "") or (client.full_name if client else "") or "CONSUMIDOR FINAL"
+    se_telefono = (client.phone if client else None) or "00000000"
+    se_num_documento = (
+        getattr(client, "dui", None)
+        or getattr(client, "nit", None)
+        or getattr(client, "document", None)
+        or "000000000"
+    )
+    se_correo = getattr(client, "email", None)
+    se_cod_actividad = getattr(client, "activity_code", None)
+    se_desc_actividad = getattr(client, "activity_description", None)
+    se_departamento = (
+        getattr(client, "department_code", None)
+        or EMITTER_INFO["direccion"].get("departamento", "12")
+    )
+    se_municipio = (
+        getattr(client, "municipality_code", None)
+        or EMITTER_INFO["direccion"].get("municipio", "22")
+    )
+    se_direccion = getattr(client, "address", None) or EMITTER_INFO["direccion"].get(
+        "complemento", "Colonia Centro, Calle Principal"
+    )
+
+    sujeto_excluido = {
+        "tipoDocumento": se_tipo_documento,
+        "nombre": se_nombre,
+        "telefono": se_telefono,
+        "descActividad": se_desc_actividad,
+        "numDocumento": se_num_documento,
+        "direccion": {
+            "municipio": se_municipio,
+            "complemento": se_direccion,
+            "departamento": se_departamento,
+        },
+        "codActividad": se_cod_actividad,
+        "correo": se_correo,
+    }
+
+    items: list[InvoiceItem] = list(invoice.items.select_related("service"))
+    cuerpo_documento = []
+    total_compra = Decimal("0.00")
+
+    for index, item in enumerate(items, start=1):
+        unit_price = _to_decimal(item.unit_price)
+        quantity = Decimal(item.quantity)
+        line_total = _to_decimal(item.subtotal if item.subtotal else unit_price * quantity)
+        total_compra += line_total
+
+        service: Service | None = getattr(item, "service", None)
+        descripcion = service.name if service else "Servicio"
+        codigo = service.code if service and service.code else "SERV"
+
+        cuerpo_documento.append(
+            {
+                "cantidad": float(quantity),
+                "tipoItem": 1,
+                "montoDescu": 0,
+                "compra": _format_currency(line_total),
+                "codigo": codigo,
+                "descripcion": descripcion,
+                "uniMedida": 59,
+                "precioUni": _format_currency(unit_price),
+                "numItem": index,
+            }
+        )
+
+    sub_total = total_compra
+    total_pagar = total_compra
+    observaciones = invoice.observations.strip() if invoice.observations else ""
+    if not observaciones:
+        observaciones = "Venta a consumidor final - Sujeto Excluido"
+
+    resumen = {
+        "observaciones": observaciones,
+        "totalDescu": 0,
+        "pagos": [
+            {
+                "plazo": None,
+                "periodo": None,
+                "codigo": "01",
+                "referencia": None,
+                "montoPago": _format_currency(total_pagar),
+            }
+        ],
+        "subTotal": _format_currency(sub_total),
+        "descu": 0,
+        "reteRenta": 0,
+        "condicionOperacion": 1,
+        "ivaRete1": 0,
+        "totalLetras": f"{_format_currency(total_pagar)} DOLARES",
+        "totalCompra": _format_currency(total_compra),
+        "totalPagar": _format_currency(total_pagar),
+    }
+
+    payload = {
+        "dte": {
+            "apendice": None,
+            "cuerpoDocumento": cuerpo_documento,
+            "resumen": resumen,
+            "sujetoExcluido": sujeto_excluido,
+            "emisor": {**EMITTER_INFO},
+            "identificacion": {
+                "codigoGeneracion": codigo_generacion,
+                "motivoContin": None,
+                "fecEmi": fec_emi,
+                "tipoModelo": 1,
+                "tipoDte": "14",
+                "version": 1,
+                "tipoContingencia": None,
+                "ambiente": "00",
+                "numeroControl": numero_control,
+                "horEmi": hor_emi,
+                "tipoOperacion": 1,
+                "tipoMoneda": "USD",
+            },
+        }
+    }
+
+    record = DTERecord.objects.create(
+        invoice=invoice,
+        dte_type="SE",
+        status="ENVIANDO",
+        control_number=numero_control,
+        issuer_nit=EMITTER_INFO["nit"],
+        receiver_nit=se_num_documento,
+        receiver_name=se_nombre,
+        issue_date=invoice.date,
+        total_amount=_to_decimal(total_pagar),
+        request_payload=payload,
+    )
+
+    url = "https://t12101304761012.cheros.dev/api/v1/dte/factura"
+    headers = {
+        "Authorization": "Bearer api_k_12101304761012",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        try:
+            response_data = response.json()
+        except ValueError:
+            response_data = {"raw_text": response.text}
+
+        record.response_payload = response_data
+        record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
+        record.hacienda_state = response_data.get("estado", "") if isinstance(response_data, dict) else ""
+        record.status = "ACEPTADO" if response.ok else "RECHAZADO"
+        record.save()
+        return record
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Error sending SE DTE", exc_info=exc)
+        record.response_payload = {"error": str(exc)}
+        record.status = "ERROR"
+        record.hacienda_state = "ERROR"
+        record.save()
+        return record

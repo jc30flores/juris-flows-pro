@@ -4,7 +4,11 @@ from decimal import Decimal
 from django.utils import timezone
 from rest_framework import serializers
 
-from .dte_cf_service import send_ccf_dte_for_invoice, send_cf_dte_for_invoice
+from .dte_cf_service import (
+    send_ccf_dte_for_invoice,
+    send_cf_dte_for_invoice,
+    send_se_dte_for_invoice,
+)
 from .models import (
     Activity,
     Client,
@@ -95,6 +99,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
                 send_cf_dte_for_invoice(invoice)
             elif invoice.doc_type == Invoice.CCF:
                 send_ccf_dte_for_invoice(invoice)
+            elif invoice.doc_type == Invoice.SX:
+                send_se_dte_for_invoice(invoice)
         except Exception as exc:  # noqa: BLE001
             logger.exception(
                 "Error sending DTE for invoice %s", invoice.id, exc_info=exc
