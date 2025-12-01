@@ -36,6 +36,19 @@ const getDteDisplayStatus = (status: string | undefined) => {
   return status || "";
 };
 
+const isInvoiceInCurrentMonth = (invoiceDate: string | Date): boolean => {
+  if (!invoiceDate) return false;
+  const current = new Date();
+  const currentYear = current.getFullYear();
+  const currentMonth = current.getMonth();
+
+  const d = typeof invoiceDate === "string" ? new Date(invoiceDate) : invoiceDate;
+
+  if (Number.isNaN(d.getTime())) return false;
+
+  return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+};
+
 export default function POS() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -168,11 +181,12 @@ export default function POS() {
         .includes(search.toLowerCase());
 
       const invoiceDate = new Date(invoice.date);
+      const isThisMonth = filter === "month" || filter === "this-month";
       const matchesFilter =
         filter === "all" ||
         (filter === "today" && invoice.date === today) ||
         (filter === "week" && invoiceDate >= startOfWeek) ||
-        (filter === "month" && invoiceDate.getMonth() === now.getMonth());
+        (isThisMonth && isInvoiceInCurrentMonth(invoice.date));
 
       return matchesSearch && matchesFilter;
     });
