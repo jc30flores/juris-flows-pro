@@ -42,6 +42,110 @@ def split_gross_amount_with_tax(gross) -> tuple[Decimal, Decimal]:
     return base, iva
 
 
+UNIDADES = [
+    "CERO",
+    "UNO",
+    "DOS",
+    "TRES",
+    "CUATRO",
+    "CINCO",
+    "SEIS",
+    "SIETE",
+    "OCHO",
+    "NUEVE",
+    "DIEZ",
+    "ONCE",
+    "DOCE",
+    "TRECE",
+    "CATORCE",
+    "QUINCE",
+    "DIECISÉIS",
+    "DIECISIETE",
+    "DIECIOCHO",
+    "DIECINUEVE",
+    "VEINTE",
+]
+
+DECENAS = [
+    "",
+    "",
+    "VEINTE",
+    "TREINTA",
+    "CUARENTA",
+    "CINCUENTA",
+    "SESENTA",
+    "SETENTA",
+    "OCHENTA",
+    "NOVENTA",
+]
+
+CENTENAS = [
+    "",
+    "CIENTO",
+    "DOSCIENTOS",
+    "TRESCIENTOS",
+    "CUATROCIENTOS",
+    "QUINIENTOS",
+    "SEISCIENTOS",
+    "SETECIENTOS",
+    "OCHOCIENTOS",
+    "NOVECIENTOS",
+]
+
+
+def _number_to_words_0_99(n: int) -> str:
+    if n <= 20:
+        return UNIDADES[n]
+    if n < 30:
+        return "VEINTI" + UNIDADES[n - 20].lower().upper()
+    d, u = divmod(n, 10)
+    if u == 0:
+        return DECENAS[d]
+    return f"{DECENAS[d]} Y {UNIDADES[u]}"
+
+
+def _number_to_words_0_999(n: int) -> str:
+    if n == 0:
+        return "CERO"
+    if n == 100:
+        return "CIEN"
+    c, r = divmod(n, 100)
+    if c == 0:
+        return _number_to_words_0_99(r)
+    if r == 0:
+        return CENTENAS[c]
+    return f"{CENTENAS[c]} {_number_to_words_0_99(r)}"
+
+
+def _number_to_words(n: int) -> str:
+    if n == 0:
+        return "CERO"
+    if n < 1000:
+        return _number_to_words_0_999(n)
+    miles, resto = divmod(n, 1000)
+    prefix = "MIL" if miles == 1 else f"{_number_to_words_0_999(miles)} MIL"
+    if resto == 0:
+        return prefix
+    return f"{prefix} {_number_to_words_0_999(resto)}"
+
+
+def amount_to_words_usd(amount) -> str:
+    dec = Decimal(str(amount))
+    dec = _round_2(dec)
+    enteros = int(dec)
+    centavos = int((dec - Decimal(enteros)) * 100)
+
+    palabras_enteros = _number_to_words(enteros)
+    moneda = "DOLAR" if enteros == 1 else "DOLARES"
+
+    if centavos == 0:
+        return f"{palabras_enteros} {moneda}"
+
+    palabras_centavos = _number_to_words(centavos)
+    etiqueta_centavos = "CENTAVO" if centavos == 1 else "CENTAVOS"
+    return f"{palabras_enteros} {moneda} CON {palabras_centavos} {etiqueta_centavos}"
+
+
 EMITTER_INFO = {
     "nit": "12101304761012",
     "nrc": "1880600",
@@ -131,8 +235,9 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
     items: list[InvoiceItem] = list(invoice.items.select_related("service"))
 
     cuerpo_documento = []
-    total_gravada = Decimal("0.00")
+    total_base = Decimal("0.00")
     total_iva = Decimal("0.00")
+    total_gross = Decimal("0.00")
 
     for index, item in enumerate(items, start=1):
         unit_price = Decimal(str(item.unit_price))
@@ -141,8 +246,9 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
 
         base_line, iva_line = split_gross_amount_with_tax(gross_line)
 
-        total_gravada += base_line
+        total_base += base_line
         total_iva += iva_line
+        total_gross += gross_line
 
         service: Service | None = getattr(item, "service", None)
         descripcion = service.name if service else "Servicio"
@@ -157,7 +263,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
                 "ivaItem": float(_round_2(iva_line)),
                 "numeroDocumento": None,
                 "codigo": codigo,
-                "ventaGravada": float(_round_2(base_line)),
+                "ventaGravada": float(_round_2(gross_line)),
                 "codTributo": None,
                 "numItem": index,
                 "psv": 0,
@@ -170,10 +276,11 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
             }
         )
 
-    total_gravada = _round_2(total_gravada)
+    total_base = _round_2(total_base)
     total_iva = _round_2(total_iva)
-    monto_total_operacion = _round_2(total_gravada + total_iva)
-    total_pagar = monto_total_operacion
+    total_gross = _round_2(total_gross)
+    monto_total_operacion = total_gross
+    total_pagar = total_gross
 
     resumen = {
         "totalDescu": 0,
@@ -190,12 +297,12 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         "porcentajeDescuento": 0,
         "saldoFavor": 0,
         "totalNoGravado": 0,
-        "totalGravada": float(total_gravada),
+        "totalGravada": float(total_gross),
         "descuExenta": 0,
-        "subTotal": float(total_gravada),
-        "totalLetras": f"{float(total_pagar)} DOLARES",
+        "subTotal": float(total_gross),
+        "totalLetras": amount_to_words_usd(total_gross),
         "descuNoSuj": 0,
-        "subTotalVentas": float(total_gravada),
+        "subTotalVentas": float(total_gross),
         "reteRenta": 0,
         "tributos": None,
         "totalNoSuj": 0,
