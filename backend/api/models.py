@@ -162,25 +162,18 @@ class Expense(models.Model):
     def __str__(self) -> str:
         return f"{self.name} - {self.provider}"
 
-
 class StaffUser(models.Model):
-    ADMIN = "ADMIN"
-    COLABORADOR = "COLABORADOR"
-    CONTADOR = "CONTADOR"
-    ROLE_CHOICES = [
-        (ADMIN, "Admin"),
-        (COLABORADOR, "Colaborador"),
-        (CONTADOR, "Contador"),
-    ]
-
-    full_name = models.CharField(max_length=255)
+    full_name = models.CharField(max_length=255, default="", blank=True)
     username = models.CharField(max_length=150, unique=True)
     password = models.CharField(max_length=128)
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES)
+    role = models.CharField(max_length=20)
     is_active = models.BooleanField(default=True)
 
-    def __str__(self) -> str:
-        return f"{self.full_name} ({self.role})"
+    class Meta:
+        db_table = "api_staffuser"
+
+    def __str__(self):
+        return self.full_name or self.username
 
 
 class GeoDepartment(models.Model):

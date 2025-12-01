@@ -96,39 +96,23 @@ class StaffUserViewSet(viewsets.ModelViewSet):
 
 
 class LoginView(APIView):
-    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    permission_classes = []
 
     def post(self, request):
-        username = request.data.get("username")
-        password = request.data.get("password")
-
-        if not username or not password:
-            return Response(
-                {"detail": "Usuario y contraseña son requeridos."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            user = StaffUser.objects.get(username=username, is_active=True)
-        except StaffUser.DoesNotExist:
-            return Response(
-                {"detail": "Usuario o contraseña incorrectos."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        if not check_password(password, user.password):
-            return Response(
-                {"detail": "Usuario o contraseña incorrectos."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        data = {
-            "id": user.id,
-            "username": user.username,
-            "full_name": user.full_name,
-            "role": user.role,
-        }
-        return Response(data, status=status.HTTP_200_OK)
+        username = request.data.get("username", "")
+        password = request.data.get("password", "")
+        user = StaffUser.objects.filter(username=username, is_active=True).first()
+        if not user or not check_password(password, user.password):
+            return Response({"detail": "Credenciales inválidas."}, status=400)
+        return Response(
+            {
+                "id": user.id,
+                "full_name": user.full_name,
+                "username": user.username,
+                "role": user.role,
+            }
+        )
 
 
 class LogoutView(APIView):

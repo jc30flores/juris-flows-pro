@@ -191,11 +191,11 @@ class ExpenseSerializer(serializers.ModelSerializer):
 
 
 class StaffUserSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True)
 
     class Meta:
         model = StaffUser
-        fields = ["id", "full_name", "username", "role", "is_active", "password"]
+        fields = ["id", "full_name", "username", "password", "role", "is_active"]
 
     def create(self, validated_data):
         pwd = validated_data.pop("password", None)
