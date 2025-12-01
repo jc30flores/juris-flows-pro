@@ -12,6 +12,36 @@ from .models import DTERecord, InvoiceItem, Service
 logger = logging.getLogger(__name__)
 
 
+IVA_RATE = Decimal("0.13")
+ONE = Decimal("1")
+
+
+def _round_2(value: Decimal) -> Decimal:
+    """
+    Redondea a 2 decimales usando ROUND_HALF_UP
+    (si el tercer decimal es >=5, se sube el segundo).
+    """
+
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def split_gross_amount_with_tax(gross) -> tuple[Decimal, Decimal]:
+    """
+    Recibe un monto con IVA incluido (gross) y devuelve (base, iva)
+    cumpliendo:
+    - iva = (gross / 1.13) * 0.13, redondeado a 2 decimales con ROUND_HALF_UP
+    - base = gross - iva
+    - base + iva == gross
+    """
+
+    gross_dec = Decimal(str(gross))
+    base_unrounded = gross_dec / (ONE + IVA_RATE)
+    iva_unrounded = base_unrounded * IVA_RATE
+    iva = _round_2(iva_unrounded)
+    base = gross_dec - iva
+    return base, iva
+
+
 EMITTER_INFO = {
     "nit": "12101304761012",
     "nrc": "1880600",
@@ -105,13 +135,14 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
     total_iva = Decimal("0.00")
 
     for index, item in enumerate(items, start=1):
-        unit_price = _to_decimal(item.unit_price)
-        quantity = Decimal(item.quantity)
-        venta_gravada = _to_decimal(item.subtotal if item.subtotal else unit_price * quantity)
-        iva_item = _to_decimal(venta_gravada * Decimal("0.13"))
+        unit_price = Decimal(str(item.unit_price))
+        quantity = Decimal(str(item.quantity))
+        gross_line = quantity * unit_price
 
-        total_gravada += venta_gravada
-        total_iva += iva_item
+        base_line, iva_line = split_gross_amount_with_tax(gross_line)
+
+        total_gravada += base_line
+        total_iva += iva_line
 
         service: Service | None = getattr(item, "service", None)
         descripcion = service.name if service else "Servicio"
@@ -123,15 +154,15 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
                 "uniMedida": 59,
                 "cantidad": float(quantity),
                 "noGravado": 0,
-                "ivaItem": _format_currency(iva_item),
+                "ivaItem": float(_round_2(iva_line)),
                 "numeroDocumento": None,
                 "codigo": codigo,
-                "ventaGravada": _format_currency(venta_gravada),
+                "ventaGravada": float(_round_2(base_line)),
                 "codTributo": None,
                 "numItem": index,
                 "psv": 0,
                 "ventaNoSuj": 0,
-                "precioUni": _format_currency(unit_price),
+                "precioUni": float(_round_2(unit_price)),
                 "montoDescu": 0,
                 "tributos": None,
                 "descripcion": descripcion,
@@ -139,8 +170,9 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
             }
         )
 
-    sub_total = total_gravada
-    monto_total_operacion = sub_total + total_iva
+    total_gravada = _round_2(total_gravada)
+    total_iva = _round_2(total_iva)
+    monto_total_operacion = _round_2(total_gravada + total_iva)
     total_pagar = monto_total_operacion
 
     resumen = {
@@ -152,27 +184,27 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
                 "periodo": None,
                 "codigo": "01",
                 "referencia": None,
-                "montoPago": _format_currency(total_pagar),
+                "montoPago": float(total_pagar),
             }
         ],
         "porcentajeDescuento": 0,
         "saldoFavor": 0,
         "totalNoGravado": 0,
-        "totalGravada": _format_currency(total_gravada),
+        "totalGravada": float(total_gravada),
         "descuExenta": 0,
-        "subTotal": _format_currency(sub_total),
-        "totalLetras": f"{_format_currency(total_pagar)} DOLARES",
+        "subTotal": float(total_gravada),
+        "totalLetras": f"{float(total_pagar)} DOLARES",
         "descuNoSuj": 0,
-        "subTotalVentas": _format_currency(sub_total),
+        "subTotalVentas": float(total_gravada),
         "reteRenta": 0,
         "tributos": None,
         "totalNoSuj": 0,
-        "montoTotalOperacion": _format_currency(monto_total_operacion),
-        "totalIva": _format_currency(total_iva),
+        "montoTotalOperacion": float(monto_total_operacion),
+        "totalIva": float(total_iva),
         "descuGravada": 0,
         "totalExenta": 0,
         "condicionOperacion": 1,
-        "totalPagar": _format_currency(total_pagar),
+        "totalPagar": float(total_pagar),
         "numPagoElectronico": None,
     }
 
@@ -316,10 +348,10 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
     total_iva = Decimal("0.00")
 
     for index, item in enumerate(items, start=1):
-        unit_price = _to_decimal(item.unit_price)
-        quantity = Decimal(item.quantity)
-        line_base = _to_decimal(item.subtotal if item.subtotal else unit_price * quantity)
-        iva_line = _to_decimal(line_base * Decimal("0.13"))
+        unit_price = Decimal(str(item.unit_price))
+        quantity = Decimal(str(item.quantity))
+        gross_line = quantity * unit_price
+        line_base, iva_line = split_gross_amount_with_tax(gross_line)
 
         total_gravada += line_base
         total_iva += iva_line
@@ -342,16 +374,17 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
                 "montoDescu": 0,
                 "ventaNoSuj": 0,
                 "psv": 0,
-                "precioUni": _format_currency(unit_price),
+                "precioUni": float(_round_2(unit_price)),
                 "descripcion": descripcion,
-                "ventaGravada": _format_currency(line_base),
+                "ventaGravada": float(_round_2(line_base)),
                 "numeroDocumento": None,
             }
         )
 
-    sub_total = total_gravada
-    total_operacion = sub_total + total_iva
-    total_letras = f"{_format_currency(total_operacion)} DOLARES"
+    total_gravada = _round_2(total_gravada)
+    total_iva = _round_2(total_iva)
+    total_operacion = _round_2(total_gravada + total_iva)
+    total_letras = f"{float(total_operacion)} DOLARES"
 
     resumen = {
         "totalDescu": 0,
@@ -362,32 +395,32 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
                 "periodo": None,
                 "codigo": "01",
                 "referencia": None,
-                "montoPago": _format_currency(total_operacion),
+                "montoPago": float(total_operacion),
             }
         ],
         "porcentajeDescuento": 0,
         "saldoFavor": 0,
         "totalNoGravado": 0,
-        "totalGravada": _format_currency(total_gravada),
+        "totalGravada": float(total_gravada),
         "descuExenta": 0,
-        "subTotal": _format_currency(sub_total),
+        "subTotal": float(total_gravada),
         "totalLetras": total_letras,
         "descuNoSuj": 0,
-        "subTotalVentas": _format_currency(sub_total),
+        "subTotalVentas": float(total_gravada),
         "reteRenta": 0,
         "tributos": [
             {
-                "valor": _format_currency(total_iva),
+                "valor": float(total_iva),
                 "descripcion": "Impuesto al Valor Agregado 13%",
                 "codigo": "20",
             }
         ],
         "totalNoSuj": 0,
-        "montoTotalOperacion": _format_currency(total_operacion),
+        "montoTotalOperacion": float(total_operacion),
         "descuGravada": 0,
         "totalExenta": 0,
         "condicionOperacion": 1,
-        "totalPagar": _format_currency(total_operacion),
+        "totalPagar": float(total_operacion),
         "ivaPerci1": 0,
         "numPagoElectronico": None,
     }
