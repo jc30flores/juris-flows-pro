@@ -2,15 +2,16 @@ export type StaffRole = "ADMIN" | "COLABORADOR" | "CONTADOR";
 
 export interface StaffUser {
   id: number;
-  name: string;
-  email?: string | null;
+  full_name: string;
+  username: string;
   role: StaffRole;
-  active: boolean;
+  is_active: boolean;
 }
 
 export interface StaffUserPayload {
-  name: string;
-  email?: string | null;
+  full_name: string;
+  username: string;
+  password?: string;
   role: StaffRole;
-  active?: boolean;
+  is_active?: boolean;
 }

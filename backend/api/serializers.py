@@ -1,6 +1,8 @@
 import logging
 from decimal import Decimal
+import logging
 
+from django.contrib.auth.hashers import make_password
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -41,6 +43,29 @@ class ClientSerializer(serializers.ModelSerializer):
     class Meta:
         model = Client
         fields = "__all__"
+
+    def validate(self, attrs):
+        nit = attrs.get("nit") or ""
+        nrc = attrs.get("nrc") or ""
+
+        nit_digits = "".join(ch for ch in nit if ch.isdigit())
+        nrc_digits = "".join(ch for ch in nrc if ch.isdigit())
+
+        if nit_digits:
+            if len(nit_digits) != 14:
+                raise serializers.ValidationError(
+                    {"nit": "El NIT debe tener 14 dígitos"}
+                )
+            attrs["nit"] = nit_digits
+
+        if nrc_digits:
+            if len(nrc_digits) < 6 or len(nrc_digits) > 8:
+                raise serializers.ValidationError(
+                    {"nrc": "El NRC debe tener entre 6 y 8 dígitos"}
+                )
+            attrs["nrc"] = nrc_digits
+
+        return attrs
 
 
 class InvoiceItemSerializer(serializers.ModelSerializer):
@@ -189,9 +214,23 @@ class ExpenseSerializer(serializers.ModelSerializer):
 
 
 class StaffUserSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True)
+
     class Meta:
         model = StaffUser
-        fields = "__all__"
+        fields = ["id", "full_name", "username", "password", "role", "is_active"]
+
+    def create(self, validated_data):
+        pwd = validated_data.pop("password", None)
+        if pwd:
+            validated_data["password"] = make_password(pwd)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        pwd = validated_data.pop("password", None)
+        if pwd:
+            instance.password = make_password(pwd)
+        return super().update(instance, validated_data)
 
 
 class GeoDepartmentSerializer(serializers.ModelSerializer):

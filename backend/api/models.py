@@ -38,11 +38,14 @@ class Client(models.Model):
     client_type = models.CharField(max_length=3, choices=CLIENT_TYPE_CHOICES)
     dui = models.CharField(max_length=25, blank=True)
     nit = models.CharField(max_length=25, blank=True)
+    nrc = models.CharField(max_length=10, blank=True)
     phone = models.CharField(max_length=30, blank=True)
     email = models.EmailField(blank=True)
+    direccion = models.TextField(blank=True, default="")
     department_code = models.CharField(max_length=4, blank=True, null=True)
     municipality_code = models.CharField(max_length=4, blank=True, null=True)
     activity_code = models.CharField(max_length=10, blank=True, null=True)
+    activity_description = models.CharField(max_length=255, blank=True, default="")
 
     def __str__(self) -> str:
         return self.company_name or self.full_name
@@ -162,24 +165,18 @@ class Expense(models.Model):
     def __str__(self) -> str:
         return f"{self.name} - {self.provider}"
 
-
 class StaffUser(models.Model):
-    ADMIN = "ADMIN"
-    COLABORADOR = "COLABORADOR"
-    CONTADOR = "CONTADOR"
-    ROLE_CHOICES = [
-        (ADMIN, "Admin"),
-        (COLABORADOR, "Colaborador"),
-        (CONTADOR, "Contador"),
-    ]
+    full_name = models.CharField(max_length=255, default="", blank=True)
+    username = models.CharField(max_length=150, unique=True)
+    password = models.CharField(max_length=128)
+    role = models.CharField(max_length=20)
+    is_active = models.BooleanField(default=True)
 
-    name = models.CharField(max_length=150)
-    email = models.EmailField(blank=True)
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES)
-    active = models.BooleanField(default=True)
+    class Meta:
+        db_table = "api_staffuser"
 
-    def __str__(self) -> str:
-        return f"{self.name} ({self.role})"
+    def __str__(self):
+        return self.full_name or self.username
 
 
 class GeoDepartment(models.Model):

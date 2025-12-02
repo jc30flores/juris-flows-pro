@@ -36,6 +36,18 @@ const getDteDisplayStatus = (status: string | undefined) => {
   return status || "";
 };
 
+const isInvoiceInCurrentMonth = (dateValue: string | Date): boolean => {
+  if (!dateValue) return false;
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+
+  const d = typeof dateValue === "string" ? new Date(dateValue) : dateValue;
+  if (Number.isNaN(d.getTime())) return false;
+
+  return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+};
+
 export default function POS() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -167,16 +179,32 @@ export default function POS() {
         .toLowerCase()
         .includes(search.toLowerCase());
 
-      const invoiceDate = new Date(invoice.date);
-      const matchesFilter =
-        filter === "all" ||
-        (filter === "today" && invoice.date === today) ||
-        (filter === "week" && invoiceDate >= startOfWeek) ||
-        (filter === "month" && invoiceDate.getMonth() === now.getMonth());
+      if (!matchesSearch) return false;
 
-      return matchesSearch && matchesFilter;
+      const invoiceDate = new Date(invoice.date);
+
+      if (filter === "today") {
+        return invoice.date === today;
+      }
+
+      if (filter === "week" || filter === "this-week") {
+        return invoiceDate >= startOfWeek;
+      }
+
+      if (filter === "month" || filter === "this-month") {
+        return isInvoiceInCurrentMonth(invoice.date);
+      }
+
+      return true;
     });
   }, [clientLookup, filter, invoices, search]);
+
+  const totalInvoicesAmount = useMemo(() => {
+    return filteredInvoices.reduce((sum, invoice) => {
+      const total = Number(invoice.total) || 0;
+      return sum + total;
+    }, 0);
+  }, [filteredInvoices]);
 
   const handleOpenCreate = () => {
     setMode("create");
@@ -237,32 +265,39 @@ export default function POS() {
         </Button>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3 md:gap-4">
-        <div className="flex-1">
-          <Input
-            placeholder="Buscar por número, cliente..."
-            className="w-full"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+      <div className="flex flex-col gap-2 md:gap-3">
+        <div className="flex flex-col sm:flex-row gap-3 md:gap-4">
+          <div className="flex-1">
+            <Input
+              placeholder="Buscar por número, cliente..."
+              className="w-full"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-2">
+            <Select value={filter} onValueChange={setFilter}>
+              <SelectTrigger className="w-full sm:w-[180px]">
+                <Filter className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Filtrar por..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="today">Hoy</SelectItem>
+                <SelectItem value="week">Esta Semana</SelectItem>
+                <SelectItem value="month">Este Mes</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" className="flex-shrink-0">
+              <Download className="h-4 w-4 md:mr-2" />
+              <span className="hidden md:inline">Exportar</span>
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger className="w-full sm:w-[180px]">
-              <Filter className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="Filtrar por..." />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="today">Hoy</SelectItem>
-              <SelectItem value="week">Esta Semana</SelectItem>
-              <SelectItem value="month">Este Mes</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline" className="flex-shrink-0">
-            <Download className="h-4 w-4 md:mr-2" />
-            <span className="hidden md:inline">Exportar</span>
-          </Button>
+        <div className="flex justify-end text-sm md:text-base font-semibold text-muted-foreground">
+          <span>
+            Total facturado (según filtros): ${totalInvoicesAmount.toFixed(2)}
+          </span>
         </div>
       </div>
 

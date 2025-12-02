@@ -1,3 +1,4 @@
+from django.contrib.auth.hashers import check_password
 from django.db import models
 from rest_framework import permissions, status, viewsets
 from rest_framework.response import Response
@@ -92,6 +93,33 @@ class StaffUserViewSet(viewsets.ModelViewSet):
     queryset = StaffUser.objects.all()
     serializer_class = StaffUserSerializer
     permission_classes = [permissions.AllowAny]
+
+
+class LoginView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        username = request.data.get("username", "")
+        password = request.data.get("password", "")
+        user = StaffUser.objects.filter(username=username, is_active=True).first()
+        if not user or not check_password(password, user.password):
+            return Response({"detail": "Credenciales inválidas."}, status=400)
+        return Response(
+            {
+                "id": user.id,
+                "full_name": user.full_name,
+                "username": user.username,
+                "role": user.role,
+            }
+        )
+
+
+class LogoutView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class GeoDepartmentViewSet(viewsets.ReadOnlyModelViewSet):

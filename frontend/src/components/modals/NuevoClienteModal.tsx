@@ -60,6 +60,7 @@ const clienteSchemaBase = z.object({
     .string()
     .min(1, "El teléfono es requerido"),
   correo: z.string().email("El correo no es válido").optional().or(z.literal("")),
+  direccion: z.string().optional(),
 });
 
 const clienteCFSchema = clienteSchemaBase.extend({
@@ -74,11 +75,18 @@ const clienteCCFSchema = clienteSchemaBase.extend({
   nit: z
     .string()
     .min(1, "El NIT es requerido para CCF")
-    .regex(/^\d{1,14}$/, "Ingrese solo dígitos (máximo 14)"),
+    .regex(/^\d{14}$/, "El NIT debe tener 14 dígitos"),
   nrc: z
     .string()
-    .min(1, "El NRC es requerido para CCF")
-    .regex(/^\d{7,8}$/, "Ingrese 7 u 8 dígitos"),
+    .optional()
+    .or(z.literal(""))
+    .refine(
+      (value) => {
+        if (!value) return true;
+        return /^\d{6,8}$/.test(value);
+      },
+      { message: "El NRC debe tener entre 6 y 8 dígitos" },
+    ),
 });
 
 const clienteSXSchema = clienteSchemaBase;
@@ -166,8 +174,11 @@ export function NuevoClienteModal({
       nrc: "",
       telefono: "",
       correo: "",
+      direccion: "",
     },
   });
+
+  const digitsOnly = (value: string) => value.replace(/\D/g, "");
 
   const municipalitiesByDept = useMemo(
     () => {
@@ -229,20 +240,43 @@ export function NuevoClienteModal({
   };
 
   const handleSubmit = async (data: any) => {
+    const nitDigits = digitsOnly(data.nit || "");
+    if (nitDigits && nitDigits.length !== 14) {
+      toast({
+        title: "NIT inválido",
+        description: "El NIT debe tener 14 dígitos",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const nrcDigits = digitsOnly(data.nrc || "");
+    if (nrcDigits && (nrcDigits.length < 6 || nrcDigits.length > 8)) {
+      toast({
+        title: "NRC inválido",
+        description: "El NRC debe tener entre 6 y 8 dígitos",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const payload: ClientPayload = {
       full_name: data.nombre,
       company_name: data.nombreComercial || undefined,
       client_type: data.tipoFiscal,
       dui: data.dui || undefined,
-      nit: data.nit || undefined,
+      nit: nitDigits || undefined,
+      nrc: nrcDigits || undefined,
       phone: data.telefono || undefined,
       email: data.correo || undefined,
+      direccion: data.direccion || undefined,
       department_code: departmentCode || null,
       municipality_code: municipalityCode || null,
       activity_code:
         ["CCF", "SX"].includes(data.tipoFiscal) && activityCode
           ? activityCode
           : null,
+      activity_description: selectedActivity?.description,
     };
 
     try {
@@ -425,6 +459,25 @@ export function NuevoClienteModal({
                 </div>
               </>
             )}
+
+            <div className="space-y-2">
+              <Label htmlFor="direccion">Dirección</Label>
+              <Input
+                id="direccion"
+                placeholder="Dirección completa"
+                value={form.watch("direccion") || ""}
+                onChange={(event) =>
+                  form.setValue("direccion", event.target.value, {
+                    shouldValidate: true,
+                  })
+                }
+              />
+              {form.formState.errors.direccion && (
+                <p className="text-sm text-destructive">
+                  {form.formState.errors.direccion.message as string}
+                </p>
+              )}
+            </div>
 
             <div className="space-y-2">
               <Label>Departamento</Label>

@@ -28,11 +28,13 @@ const usuarioSchema = z.object({
     .string()
     .min(1, "El nombre es requerido")
     .max(100, "El nombre debe tener máximo 100 caracteres"),
-  email: z
+  usuario: z
     .string()
-    .email("El correo no es válido")
-    .optional()
-    .or(z.literal("") as unknown as z.ZodOptional<z.ZodString>),
+    .min(1, "El usuario es requerido")
+    .max(150, "El usuario debe tener máximo 150 caracteres"),
+  password: z
+    .string()
+    .min(6, "La contraseña debe tener al menos 6 caracteres"),
   rol: z.enum(["ADMIN", "COLABORADOR", "CONTADOR"], {
     required_error: "Debe seleccionar un rol",
   }),
@@ -55,7 +57,8 @@ export function NuevoUsuarioModal({
     resolver: zodResolver(usuarioSchema),
     defaultValues: {
       nombre: "",
-      email: "",
+      usuario: "",
+      password: "",
       rol: "COLABORADOR",
       activo: true,
     },
@@ -63,10 +66,11 @@ export function NuevoUsuarioModal({
 
   const handleSubmit = async (data: z.infer<typeof usuarioSchema>) => {
     const payload: StaffUserPayload = {
-      name: data.nombre,
-      email: data.email || undefined,
+      full_name: data.nombre,
+      username: data.usuario,
+      password: data.password,
       role: data.rol,
-      active: data.activo,
+      is_active: data.activo,
     };
 
     try {
@@ -115,16 +119,30 @@ export function NuevoUsuarioModal({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="email">Correo Electrónico</Label>
+            <Label htmlFor="usuario">Usuario</Label>
             <Input
-              id="email"
-              type="email"
-              placeholder="usuario@cuska.local"
-              {...form.register("email")}
+              id="usuario"
+              placeholder="usuario.cuska"
+              {...form.register("usuario")}
             />
-            {form.formState.errors.email && (
+            {form.formState.errors.usuario && (
               <p className="text-sm text-destructive">
-                {form.formState.errors.email.message}
+                {form.formState.errors.usuario.message}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="password">Contraseña</Label>
+            <Input
+              id="password"
+              type="password"
+              placeholder="••••••"
+              {...form.register("password")}
+            />
+            {form.formState.errors.password && (
+              <p className="text-sm text-destructive">
+                {form.formState.errors.password.message}
               </p>
             )}
           </div>

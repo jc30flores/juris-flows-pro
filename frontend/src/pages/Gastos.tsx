@@ -86,6 +86,13 @@ export default function Gastos() {
     });
   }, [expenses, filter, searchTerm]);
 
+  const totalExpensesAmount = useMemo(() => {
+    return filteredExpenses.reduce((sum, expense) => {
+      const total = Number(expense.total) || 0;
+      return sum + total;
+    }, 0);
+  }, [filteredExpenses]);
+
   return (
     <div className="space-y-4 md:space-y-6 overflow-x-hidden">
       {/* Título móvil */}
@@ -128,6 +135,9 @@ export default function Gastos() {
             <span className="hidden md:inline">Exportar</span>
           </Button>
         </div>
+      </div>
+      <div className="flex justify-end text-sm md:text-base font-semibold text-muted-foreground">
+        <span>Total de gastos (según filtros): ${totalExpensesAmount.toFixed(2)}</span>
       </div>
 
       {/* Mobile view - Cards */}

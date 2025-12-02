@@ -9,7 +9,7 @@ import requests
 from django.utils import timezone
 
 from .connectivity import get_connectivity_status as _connectivity_status_snapshot
-from .models import DTERecord, Invoice, InvoiceItem, Service
+from .models import Activity, DTERecord, Invoice, InvoiceItem, Service
 
 logger = logging.getLogger(__name__)
 
@@ -135,9 +135,8 @@ def _number_to_words(n: int) -> str:
     return f"{prefix} {_number_to_words_0_999(resto)}"
 
 
-def amount_to_words_usd(amount) -> str:
-    dec = Decimal(str(amount))
-    dec = _round_2(dec)
+def amount_to_spanish_words(amount) -> str:
+    dec = _round_2(Decimal(str(amount)))
     enteros = int(dec)
     centavos = int((dec - Decimal(enteros)) * 100)
 
@@ -147,58 +146,45 @@ def amount_to_words_usd(amount) -> str:
     if centavos == 0:
         return f"{palabras_enteros} {moneda}"
 
-    palabras_centavos = _number_to_words(centavos)
-    etiqueta_centavos = "CENTAVO" if centavos == 1 else "CENTAVOS"
-    return f"{palabras_enteros} {moneda} CON {palabras_centavos} {etiqueta_centavos}"
+    centavos_str = f"{centavos:02d}"
+    return f"{palabras_enteros} {moneda} CON {centavos_str} CENTAVOS"
 
 
 def interpret_dte_response(response_data: dict) -> Tuple[str, str, str]:
     """
-    Retorna (estado_interno, estado_hacienda, mensaje_usuario).
-    - estado_interno: "ACEPTADO" | "RECHAZADO" | "PENDIENTE"
-    - estado_hacienda: valor de 'estado' de Hacienda (p.ej. "RECIBIDO", "RECHAZADO", "SIN_RESPUESTA")
-    - mensaje_usuario: texto que se usará para mostrar al usuario
+    Retorna (estado_interno, estado_hacienda, mensaje_usuario):
+      - estado_interno: "ACEPTADO" | "RECHAZADO" | "PENDIENTE"
+      - estado_hacienda: string devuelto por Hacienda (o "SIN_RESPUESTA")
+      - mensaje_usuario: mensaje para mostrar en frontend
     """
+    success = response_data.get("success", None)
 
-    success = response_data.get("success") if isinstance(response_data, dict) else None
-
-    if success is True:
-        data = response_data.get("data") if isinstance(response_data, dict) else None
-        if not data and isinstance(response_data, dict):
-            data = response_data
-        hacienda_resp = data.get("hacienda_response") if isinstance(data, dict) else None
-        if not hacienda_resp and isinstance(data, dict):
-            hacienda_resp = data
-        estado_hacienda = (hacienda_resp or {}).get("estado", "") if isinstance(hacienda_resp, dict) else ""
-
-        if estado_hacienda in ("RECIBIDO", "PROCESADO", "ACEPTADO"):
-            return "ACEPTADO", estado_hacienda, "DTE aceptado por Hacienda."
-
-        estado_hacienda = estado_hacienda or "DESCONOCIDO"
-        return (
-            "PENDIENTE",
-            estado_hacienda,
-            "DTE enviado, en espera de confirmación de Hacienda.",
-        )
-
+    # Caso de rechazo explícito de Hacienda (success = false)
     if success is False:
-        error = response_data.get("error") if isinstance(response_data, dict) else {}
-        hacienda_resp = error.get("hacienda_response") if isinstance(error, dict) else {}
-        estado_hacienda = hacienda_resp.get("estado", "RECHAZADO") if isinstance(hacienda_resp, dict) else "RECHAZADO"
-        desc = None
-        if isinstance(hacienda_resp, dict):
-            desc = hacienda_resp.get("descripcionMsg")
-        if not desc and isinstance(error, dict):
-            desc = error.get("message")
-        desc = desc or "El DTE fue rechazado por Hacienda."
-        mensaje_usuario = f"Hacienda rechazó el DTE: {desc}"
-        return "RECHAZADO", estado_hacienda, mensaje_usuario
+        error = response_data.get("error") or {}
+        hresp = error.get("respuesta_hacienda") or error.get("hacienda_response") or {}
+        estado_h = hresp.get("estado", "RECHAZADO")
+        desc = hresp.get("descripcionMsg") or error.get("message") or "El DTE fue rechazado por Hacienda."
+        msg = f"Hacienda rechazó el DTE: {desc}"
+        return "RECHAZADO", estado_h, msg
 
-    return (
-        "PENDIENTE",
-        "SIN_RESPUESTA",
-        "DTE en estado PENDIENTE: la respuesta de la API no se pudo interpretar.",
-    )
+    # Caso de éxito (success = true)
+    if success is True:
+        hresp = response_data.get("respuesta_hacienda") or response_data.get("hacienda_response") or {}
+        estado_h = hresp.get("estado", "")
+        desc = hresp.get("descripcionMsg", "")
+
+        # ACEPTADO: estado PROCESADO/RECIBIDO (Documento procesado exitosamente)
+        if estado_h in ("PROCESADO", "RECIBIDO") or desc.upper().strip() == "RECIBIDO":
+            msg = "DTE aceptado por Hacienda (RECIBIDO)."
+            return "ACEPTADO", estado_h or "RECIBIDO", msg
+
+        # Cualquier otro estado con success=true → dejamos PENDIENTE
+        msg = f"DTE enviado, en espera de confirmación de Hacienda (estado='{estado_h or 'DESCONOCIDO'}')."
+        return "PENDIENTE", estado_h or "DESCONOCIDO", msg
+
+    # Cualquier otro caso (sin campo success, HTML, etc.) → PENDIENTE
+    return "PENDIENTE", "SIN_RESPUESTA", "DTE en estado PENDIENTE: la respuesta de la API no se pudo interpretar."
 
 
 EMITTER_INFO = {
@@ -282,9 +268,9 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
     random_suffix = "".join(str(random.randint(0, 9)) for _ in range(15))
     numero_control = f"DTE-01-M002P001-{random_suffix}"
 
-    now = timezone.localtime()
-    fec_emi = invoice.date.isoformat()
-    hor_emi = now.strftime("%H:%M:%S")
+    now_local = timezone.localtime()
+    fec_emi = now_local.date().isoformat()
+    hor_emi = now_local.strftime("%H:%M:%S")
 
     receptor, receiver_nit, receiver_name = _build_receptor(invoice)
     items: list[InvoiceItem] = list(invoice.items.select_related("service"))
@@ -355,7 +341,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         "totalGravada": float(total_gross),
         "descuExenta": 0,
         "subTotal": float(total_gross),
-        "totalLetras": amount_to_words_usd(total_gross),
+        "totalLetras": amount_to_spanish_words(total_gross),
         "descuNoSuj": 0,
         "subTotalVentas": float(total_gross),
         "reteRenta": 0,
@@ -411,6 +397,9 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
+    url = "https://t12101304761012.cheros.dev/api/v1/dte/factura"
+
+    print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -426,8 +415,6 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         total_amount=invoice.total,
         request_payload=payload,
     )
-
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/factura"
     headers = {
         "Authorization": "Bearer api_k_12101304761012",
         "Content-Type": "application/json",
@@ -471,7 +458,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
         estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
-        record.hacienda_state = estado_hacienda or record.hacienda_state
+        record.hacienda_state = estado_hacienda
         record.status = estado_interno
         record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
 
@@ -501,9 +488,9 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
     random_suffix = "".join(str(random.randint(0, 9)) for _ in range(15))
     numero_control = f"DTE-03-M002P001-{random_suffix}"
 
-    now = timezone.localtime()
-    fec_emi = invoice.date.isoformat()
-    hor_emi = now.strftime("%H:%M:%S")
+    now_local = timezone.localtime()
+    fec_emi = now_local.date().isoformat()
+    hor_emi = now_local.strftime("%H:%M:%S")
 
     client = getattr(invoice, "client", None)
     emitter_address = EMITTER_INFO["direccion"]
@@ -511,16 +498,26 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
     client_name = (client.company_name if client else "") or (client.full_name if client else "") or "CLIENTE"
     client_trade_name = client.company_name if client and client.company_name else client_name
     client_nit = (client.nit if client else "") or ""
-    client_nrc = getattr(client, "nrc", "") or ""
+    raw_nrc = getattr(client, "nrc", "") or ""
+    client_nrc_digits = "".join(ch for ch in raw_nrc if str(ch).isdigit())
+    client_nrc = (
+        client_nrc_digits if 6 <= len(client_nrc_digits) <= 8 else None
+    )
     client_phone = (client.phone if client else "") or "00000000"
     client_email = (client.email if client else "") or None
-    client_cod_act = getattr(client, "activity_code", None)
-    client_desc_act = getattr(client, "activity_description", None)
+    client_cod_act = getattr(client, "activity_code", None) or None
+    client_desc_act = getattr(client, "activity_description", None) or None
+
+    if not client_desc_act and client_cod_act:
+        act = Activity.objects.filter(code=client_cod_act).first()
+        if act:
+            client_desc_act = act.description
 
     client_address = {
         "municipio": (client.municipality_code if client else None)
         or emitter_address.get("municipio", "22"),
-        "complemento": emitter_address.get("complemento", ""),
+        "complemento": (getattr(client, "direccion", None) or "")
+        or emitter_address.get("complemento", ""),
         "departamento": (client.department_code if client else None)
         or emitter_address.get("departamento", "12"),
     }
@@ -531,29 +528,39 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         "direccion": client_address,
         "correo": client_email,
         "nit": client_nit,
-        "nrc": client_nrc,
         "telefono": client_phone,
-        "codActividad": client_cod_act,
-        "descActividad": client_desc_act,
     }
+
+    if client_nrc:
+        receptor["nrc"] = client_nrc
+    if client_cod_act:
+        receptor["codActividad"] = client_cod_act
+    if client_desc_act:
+        receptor["descActividad"] = client_desc_act
+    elif client_cod_act:
+        receptor["descActividad"] = "Actividad no especificada"
 
     items: list[InvoiceItem] = list(invoice.items.select_related("service"))
     cuerpo_documento = []
-    total_gravada = Decimal("0.00")
+    total_gross = Decimal("0.00")
+    total_base = Decimal("0.00")
     total_iva = Decimal("0.00")
 
     for index, item in enumerate(items, start=1):
-        unit_price = Decimal(str(item.unit_price))
-        quantity = Decimal(str(item.quantity))
-        gross_line = quantity * unit_price
+        gross_unit = Decimal(str(item.unit_price))
+        qty_dec = Decimal(str(item.quantity))
+        gross_line = gross_unit * qty_dec
         line_base, iva_line = split_gross_amount_with_tax(gross_line)
 
-        total_gravada += line_base
+        total_gross += gross_line
+        total_base += line_base
         total_iva += iva_line
 
         service: Service | None = getattr(item, "service", None)
         descripcion = service.name if service else "Servicio"
         codigo = service.code if service and service.code else "SERVICIO"
+
+        precio_base_unitario = _round_2(line_base / qty_dec) if qty_dec else _round_2(Decimal("0"))
 
         cuerpo_documento.append(
             {
@@ -561,7 +568,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
                 "numItem": index,
                 "tipoItem": 1,
                 "codigo": codigo,
-                "cantidad": float(quantity),
+                "cantidad": float(qty_dec),
                 "tributos": ["20"],
                 "uniMedida": 59,
                 "noGravado": 0,
@@ -569,17 +576,18 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
                 "montoDescu": 0,
                 "ventaNoSuj": 0,
                 "psv": 0,
-                "precioUni": float(_round_2(unit_price)),
+                "precioUni": float(precio_base_unitario),
                 "descripcion": descripcion,
                 "ventaGravada": float(_round_2(line_base)),
                 "numeroDocumento": None,
             }
         )
 
-    total_gravada = _round_2(total_gravada)
+    total_gross = _round_2(total_gross)
+    total_base = _round_2(total_base)
     total_iva = _round_2(total_iva)
-    total_operacion = _round_2(total_gravada + total_iva)
-    total_letras = f"{float(total_operacion)} DOLARES"
+    total_operacion = _round_2(total_gross)
+    total_letras = amount_to_spanish_words(total_operacion)
 
     resumen = {
         "totalDescu": 0,
@@ -596,12 +604,12 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         "porcentajeDescuento": 0,
         "saldoFavor": 0,
         "totalNoGravado": 0,
-        "totalGravada": float(total_gravada),
+        "totalGravada": float(total_base),
         "descuExenta": 0,
-        "subTotal": float(total_gravada),
+        "subTotal": float(total_base),
         "totalLetras": total_letras,
         "descuNoSuj": 0,
-        "subTotalVentas": float(total_gravada),
+        "subTotalVentas": float(total_base),
         "reteRenta": 0,
         "tributos": [
             {
@@ -659,6 +667,9 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
+    url = "https://t12101304761012.cheros.dev/api/v1/dte/credito-fiscal"
+
+    print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -674,8 +685,6 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         total_amount=_to_decimal(total_operacion),
         request_payload=payload,
     )
-
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/factura"
     headers = {
         "Authorization": "Bearer api_k_12101304761012",
         "Content-Type": "application/json",
@@ -719,7 +728,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
         estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
-        record.hacienda_state = estado_hacienda or record.hacienda_state
+        record.hacienda_state = estado_hacienda
         record.status = estado_interno
         record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
 
@@ -749,23 +758,20 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
     random_suffix = "".join(str(random.randint(0, 9)) for _ in range(15))
     numero_control = f"DTE-14-M002P001-{random_suffix}"
 
-    now = timezone.localtime()
-    fec_emi = invoice.date.isoformat()
-    hor_emi = now.strftime("%H:%M:%S")
+    now_local = timezone.localtime()
+    fec_emi = now_local.date().isoformat()
+    hor_emi = now_local.strftime("%H:%M:%S")
 
     client = getattr(invoice, "client", None)
     se_tipo_documento = "13"
     se_nombre = (client.company_name if client else "") or (client.full_name if client else "") or "CONSUMIDOR FINAL"
     se_telefono = (client.phone if client else None) or "00000000"
-    se_num_documento = (
-        getattr(client, "dui", None)
-        or getattr(client, "nit", None)
-        or getattr(client, "document", None)
-        or "000000000"
-    )
-    se_correo = getattr(client, "email", None)
-    se_cod_actividad = getattr(client, "activity_code", None)
-    se_desc_actividad = getattr(client, "activity_description", None)
+    client_dui = (getattr(client, "dui", "") or "").strip()
+    client_dui_digits = "".join(ch for ch in client_dui if ch.isdigit())
+    se_num_documento = client_dui_digits if len(client_dui_digits) == 9 else "000000000"
+    se_correo = (getattr(client, "email", None) or None)
+    se_cod_actividad = (getattr(client, "activity_code", None) or None)
+    se_desc_actividad = getattr(client, "activity_description", None) or None
     se_departamento = (
         getattr(client, "department_code", None)
         or EMITTER_INFO["direccion"].get("departamento", "12")
@@ -844,7 +850,7 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         "reteRenta": 0,
         "condicionOperacion": 1,
         "ivaRete1": 0,
-        "totalLetras": f"{_format_currency(total_pagar)} DOLARES",
+        "totalLetras": amount_to_spanish_words(total_pagar),
         "totalCompra": _format_currency(total_compra),
         "totalPagar": _format_currency(total_pagar),
     }
@@ -855,7 +861,20 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
             "cuerpoDocumento": cuerpo_documento,
             "resumen": resumen,
             "sujetoExcluido": sujeto_excluido,
-            "emisor": {**EMITTER_INFO},
+            "emisor": {
+                "correo": EMITTER_INFO["correo"],
+                "codPuntoVenta": EMITTER_INFO["codPuntoVenta"],
+                "nombre": EMITTER_INFO["nombre"],
+                "codEstableMH": EMITTER_INFO["codEstableMH"],
+                "direccion": EMITTER_INFO["direccion"],
+                "codPuntoVentaMH": EMITTER_INFO["codPuntoVentaMH"],
+                "codEstable": EMITTER_INFO["codEstable"],
+                "nit": EMITTER_INFO["nit"],
+                "nrc": EMITTER_INFO["nrc"],
+                "telefono": EMITTER_INFO["telefono"],
+                "codActividad": EMITTER_INFO["codActividad"],
+                "descActividad": EMITTER_INFO["descActividad"],
+            },
             "identificacion": {
                 "codigoGeneracion": codigo_generacion,
                 "motivoContin": None,
@@ -873,6 +892,9 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
+    url = "https://t12101304761012.cheros.dev/api/v1/dte/sujeto-excluido"
+
+    print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -888,8 +910,6 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         total_amount=_to_decimal(total_pagar),
         request_payload=payload,
     )
-
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/factura"
     headers = {
         "Authorization": "Bearer api_k_12101304761012",
         "Content-Type": "application/json",
@@ -933,7 +953,7 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
         estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
-        record.hacienda_state = estado_hacienda or record.hacienda_state
+        record.hacienda_state = estado_hacienda
         record.status = estado_interno
         record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
 
