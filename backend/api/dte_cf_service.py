@@ -9,7 +9,7 @@ import requests
 from django.utils import timezone
 
 from .connectivity import get_connectivity_status as _connectivity_status_snapshot
-from .models import DTERecord, Invoice, InvoiceItem, Service
+from .models import Activity, DTERecord, Invoice, InvoiceItem, Service
 
 logger = logging.getLogger(__name__)
 
@@ -506,9 +506,12 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
     client_phone = (client.phone if client else "") or "00000000"
     client_email = (client.email if client else "") or None
     client_cod_act = getattr(client, "activity_code", None) or None
-    client_desc_act = (
-        getattr(client, "activity_description", None) or None
-    )
+    client_desc_act = getattr(client, "activity_description", None) or None
+
+    if not client_desc_act and client_cod_act:
+        act = Activity.objects.filter(code=client_cod_act).first()
+        if act:
+            client_desc_act = act.description
 
     client_address = {
         "municipio": (client.municipality_code if client else None)
@@ -532,8 +535,10 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         receptor["nrc"] = client_nrc
     if client_cod_act:
         receptor["codActividad"] = client_cod_act
-    if client_desc_act or client_cod_act:
-        receptor["descActividad"] = client_desc_act or "Actividad no especificada"
+    if client_desc_act:
+        receptor["descActividad"] = client_desc_act
+    elif client_cod_act:
+        receptor["descActividad"] = "Actividad no especificada"
 
     items: list[InvoiceItem] = list(invoice.items.select_related("service"))
     cuerpo_documento = []
@@ -571,7 +576,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
                 "psv": 0,
                 "precioUni": float(_round_2(unit_price)),
                 "descripcion": descripcion,
-                "ventaGravada": float(_round_2(line_base)),
+                "ventaGravada": float(_round_2(gross_line)),
                 "numeroDocumento": None,
             }
         )
