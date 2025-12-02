@@ -112,7 +112,10 @@ def build_cf_book(qs):
     rows = []
     for invoice_date in sorted(grouped.keys()):
         invoices = grouped[invoice_date]
-        totals = sum((invoice.total or Decimal("0")) for invoice in invoices, start=Decimal("0"))
+        totals = sum(
+            ((invoice.total or Decimal("0")) for invoice in invoices),
+            start=Decimal("0"),
+        )
         ventas_gravadas = _quantize_money(totals)
         total_ventas = ventas_gravadas
 
