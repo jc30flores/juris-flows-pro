@@ -1,5 +1,5 @@
 import csv
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 
 from django.contrib.auth.hashers import check_password
 from django.db import models
@@ -112,7 +112,14 @@ class InvoiceExportAllCSVAPIView(APIView):
         for inv in invoices:
             numero = getattr(inv, "number", getattr(inv, "invoice_number", inv.id))
             fecha_field = getattr(inv, "date", getattr(inv, "issue_date", None))
-            fecha = localtime(fecha_field).strftime("%Y-%m-%d") if fecha_field else ""
+            if fecha_field:
+                if isinstance(fecha_field, datetime):
+                    fecha_dt = localtime(fecha_field)
+                    fecha = fecha_dt.strftime("%Y-%m-%d")
+                else:
+                    fecha = fecha_field.strftime("%Y-%m-%d")
+            else:
+                fecha = ""
             cliente = getattr(getattr(inv, "client", None), "name", "") or ""
             tipo_doc = getattr(inv, "doc_type", getattr(inv, "type", ""))
             metodo = getattr(inv, "payment_method", "")
