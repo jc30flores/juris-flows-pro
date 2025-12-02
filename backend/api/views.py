@@ -1,6 +1,5 @@
 import csv
 from datetime import timedelta
-from decimal import Decimal, ROUND_HALF_UP
 
 from django.contrib.auth.hashers import check_password
 from django.db import models
@@ -87,173 +86,51 @@ def filter_invoices_queryset(queryset, params):
 
 class InvoiceExportAllCSVAPIView(APIView):
     """
-    GET /api/invoices/export/?type=consumidores|contribuyentes&format=csv|json|xlsx&month=MM&year=YYYY
-    Exporta libros de ventas por mes con descarga directa.
+    GET /api/invoices/export/
+    Descarga un CSV con todas las facturas.
     """
 
     def get(self, request, *args, **kwargs):
-        export_type = request.GET.get("type", "consumidores")
-        export_format = request.GET.get("format", "csv")
-        month = int(request.GET.get("month") or localtime().month)
-        year = int(request.GET.get("year") or localtime().year)
+        invoices = Invoice.objects.all().order_by("id")
 
-        if export_type not in ("consumidores", "contribuyentes"):
-            return Response({"detail": "type inválido"}, status=400)
-        if export_format not in ("csv", "json", "xlsx"):
-            return Response({"detail": "format inválido"}, status=400)
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="todas-las-ventas.csv"'
 
-        invoices = (
-            Invoice.objects.select_related("client")
-            .filter(date__year=year, date__month=month)
-            .order_by("date", "id")
+        writer = csv.writer(response)
+        writer.writerow(
+            [
+                "NumeroFactura",
+                "Fecha",
+                "Cliente",
+                "TipoDocumento",
+                "MetodoPago",
+                "EstadoDTE",
+                "Total",
+            ]
         )
 
-        if export_type == "consumidores":
-            invoices = invoices.filter(doc_type=Invoice.CF)
-        else:
-            invoices = invoices.filter(doc_type=Invoice.CCF)
+        for inv in invoices:
+            numero = getattr(inv, "number", getattr(inv, "invoice_number", inv.id))
+            fecha_field = getattr(inv, "date", getattr(inv, "issue_date", None))
+            fecha = localtime(fecha_field).strftime("%Y-%m-%d") if fecha_field else ""
+            cliente = getattr(getattr(inv, "client", None), "name", "") or ""
+            tipo_doc = getattr(inv, "doc_type", getattr(inv, "type", ""))
+            metodo = getattr(inv, "payment_method", "")
+            estado_dte = getattr(inv, "dte_status", "")
+            total = getattr(inv, "total", 0) or 0
 
-        if export_type == "consumidores":
-            headers = [
-                "Día",
-                "Del No",
-                "Al No",
-                "No. de Maq. Registradora",
-                "Ventas Exentas",
-                "Ventas Gravadas Locales",
-                "Exportaciones",
-                "Total Ventas",
-                "Venta por Cuenta de Terceros",
-                "Venta Total",
-            ]
-            grouped = {}
-            for inv in invoices:
-                day = inv.date.day
-                key = day
-                number = inv.number
-                total = Decimal(inv.total or 0)
-                if key not in grouped:
-                    grouped[key] = {
-                        "day": day,
-                        "from": number,
-                        "to": number,
-                        "total": total,
-                    }
-                else:
-                    grouped[key]["from"] = min(str(grouped[key]["from"]), str(number))
-                    grouped[key]["to"] = max(str(grouped[key]["to"]), str(number))
-                    grouped[key]["total"] += total
-
-            rows = []
-            for key in sorted(grouped.keys()):
-                entry = grouped[key]
-                total = entry["total"].quantize(Decimal("0.01"))
-                rows.append(
-                    [
-                        entry["day"],
-                        entry["from"],
-                        entry["to"],
-                        "",
-                        "0.00",
-                        f"{total:.2f}",
-                        "0.00",
-                        f"{total:.2f}",
-                        "0.00",
-                        f"{total:.2f}",
-                    ]
-                )
-        else:
-            headers = [
-                "FECHA DE EMISION",
-                "No. CORRELATIVO PREIMPRESO",
-                "No. CONTROL INTERNO SISTEMA FORMULARIO UNICO",
-                "NOMBRE DEL CLIENTE, MANDANTE O MANDATARIO",
-                "NRC",
-                "EXENTAS",
-                "INTERNAS GRAVADAS",
-                "DEBITO FISCAL",
-                "EXENTAS",
-                "INTERNAS GRAVADAS",
-                "DEBITO FISCAL",
-                "IVA RETENIDO",
-                "TOTAL",
-            ]
-            rows = []
-            for inv in invoices:
-                issued = inv.date.strftime("%d/%m/%Y")
-                total = Decimal(inv.total or 0).quantize(Decimal("0.01"))
-                base = (total / Decimal("1.13")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                debit = (total - base).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                rows.append(
-                    [
-                        issued,
-                        inv.number,
-                        inv.number,
-                        getattr(inv.client, "company_name", "")
-                        or getattr(inv.client, "full_name", "")
-                        or "",
-                        getattr(inv.client, "nrc", ""),
-                        "0.00",
-                        f"{base:.2f}",
-                        f"{debit:.2f}",
-                        "0.00",
-                        "0.00",
-                        "0.00",
-                        "0.00",
-                        f"{total:.2f}",
-                    ]
-                )
-
-        filename = f"libro-{export_type}-{year:04d}-{month:02d}"
-
-        if export_format == "json":
-            from json import dumps
-
-            data = {"headers": headers, "rows": rows}
-            response = HttpResponse(
-                dumps(data),
-                content_type="application/json; charset=utf-8",
+            writer.writerow(
+                [
+                    numero,
+                    fecha,
+                    cliente,
+                    tipo_doc,
+                    metodo,
+                    estado_dte,
+                    f"{float(total):.2f}",
+                ]
             )
-            response["Content-Disposition"] = f'attachment; filename="{filename}.json"'
-            return response
 
-        if export_format == "xlsx":
-            try:
-                from openpyxl import Workbook
-            except ImportError:
-                return Response({"detail": "openpyxl no instalado"}, status=500)
-
-            wb = Workbook()
-            ws = wb.active
-            ws.append(headers)
-            for row in rows:
-                ws.append(row)
-
-            from io import BytesIO
-
-            buffer = BytesIO()
-            wb.save(buffer)
-            buffer.seek(0)
-            response = HttpResponse(
-                buffer.getvalue(),
-                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-            response["Content-Disposition"] = f'attachment; filename="{filename}.xlsx"'
-            return response
-
-        from io import StringIO
-
-        buffer = StringIO()
-        writer = csv.writer(buffer)
-        writer.writerow(headers)
-        for row in rows:
-            writer.writerow(row)
-
-        response = HttpResponse(
-            buffer.getvalue(),
-            content_type="text/csv; charset=utf-8",
-        )
-        response["Content-Disposition"] = f'attachment; filename="{filename}.csv"'
         return response
 
 class ServiceCategoryViewSet(viewsets.ModelViewSet):
