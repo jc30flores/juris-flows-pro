@@ -173,9 +173,13 @@ class ServiceViewSet(viewsets.ModelViewSet):
 
 
 class ClientViewSet(viewsets.ModelViewSet):
-    queryset = Client.objects.all()
+    queryset = Client.objects.filter(is_deleted=False)
     serializer_class = ClientSerializer
     permission_classes = [permissions.AllowAny]
+
+    def perform_destroy(self, instance):
+        instance.is_deleted = True
+        instance.save(update_fields=["is_deleted"])
 
 
 class InvoiceViewSet(viewsets.ModelViewSet):
