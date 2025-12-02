@@ -106,13 +106,13 @@ def build_cf_book(qs):
     ]
 
     grouped = {}
-    for invoice in qs:
+    for invoice in qs.order_by("date", "number"):
         grouped.setdefault(invoice.date, []).append(invoice)
 
     rows = []
     for invoice_date in sorted(grouped.keys()):
         invoices = grouped[invoice_date]
-        totals = sum((invoice.total or Decimal("0")) for invoice in invoices)
+        totals = sum((invoice.total or Decimal("0")) for invoice in invoices, start=Decimal("0"))
         ventas_gravadas = _quantize_money(totals)
         total_ventas = ventas_gravadas
 
@@ -261,7 +261,11 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             return response
 
         if export_format == "json":
-            data = [dict(zip(headers, row)) for row in rows]
+            json_rows = [
+                [str(value) if isinstance(value, Decimal) else value for value in row]
+                for row in rows
+            ]
+            data = {"headers": headers, "rows": json_rows}
             response = HttpResponse(
                 json.dumps(data, ensure_ascii=False),
                 content_type="application/json; charset=utf-8",
