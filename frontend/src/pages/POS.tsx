@@ -3,6 +3,13 @@ import { Plus, Download, Filter, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -16,6 +23,7 @@ import { Client } from "@/types/client";
 import { Invoice, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
 import { Service } from "@/types/service";
 import { toast } from "@/hooks/use-toast";
+import { Label } from "@/components/ui/label";
 
 const getDteBadgeStyle = (status: string | undefined) => {
   const normalized = status?.toUpperCase();
@@ -61,6 +69,12 @@ export default function POS() {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [selectedServices, setSelectedServices] = useState<SelectedServicePayload[]>([]);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportType, setExportType] = useState("consumidores");
+  const [exportFormat, setExportFormat] = useState("csv");
+  const now = useMemo(() => new Date(), []);
+  const [exportMonth, setExportMonth] = useState(now.getMonth() + 1);
+  const [exportYear, setExportYear] = useState(now.getFullYear());
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -251,12 +265,25 @@ export default function POS() {
   };
 
   const handleDownload = () => {
+    const params = new URLSearchParams({
+      type: exportType,
+      format: exportFormat,
+      month: String(exportMonth),
+      year: String(exportYear),
+    });
+
+    if (search) params.set("search", search);
+    if (filter && filter !== "all") params.set("filter", filter);
+
+    const url = `${API_BASE_URL}/api/invoices/export/?${params.toString()}`;
+
     const link = document.createElement("a");
-    link.href = `${API_BASE_URL}/api/invoices/export/`;
+    link.href = url;
     link.setAttribute("download", "");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    setShowExportModal(false);
   };
 
   return (
@@ -300,7 +327,7 @@ export default function POS() {
             <Button
               variant="outline"
               className="flex-shrink-0"
-              onClick={handleDownload}
+              onClick={() => setShowExportModal(true)}
             >
               <Download className="h-4 w-4 md:mr-2" />
               <span className="hidden md:inline">Exportar</span>
@@ -502,6 +529,81 @@ export default function POS() {
         selectedServices={selectedServices}
         onCancel={handleCancelSelection}
       />
+
+      <Dialog open={showExportModal} onOpenChange={setShowExportModal}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>Exportar libro de ventas</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Tipo de libro</Label>
+              <Select value={exportType} onValueChange={setExportType}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="consumidores">Consumidores finales</SelectItem>
+                  <SelectItem value="contribuyentes">
+                    Crédito fiscal (contribuyentes)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Formato</Label>
+              <Select value={exportFormat} onValueChange={setExportFormat}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="csv">CSV</SelectItem>
+                  <SelectItem value="json">JSON</SelectItem>
+                  <SelectItem value="xlsx">EXCEL</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Mes</Label>
+                <Select
+                  value={String(exportMonth)}
+                  onValueChange={(value) => setExportMonth(Number(value))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"].map(
+                      (label, index) => (
+                        <SelectItem key={label} value={String(index + 1)}>
+                          {label}
+                        </SelectItem>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Año</Label>
+                <Input
+                  type="number"
+                  value={exportYear}
+                  onChange={(e) => setExportYear(Number(e.target.value) || now.getFullYear())}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-3">
+            <Button variant="outline" onClick={() => setShowExportModal(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleDownload}>Descargar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );
