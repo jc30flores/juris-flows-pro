@@ -14,6 +14,7 @@ from .views import (
     LogoutView,
     ServiceCategoryViewSet,
     ServiceViewSet,
+    InvoiceExportView,
     StaffUserViewSet,
 )
 
@@ -33,4 +34,5 @@ urlpatterns = router.urls + [
     path("status/connectivity/", ConnectivityStatusView.as_view(), name="connectivity-status"),
     path("auth/login/", LoginView.as_view(), name="auth-login"),
     path("auth/logout/", LogoutView.as_view(), name="logout"),
+    path("invoices/export/", InvoiceExportView.as_view(), name="invoice-export"),
 ]

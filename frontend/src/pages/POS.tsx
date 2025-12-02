@@ -3,6 +3,14 @@ import { Plus, Download, Filter, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -11,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
 import { ServiceSelectorModal } from "@/components/modals/ServiceSelectorModal";
-import { api } from "@/lib/api";
+import { API_BASE_URL, api } from "@/lib/api";
 import { Client } from "@/types/client";
 import { Invoice, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
 import { Service } from "@/types/service";
@@ -48,6 +56,9 @@ const isInvoiceInCurrentMonth = (dateValue: string | Date): boolean => {
   return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
 };
 
+type ExportBookType = "consumidores" | "contribuyentes";
+type ExportFormat = "csv" | "json" | "xlsx";
+
 export default function POS() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -61,6 +72,9 @@ export default function POS() {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [selectedServices, setSelectedServices] = useState<SelectedServicePayload[]>([]);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportType, setExportType] = useState<ExportBookType>("consumidores");
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("csv");
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -250,6 +264,26 @@ export default function POS() {
     setMode("create");
   };
 
+  const handleDownload = () => {
+    const url = new URL(`${API_BASE_URL}/api/invoices/export/`);
+    url.searchParams.set("type", exportType);
+    url.searchParams.set("format", exportFormat);
+    if (search) {
+      url.searchParams.set("search", search);
+    }
+    if (filter && filter !== "all") {
+      url.searchParams.set("filter", filter);
+    }
+
+    const link = document.createElement("a");
+    link.href = url.toString();
+    link.download = "";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setShowExportModal(false);
+  };
+
   return (
     <div className="space-y-4 md:space-y-6 overflow-x-hidden">
       {/* Título móvil */}
@@ -288,7 +322,11 @@ export default function POS() {
                 <SelectItem value="month">Este Mes</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" className="flex-shrink-0">
+            <Button
+              variant="outline"
+              className="flex-shrink-0"
+              onClick={() => setShowExportModal(true)}
+            >
               <Download className="h-4 w-4 md:mr-2" />
               <span className="hidden md:inline">Exportar</span>
             </Button>
@@ -489,6 +527,50 @@ export default function POS() {
         selectedServices={selectedServices}
         onCancel={handleCancelSelection}
       />
+
+      <Dialog open={showExportModal} onOpenChange={setShowExportModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Exportar libro de ventas</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Tipo de libro</Label>
+              <Select value={exportType} onValueChange={(value) => setExportType(value as ExportBookType)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona un tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="consumidores">Consumidores finales</SelectItem>
+                  <SelectItem value="contribuyentes">Crédito fiscal (contribuyentes)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Formato</Label>
+              <Select
+                value={exportFormat}
+                onValueChange={(value) => setExportFormat(value as ExportFormat)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona un formato" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="csv">CSV</SelectItem>
+                  <SelectItem value="json">JSON</SelectItem>
+                  <SelectItem value="xlsx">EXCEL</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowExportModal(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleDownload}>Descargar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
