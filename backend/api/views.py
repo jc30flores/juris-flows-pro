@@ -1,7 +1,5 @@
 import csv
-import json
 from datetime import timedelta
-from decimal import Decimal, ROUND_HALF_UP
 
 from django.contrib.auth.hashers import check_password
 from django.db import models
@@ -10,14 +8,8 @@ from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.timezone import localtime
 from rest_framework import permissions, status, viewsets
-from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
-try:
-    from openpyxl import Workbook
-except ImportError:  # pragma: no cover - handled gracefully at runtime
-    Workbook = None
 
 from .models import (
     Activity,
@@ -92,275 +84,47 @@ def filter_invoices_queryset(queryset, params):
     return queryset
 
 
-def _quantize_money(value: Decimal) -> Decimal:
-    return Decimal(value or 0).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-
-def build_cf_book(qs):
-    headers = [
-        "Día",
-        "Del No",
-        "Al No",
-        "No. de Maq. Registradora",
-        "Ventas Exentas",
-        "Ventas Gravadas Locales",
-        "Exportaciones",
-        "Total Ventas",
-        "Venta por Cuenta de Terceros",
-        "Venta Total",
-    ]
-
-    grouped = {}
-    for invoice in qs.order_by("date", "number"):
-        grouped.setdefault(invoice.date, []).append(invoice)
-
-    rows = []
-    for invoice_date in sorted(grouped.keys()):
-        invoices = grouped[invoice_date]
-        totals = sum(
-            ((invoice.total or Decimal("0")) for invoice in invoices),
-            start=Decimal("0"),
-        )
-        ventas_gravadas = _quantize_money(totals)
-        total_ventas = ventas_gravadas
-
-        rows.append(
-            [
-                invoice_date.day,
-                min(inv.number for inv in invoices),
-                max(inv.number for inv in invoices),
-                "",
-                Decimal("0.00"),
-                ventas_gravadas,
-                Decimal("0.00"),
-                total_ventas,
-                Decimal("0.00"),
-                total_ventas,
-            ]
-        )
-
-    return headers, rows
-
-
-def build_ccf_book(qs):
-    headers = [
-        "FECHA DE EMISION",
-        "No. CORRELATIVO PREIMPRESO",
-        "No. CONTROL INTERNO SISTEMA FORMULARIO UNICO",
-        "NOMBRE DEL CLIENTE, MANDANTE O MANDATARIO",
-        "NRC",
-        "EXENTAS",
-        "INTERNAS GRAVADAS",
-        "DEBITO FISCAL",
-        "EXENTAS",
-        "INTERNAS GRAVADAS",
-        "DEBITO FISCAL",
-        "IVA RETENIDO",
-        "TOTAL",
-    ]
-
-    rows = []
-    for invoice in qs.order_by("date", "number"):
-        total = _quantize_money(invoice.total)
-        base = _quantize_money(total / Decimal("1.13"))
-        debito = _quantize_money(total - base)
-        diff = total - (base + debito)
-        if diff:
-            debito = _quantize_money(debito + diff)
-
-        client_name = invoice.client.company_name or invoice.client.full_name
-        nrc = invoice.client.nrc or ""
-
-        rows.append(
-            [
-                invoice.date.strftime("%d/%m/%Y"),
-                invoice.number,
-                invoice.id,
-                client_name,
-                nrc,
-                Decimal("0.00"),
-                base,
-                debito,
-                Decimal("0.00"),
-                Decimal("0.00"),
-                Decimal("0.00"),
-                Decimal("0.00"),
-                total,
-            ]
-        )
-
-    return headers, rows
-
-
-class InvoiceExportAPIView(APIView):
+class InvoiceExportAllCSVAPIView(APIView):
     """
-    GET /api/invoices/export/?type=consumidores|contribuyentes&format=csv|json|xlsx&month=MM&year=YYYY
-    Exporta libros de ventas por mes.
+    GET /api/invoices/export/
+    Descarga un CSV con todas las ventas (todas las facturas).
     """
 
     def get(self, request, *args, **kwargs):
-        export_type = (request.GET.get("type") or "consumidores").lower()
-        export_format = (request.GET.get("format") or "csv").lower()
-        now_local = localtime(timezone.now())
+        invoices = Invoice.objects.all().order_by("date", "id")
 
-        try:
-            month = int(request.GET.get("month") or now_local.month)
-            year = int(request.GET.get("year") or now_local.year)
-        except (TypeError, ValueError):
-            return Response({"detail": "Parámetros inválidos"}, status=400)
+        headers = [
+            "NumeroFactura",
+            "Fecha",
+            "Cliente",
+            "TipoDocumento",
+            "MetodoPago",
+            "EstadoDTE",
+            "Total",
+        ]
 
-        if export_type not in {"consumidores", "contribuyentes"}:
-            return Response({"detail": "type inválido"}, status=400)
-        if export_format not in {"csv", "json", "xlsx"}:
-            return Response({"detail": "format inválido"}, status=400)
-        if month < 1 or month > 12:
-            return Response({"detail": "Parámetros inválidos"}, status=400)
-
-        qs = Invoice.objects.all()
-        qs = qs.filter(date__year=year, date__month=month)
-
-        if export_type == "consumidores":
-            qs = qs.filter(doc_type=Invoice.CF)
-        else:
-            qs = qs.filter(doc_type=Invoice.CCF)
-
-        if export_type == "consumidores":
-            headers = [
-                "Día",
-                "Del No",
-                "Al No",
-                "No. de Maq. Registradora",
-                "Ventas Exentas",
-                "Ventas Gravadas Locales",
-                "Exportaciones",
-                "Total Ventas",
-                "Venta por Cuenta de Terceros",
-                "Venta Total",
-            ]
-            grouped = {}
-            for invoice in qs:
-                day = invoice.date.day
-                if day not in grouped:
-                    grouped[day] = {
-                        "day": day,
-                        "from": invoice.number,
-                        "to": invoice.number,
-                        "total": Decimal(invoice.total or 0),
-                    }
-                    continue
-
-                current = grouped[day]
-                current["from"] = min(str(current["from"]), str(invoice.number))
-                current["to"] = max(str(current["to"]), str(invoice.number))
-                current["total"] += Decimal(invoice.total or 0)
-
-            rows = []
-            for day in sorted(grouped.keys()):
-                data = grouped[day]
-                total_value = data["total"].quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                rows.append(
-                    [
-                        data["day"],
-                        data["from"],
-                        data["to"],
-                        "",
-                        "0.00",
-                        f"{total_value:.2f}",
-                        "0.00",
-                        f"{total_value:.2f}",
-                        "0.00",
-                        f"{total_value:.2f}",
-                    ]
-                )
-        else:
-            headers = [
-                "FECHA DE EMISION",
-                "No. CORRELATIVO PREIMPRESO",
-                "No. CONTROL INTERNO SISTEMA FORMULARIO UNICO",
-                "NOMBRE DEL CLIENTE, MANDANTE O MANDATARIO",
-                "NRC",
-                "EXENTAS",
-                "INTERNAS GRAVADAS",
-                "DEBITO FISCAL",
-                "EXENTAS",
-                "INTERNAS GRAVADAS",
-                "DEBITO FISCAL",
-                "IVA RETENIDO",
-                "TOTAL",
-            ]
-            rows = []
-            for invoice in qs.order_by("date", "id"):
-                issued = invoice.date.strftime("%d/%m/%Y")
-                correlativo = invoice.number
-                control_interno = invoice.number
-                client = getattr(invoice, "client", None)
-                client_name = ""
-                client_nrc = ""
-                if client:
-                    client_name = client.company_name or client.full_name
-                    client_nrc = client.nrc or ""
-
-                total = Decimal(invoice.total or 0).quantize(
-                    Decimal("0.01"), rounding=ROUND_HALF_UP
-                )
-                base = (total / Decimal("1.13")).quantize(
-                    Decimal("0.01"), rounding=ROUND_HALF_UP
-                )
-                debito = (total - base).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                diff = total - (base + debito)
-                if diff:
-                    debito = (debito + diff).quantize(
-                        Decimal("0.01"), rounding=ROUND_HALF_UP
-                    )
-
-                rows.append(
-                    [
-                        issued,
-                        correlativo,
-                        control_interno,
-                        client_name,
-                        client_nrc,
-                        "0.00",
-                        f"{base:.2f}",
-                        f"{debito:.2f}",
-                        "0.00",
-                        "0.00",
-                        "0.00",
-                        "0.00",
-                        f"{total:.2f}",
-                    ]
-                )
-
-        filename = f"libro-{export_type}-{year}-{month}"
-
-        if export_format == "json":
-            data = {"headers": headers, "rows": rows}
-            response = HttpResponse(
-                json.dumps(data),
-                content_type="application/json; charset=utf-8",
+        rows = []
+        for inv in invoices:
+            fecha = localtime(inv.date).strftime("%Y-%m-%d")
+            cliente = getattr(getattr(inv, "client", None), "company_name", "") or getattr(
+                getattr(inv, "client", None), "full_name", ""
             )
-            response["Content-Disposition"] = f'attachment; filename="{filename}.json"'
-            return response
+            tipo_doc = getattr(inv, "doc_type", "")
+            metodo = getattr(inv, "payment_method", "")
+            estado_dte = getattr(inv, "dte_status", "")
+            total = getattr(inv, "total", 0) or 0
 
-        if export_format == "xlsx":
-            if Workbook is None:
-                return Response({"detail": "openpyxl no instalado"}, status=500)
-            wb = Workbook()
-            ws = wb.active
-            ws.append(headers)
-            for row in rows:
-                ws.append(row)
-            from io import BytesIO
-
-            buffer = BytesIO()
-            wb.save(buffer)
-            buffer.seek(0)
-            response = HttpResponse(
-                buffer.getvalue(),
-                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            rows.append(
+                [
+                    getattr(inv, "number", inv.id),
+                    fecha,
+                    cliente,
+                    tipo_doc,
+                    metodo,
+                    estado_dte,
+                    f"{total:.2f}" if isinstance(total, (int, float)) else str(total),
+                ]
             )
-            response["Content-Disposition"] = f'attachment; filename="{filename}.xlsx"'
-            return response
 
         from io import StringIO
 
@@ -369,13 +133,13 @@ class InvoiceExportAPIView(APIView):
         writer.writerow(headers)
         for row in rows:
             writer.writerow(row)
+
         response = HttpResponse(
             buffer.getvalue(),
             content_type="text/csv; charset=utf-8",
         )
-        response["Content-Disposition"] = f'attachment; filename="{filename}.csv"'
+        response["Content-Disposition"] = 'attachment; filename="todas-las-ventas.csv"'
         return response
-
 
 class ServiceCategoryViewSet(viewsets.ModelViewSet):
     queryset = ServiceCategory.objects.all()
@@ -409,79 +173,9 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if getattr(self, "action", None) in {"list", "export"}:
+        if getattr(self, "action", None) in {"list"}:
             return filter_invoices_queryset(queryset, self.request.query_params)
         return queryset
-
-    @action(detail=False, methods=["get"], url_path="export")
-    def export(self, request, *args, **kwargs):
-        export_type = (request.query_params.get("type") or "").lower()
-        export_format = (request.query_params.get("format") or "csv").lower()
-        month_param = request.query_params.get("month")
-        year_param = request.query_params.get("year")
-
-        if export_format == "excel":
-            export_format = "xlsx"
-
-        if export_type not in {"consumidores", "contribuyentes"}:
-            return Response({"detail": "Parámetros inválidos"}, status=400)
-
-        if export_format not in {"csv", "json", "xlsx"}:
-            return Response({"detail": "Parámetros inválidos"}, status=400)
-
-        today = timezone.localdate()
-        try:
-            month = int(month_param) if month_param is not None else today.month
-            year = int(year_param) if year_param is not None else today.year
-        except (TypeError, ValueError):
-            return Response({"detail": "Parámetros inválidos"}, status=400)
-
-        if month < 1 or month > 12:
-            return Response({"detail": "Parámetros inválidos"}, status=400)
-
-        qs = self.filter_queryset(self.get_queryset())
-        qs = qs.filter(date__year=year, date__month=month)
-
-        if export_type == "consumidores":
-            qs = qs.filter(doc_type=Invoice.CF)
-            headers, rows = build_cf_book(qs)
-        elif export_type == "contribuyentes":
-            qs = qs.filter(doc_type=Invoice.CCF)
-            headers, rows = build_ccf_book(qs)
-        else:
-            return Response({"detail": "Parámetros inválidos"}, status=400)
-
-        filename = f"libro-{export_type}-{year}-{month:02d}"
-
-        if export_format == "csv":
-            response = HttpResponse(
-                content_type="text/csv; charset=utf-8",
-                headers={
-                    "Content-Disposition": f"attachment; filename=\"{filename}.csv\""
-                },
-            )
-            writer = csv.writer(response)
-            writer.writerow(headers)
-            writer.writerows(rows)
-            return response
-
-        if export_format == "json":
-            return Response({"headers": headers, "rows": rows}, status=200)
-
-        wb = Workbook()
-        ws = wb.active
-        ws.append(headers)
-        for row in rows:
-            ws.append(row)
-
-        response = HttpResponse(
-            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={
-                "Content-Disposition": f"attachment; filename=\"{filename}.xlsx\""
-            },
-        )
-        wb.save(response)
-        return response
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)

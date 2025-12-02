@@ -8,7 +8,7 @@ from .views import (
     ExpenseViewSet,
     GeoDepartmentViewSet,
     GeoMunicipalityViewSet,
-    InvoiceExportAPIView,
+    InvoiceExportAllCSVAPIView,
     InvoiceItemViewSet,
     InvoiceViewSet,
     LoginView,
@@ -31,7 +31,7 @@ router.register(r"geo/municipalities", GeoMunicipalityViewSet)
 router.register(r"activities", ActivityViewSet)
 
 urlpatterns = [
-    path("invoices/export/", InvoiceExportAPIView.as_view(), name="invoice-export"),
+    path("invoices/export/", InvoiceExportAllCSVAPIView.as_view(), name="invoice-export"),
     path("", include(router.urls)),
     path("status/connectivity/", ConnectivityStatusView.as_view(), name="connectivity-status"),
     path("auth/login/", LoginView.as_view(), name="auth-login"),
