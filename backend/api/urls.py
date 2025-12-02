@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
@@ -21,7 +21,7 @@ router = DefaultRouter()
 router.register(r"service-categories", ServiceCategoryViewSet)
 router.register(r"services", ServiceViewSet)
 router.register(r"clients", ClientViewSet)
-router.register(r"invoices", InvoiceViewSet)
+router.register(r"invoices", InvoiceViewSet, basename="invoice")
 router.register(r"invoice-items", InvoiceItemViewSet)
 router.register(r"expenses", ExpenseViewSet)
 router.register(r"staff-users", StaffUserViewSet)
@@ -29,7 +29,8 @@ router.register(r"geo/departments", GeoDepartmentViewSet)
 router.register(r"geo/municipalities", GeoMunicipalityViewSet)
 router.register(r"activities", ActivityViewSet)
 
-urlpatterns = router.urls + [
+urlpatterns = [
+    path("", include(router.urls)),
     path("status/connectivity/", ConnectivityStatusView.as_view(), name="connectivity-status"),
     path("auth/login/", LoginView.as_view(), name="auth-login"),
     path("auth/logout/", LogoutView.as_view(), name="logout"),

@@ -224,70 +224,18 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         return queryset
 
     @action(detail=False, methods=["get"], url_path="export")
-    def export(self, request):
-        export_type = (request.query_params.get("type") or "").lower()
-        export_format = (request.query_params.get("format") or "csv").lower()
-
-        if export_format == "excel":
-            export_format = "xlsx"
-
-        if export_type not in {"consumidores", "contribuyentes"}:
-            return Response(
-                {"detail": "Parámetro 'type' inválido. Use consumidores o contribuyentes."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if export_format not in {"csv", "json", "xlsx"}:
-            return Response(
-                {"detail": "Parámetro 'format' inválido. Use csv, json o xlsx."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        queryset = self.filter_queryset(self.get_queryset())
-
-        if export_type == "consumidores":
-            queryset = queryset.filter(doc_type=Invoice.CF)
-            headers, rows = build_cf_book(queryset)
-        else:
-            queryset = queryset.filter(doc_type=Invoice.CCF)
-            headers, rows = build_ccf_book(queryset)
-
-        today = timezone.localdate()
-        filename = f"libro-{export_type}-{today.strftime('%Y-%m')}"
-
-        if export_format == "csv":
-            response = HttpResponse(content_type="text/csv; charset=utf-8")
-            response["Content-Disposition"] = f'attachment; filename="{filename}.csv"'
-            writer = csv.writer(response)
-            writer.writerow(headers)
-            writer.writerows(rows)
-            return response
-
-        if export_format == "json":
-            json_rows = [
-                [str(value) if isinstance(value, Decimal) else value for value in row]
-                for row in rows
-            ]
-            data = {"headers": headers, "rows": json_rows}
-            response = HttpResponse(
-                json.dumps(data, ensure_ascii=False),
-                content_type="application/json; charset=utf-8",
-            )
-            response["Content-Disposition"] = f'attachment; filename="{filename}.json"'
-            return response
-
-        wb = Workbook()
-        ws = wb.active
-        ws.append(headers)
-        for row in rows:
-            ws.append(row)
-
-        response = HttpResponse(
-            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    def export(self, request, *args, **kwargs):
+        export_type = request.query_params.get("type")
+        export_format = request.query_params.get("format")
+        qs = self.filter_queryset(self.get_queryset())
+        return Response(
+            {
+                "ok": True,
+                "type": export_type,
+                "format": export_format,
+                "count": qs.count(),
+            }
         )
-        response["Content-Disposition"] = f'attachment; filename="{filename}.xlsx"'
-        wb.save(response)
-        return response
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
