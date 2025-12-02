@@ -264,7 +264,7 @@ export default function POS() {
     setMode("create");
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     const url = new URL(`${API_BASE_URL}/api/invoices/export/`);
     url.searchParams.set("type", exportType);
     url.searchParams.set("format", exportFormat);
@@ -275,13 +275,40 @@ export default function POS() {
       url.searchParams.set("filter", filter);
     }
 
-    const link = document.createElement("a");
-    link.href = url.toString();
-    link.download = "";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setShowExportModal(false);
+    try {
+      const response = await fetch(url.toString(), { credentials: "include" });
+      if (!response.ok) {
+        const message = (await response.text()) || "No se pudo exportar el libro.";
+        toast({
+          title: "Error al exportar",
+          description: message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+      const filename = filenameMatch?.[1] || "libro-ventas";
+
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.setAttribute("download", filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+      setShowExportModal(false);
+    } catch (err) {
+      console.error("Error al descargar libro de ventas", err);
+      toast({
+        title: "Error de red",
+        description: "No se pudo iniciar la descarga. Intenta nuevamente.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (

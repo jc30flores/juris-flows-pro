@@ -1,13 +1,18 @@
+import csv
+import json
 from datetime import timedelta
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.contrib.auth.hashers import check_password
 from django.db import models
 from django.db.models import Q
+from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from openpyxl import Workbook
 
 from .models import (
     Activity,
@@ -82,6 +87,103 @@ def filter_invoices_queryset(queryset, params):
     return queryset
 
 
+def _quantize_money(value: Decimal) -> Decimal:
+    return Decimal(value or 0).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def build_cf_book(qs):
+    headers = [
+        "Día",
+        "Del No",
+        "Al No",
+        "No. de Maq. Registradora",
+        "Ventas Exentas",
+        "Ventas Gravadas Locales",
+        "Exportaciones",
+        "Total Ventas",
+        "Venta por Cuenta de Terceros",
+        "Venta Total",
+    ]
+
+    grouped = {}
+    for invoice in qs:
+        grouped.setdefault(invoice.date, []).append(invoice)
+
+    rows = []
+    for invoice_date in sorted(grouped.keys()):
+        invoices = grouped[invoice_date]
+        totals = sum((invoice.total or Decimal("0")) for invoice in invoices)
+        ventas_gravadas = _quantize_money(totals)
+        total_ventas = ventas_gravadas
+
+        rows.append(
+            [
+                invoice_date.day,
+                min(inv.number for inv in invoices),
+                max(inv.number for inv in invoices),
+                "",
+                Decimal("0.00"),
+                ventas_gravadas,
+                Decimal("0.00"),
+                total_ventas,
+                Decimal("0.00"),
+                total_ventas,
+            ]
+        )
+
+    return headers, rows
+
+
+def build_ccf_book(qs):
+    headers = [
+        "FECHA DE EMISION",
+        "No. CORRELATIVO PREIMPRESO",
+        "No. CONTROL INTERNO SISTEMA FORMULARIO UNICO",
+        "NOMBRE DEL CLIENTE, MANDANTE O MANDATARIO",
+        "NRC",
+        "EXENTAS",
+        "INTERNAS GRAVADAS",
+        "DEBITO FISCAL",
+        "EXENTAS",
+        "INTERNAS GRAVADAS",
+        "DEBITO FISCAL",
+        "IVA RETENIDO",
+        "TOTAL",
+    ]
+
+    rows = []
+    for invoice in qs.order_by("date", "number"):
+        total = _quantize_money(invoice.total)
+        base = _quantize_money(total / Decimal("1.13"))
+        debito = _quantize_money(total - base)
+        diff = total - (base + debito)
+        if diff:
+            debito = _quantize_money(debito + diff)
+
+        client_name = invoice.client.company_name or invoice.client.full_name
+        nrc = invoice.client.nrc or ""
+
+        rows.append(
+            [
+                invoice.date.strftime("%d/%m/%Y"),
+                invoice.number,
+                invoice.id,
+                client_name,
+                nrc,
+                Decimal("0.00"),
+                base,
+                debito,
+                Decimal("0.00"),
+                Decimal("0.00"),
+                Decimal("0.00"),
+                Decimal("0.00"),
+                total,
+            ]
+        )
+
+    return headers, rows
+
+
 class ServiceCategoryViewSet(viewsets.ModelViewSet):
     queryset = ServiceCategory.objects.all()
     serializer_class = ServiceCategorySerializer
@@ -114,7 +216,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if getattr(self, "action", None) == "list":
+        if getattr(self, "action", None) in {"list", "export"}:
             return filter_invoices_queryset(queryset, self.request.query_params)
         return queryset
 
@@ -122,16 +224,63 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     def export(self, request):
         export_type = (request.query_params.get("type") or "").lower()
         export_format = (request.query_params.get("format") or "csv").lower()
+
+        if export_format == "excel":
+            export_format = "xlsx"
+
+        if export_type not in {"consumidores", "contribuyentes"}:
+            return Response(
+                {"detail": "Parámetro 'type' inválido. Use consumidores o contribuyentes."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if export_format not in {"csv", "json", "xlsx"}:
+            return Response(
+                {"detail": "Parámetro 'format' inválido. Use csv, json o xlsx."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         queryset = self.filter_queryset(self.get_queryset())
 
-        return Response(
-            {
-                "ok": True,
-                "export_type": export_type,
-                "export_format": export_format,
-                "count": queryset.count(),
-            }
+        if export_type == "consumidores":
+            queryset = queryset.filter(doc_type=Invoice.CF)
+            headers, rows = build_cf_book(queryset)
+        else:
+            queryset = queryset.filter(doc_type=Invoice.CCF)
+            headers, rows = build_ccf_book(queryset)
+
+        today = timezone.localdate()
+        filename = f"libro-{export_type}-{today.strftime('%Y-%m')}"
+
+        if export_format == "csv":
+            response = HttpResponse(content_type="text/csv; charset=utf-8")
+            response["Content-Disposition"] = f'attachment; filename="{filename}.csv"'
+            writer = csv.writer(response)
+            writer.writerow(headers)
+            writer.writerows(rows)
+            return response
+
+        if export_format == "json":
+            data = [dict(zip(headers, row)) for row in rows]
+            response = HttpResponse(
+                json.dumps(data, ensure_ascii=False),
+                content_type="application/json; charset=utf-8",
+            )
+            response["Content-Disposition"] = f'attachment; filename="{filename}.json"'
+            return response
+
+        wb = Workbook()
+        ws = wb.active
+        ws.append(headers)
+        for row in rows:
+            ws.append(row)
+
+        response = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+        response["Content-Disposition"] = f'attachment; filename="{filename}.xlsx"'
+        wb.save(response)
+        return response
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
