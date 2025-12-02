@@ -547,9 +547,9 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
     total_iva = Decimal("0.00")
 
     for index, item in enumerate(items, start=1):
-        unit_price = Decimal(str(item.unit_price))
-        quantity = Decimal(str(item.quantity))
-        gross_line = quantity * unit_price
+        gross_unit = Decimal(str(item.unit_price))
+        qty_dec = Decimal(str(item.quantity))
+        gross_line = gross_unit * qty_dec
         line_base, iva_line = split_gross_amount_with_tax(gross_line)
 
         total_gross += gross_line
@@ -560,13 +560,15 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         descripcion = service.name if service else "Servicio"
         codigo = service.code if service and service.code else "SERVICIO"
 
+        precio_base_unitario = _round_2(line_base / qty_dec) if qty_dec else _round_2(Decimal("0"))
+
         cuerpo_documento.append(
             {
                 "ventaExenta": 0,
                 "numItem": index,
                 "tipoItem": 1,
                 "codigo": codigo,
-                "cantidad": float(quantity),
+                "cantidad": float(qty_dec),
                 "tributos": ["20"],
                 "uniMedida": 59,
                 "noGravado": 0,
@@ -574,9 +576,9 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
                 "montoDescu": 0,
                 "ventaNoSuj": 0,
                 "psv": 0,
-                "precioUni": float(_round_2(unit_price)),
+                "precioUni": float(precio_base_unitario),
                 "descripcion": descripcion,
-                "ventaGravada": float(_round_2(gross_line)),
+                "ventaGravada": float(_round_2(line_base)),
                 "numeroDocumento": None,
             }
         )
