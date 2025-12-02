@@ -58,6 +58,20 @@ const isInvoiceInCurrentMonth = (dateValue: string | Date): boolean => {
 
 type ExportBookType = "consumidores" | "contribuyentes";
 type ExportFormat = "csv" | "json" | "xlsx";
+const MONTH_OPTIONS = [
+  "Enero",
+  "Febrero",
+  "Marzo",
+  "Abril",
+  "Mayo",
+  "Junio",
+  "Julio",
+  "Agosto",
+  "Septiembre",
+  "Octubre",
+  "Noviembre",
+  "Diciembre",
+];
 
 export default function POS() {
   const [filter, setFilter] = useState("all");
@@ -75,6 +89,8 @@ export default function POS() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportType, setExportType] = useState<ExportBookType>("consumidores");
   const [exportFormat, setExportFormat] = useState<ExportFormat>("csv");
+  const [exportMonth, setExportMonth] = useState<number>(new Date().getMonth() + 1);
+  const exportYear = new Date().getFullYear();
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -268,6 +284,8 @@ export default function POS() {
     const url = new URL(`${API_BASE_URL}/api/invoices/export/`);
     url.searchParams.set("type", exportType);
     url.searchParams.set("format", exportFormat);
+    url.searchParams.set("month", String(exportMonth));
+    url.searchParams.set("year", String(exportYear));
     if (search) {
       url.searchParams.set("search", search);
     }
@@ -559,6 +577,24 @@ export default function POS() {
                   <SelectItem value="csv">CSV</SelectItem>
                   <SelectItem value="json">JSON</SelectItem>
                   <SelectItem value="xlsx">EXCEL</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Mes</Label>
+              <Select
+                value={String(exportMonth)}
+                onValueChange={(value) => setExportMonth(Number(value))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona un mes" />
+                </SelectTrigger>
+                <SelectContent>
+                  {MONTH_OPTIONS.map((label, index) => (
+                    <SelectItem key={label} value={String(index + 1)}>
+                      {label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

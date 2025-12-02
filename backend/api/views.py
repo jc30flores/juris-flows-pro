@@ -226,16 +226,72 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path="export")
     def export(self, request, *args, **kwargs):
         export_type = request.query_params.get("type")
-        export_format = request.query_params.get("format")
+        export_format = (request.query_params.get("format") or "csv").lower()
+        month_param = request.query_params.get("month")
+        year_param = request.query_params.get("year")
+
+        if export_format == "excel":
+            export_format = "xlsx"
+
+        if export_type not in {"consumidores", "contribuyentes"}:
+            return Response({"detail": "Parámetros inválidos"}, status=400)
+
+        if export_format not in {"csv", "json", "xlsx"}:
+            return Response({"detail": "Parámetros inválidos"}, status=400)
+
+        today = timezone.localdate()
+        try:
+            month = int(month_param) if month_param is not None else today.month
+            year = int(year_param) if year_param is not None else today.year
+        except (TypeError, ValueError):
+            return Response({"detail": "Parámetros inválidos"}, status=400)
+
+        if month < 1 or month > 12:
+            return Response({"detail": "Parámetros inválidos"}, status=400)
+
         qs = self.filter_queryset(self.get_queryset())
-        return Response(
-            {
-                "ok": True,
-                "type": export_type,
-                "format": export_format,
-                "count": qs.count(),
-            }
+        qs = qs.filter(date__year=year, date__month=month)
+
+        if export_type == "consumidores":
+            qs = qs.filter(doc_type=Invoice.CF)
+            headers, rows = build_cf_book(qs)
+        elif export_type == "contribuyentes":
+            qs = qs.filter(doc_type=Invoice.CCF)
+            headers, rows = build_ccf_book(qs)
+        else:
+            return Response({"detail": "Parámetros inválidos"}, status=400)
+
+        filename = f"libro-{export_type}-{year}-{month:02d}"
+
+        if export_format == "csv":
+            response = HttpResponse(
+                content_type="text/csv; charset=utf-8",
+                headers={
+                    "Content-Disposition": f"attachment; filename=\"{filename}.csv\""
+                },
+            )
+            writer = csv.writer(response)
+            writer.writerow(headers)
+            writer.writerows(rows)
+            return response
+
+        if export_format == "json":
+            return Response({"headers": headers, "rows": rows}, status=200)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.append(headers)
+        for row in rows:
+            ws.append(row)
+
+        response = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{filename}.xlsx\""
+            },
         )
+        wb.save(response)
+        return response
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
