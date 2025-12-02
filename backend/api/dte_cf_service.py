@@ -766,15 +766,12 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
     se_tipo_documento = "13"
     se_nombre = (client.company_name if client else "") or (client.full_name if client else "") or "CONSUMIDOR FINAL"
     se_telefono = (client.phone if client else None) or "00000000"
-    se_num_documento = (
-        getattr(client, "dui", None)
-        or getattr(client, "nit", None)
-        or getattr(client, "document", None)
-        or "000000000"
-    )
-    se_correo = getattr(client, "email", None)
-    se_cod_actividad = getattr(client, "activity_code", None)
-    se_desc_actividad = getattr(client, "activity_description", None)
+    client_dui = (getattr(client, "dui", "") or "").strip()
+    client_dui_digits = "".join(ch for ch in client_dui if ch.isdigit())
+    se_num_documento = client_dui_digits if len(client_dui_digits) == 9 else "000000000"
+    se_correo = (getattr(client, "email", None) or None)
+    se_cod_actividad = (getattr(client, "activity_code", None) or None)
+    se_desc_actividad = getattr(client, "activity_description", None) or None
     se_departamento = (
         getattr(client, "department_code", None)
         or EMITTER_INFO["direccion"].get("departamento", "12")
@@ -864,7 +861,20 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
             "cuerpoDocumento": cuerpo_documento,
             "resumen": resumen,
             "sujetoExcluido": sujeto_excluido,
-            "emisor": {**EMITTER_INFO},
+            "emisor": {
+                "correo": EMITTER_INFO["correo"],
+                "codPuntoVenta": EMITTER_INFO["codPuntoVenta"],
+                "nombre": EMITTER_INFO["nombre"],
+                "codEstableMH": EMITTER_INFO["codEstableMH"],
+                "direccion": EMITTER_INFO["direccion"],
+                "codPuntoVentaMH": EMITTER_INFO["codPuntoVentaMH"],
+                "codEstable": EMITTER_INFO["codEstable"],
+                "nit": EMITTER_INFO["nit"],
+                "nrc": EMITTER_INFO["nrc"],
+                "telefono": EMITTER_INFO["telefono"],
+                "codActividad": EMITTER_INFO["codActividad"],
+                "descActividad": EMITTER_INFO["descActividad"],
+            },
             "identificacion": {
                 "codigoGeneracion": codigo_generacion,
                 "motivoContin": None,
