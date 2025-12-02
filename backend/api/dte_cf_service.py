@@ -136,8 +136,7 @@ def _number_to_words(n: int) -> str:
 
 
 def amount_to_spanish_words(amount) -> str:
-    dec = Decimal(str(amount))
-    dec = _round_2(dec)
+    dec = _round_2(Decimal(str(amount)))
     enteros = int(dec)
     centavos = int((dec - Decimal(enteros)) * 100)
 
@@ -147,9 +146,8 @@ def amount_to_spanish_words(amount) -> str:
     if centavos == 0:
         return f"{palabras_enteros} {moneda}"
 
-    palabras_centavos = _number_to_words(centavos)
-    etiqueta_centavos = "CENTAVO" if centavos == 1 else "CENTAVOS"
-    return f"{palabras_enteros} {moneda} CON {palabras_centavos} {etiqueta_centavos}"
+    centavos_str = f"{centavos:02d}"
+    return f"{palabras_enteros} {moneda} CON {centavos_str} CENTAVOS"
 
 
 def interpret_dte_response(response_data: dict) -> Tuple[str, str, str]:
@@ -399,6 +397,9 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
+    url = "https://t12101304761012.cheros.dev/api/v1/dte/factura"
+
+    print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -414,8 +415,6 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         total_amount=invoice.total,
         request_payload=payload,
     )
-
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/credito-fiscal"
     headers = {
         "Authorization": "Bearer api_k_12101304761012",
         "Content-Type": "application/json",
@@ -661,6 +660,9 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
+    url = "https://t12101304761012.cheros.dev/api/v1/dte/credito-fiscal"
+
+    print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -676,8 +678,6 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         total_amount=_to_decimal(total_operacion),
         request_payload=payload,
     )
-
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/credito-fiscal"
     headers = {
         "Authorization": "Bearer api_k_12101304761012",
         "Content-Type": "application/json",
@@ -875,6 +875,9 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
+    url = "https://t12101304761012.cheros.dev/api/v1/dte/sujeto-excluido"
+
+    print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -890,8 +893,6 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         total_amount=_to_decimal(total_pagar),
         request_payload=payload,
     )
-
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/sujeto-excluido"
     headers = {
         "Authorization": "Bearer api_k_12101304761012",
         "Content-Type": "application/json",
