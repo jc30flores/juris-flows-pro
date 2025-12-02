@@ -91,7 +91,20 @@ class InvoiceExportAllCSVAPIView(APIView):
     """
 
     def get(self, request, *args, **kwargs):
-        invoices = Invoice.objects.all().order_by("id")
+        dte_type = request.GET.get("dte_type")
+        month = int(request.GET.get("month") or localtime(timezone.now()).month)
+        year = int(request.GET.get("year") or localtime(timezone.now()).year)
+
+        invoices = Invoice.objects.all()
+
+        invoices = invoices.filter(date__year=year, date__month=month)
+
+        if dte_type == "consumidores":
+            invoices = invoices.filter(doc_type=Invoice.CF)
+        elif dte_type == "contribuyentes":
+            invoices = invoices.filter(doc_type=Invoice.CCF)
+
+        invoices = invoices.order_by("id")
 
         response = HttpResponse(content_type="text/csv; charset=utf-8")
         response["Content-Disposition"] = 'attachment; filename="todas-las-ventas.csv"'

@@ -3,12 +3,20 @@ import { Plus, Download, Filter, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
 import { ServiceSelectorModal } from "@/components/modals/ServiceSelectorModal";
 import { API_BASE_URL, api } from "@/lib/api";
@@ -49,10 +57,17 @@ const isInvoiceInCurrentMonth = (dateValue: string | Date): boolean => {
 };
 
 export default function POS() {
+  const now = new Date();
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [showNuevaFacturaModal, setShowNuevaFacturaModal] = useState(false);
   const [showServiceSelectorModal, setShowServiceSelectorModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportDteType, setExportDteType] = useState<
+    "consumidores" | "contribuyentes"
+  >("consumidores");
+  const [exportMonth, setExportMonth] = useState(String(now.getMonth() + 1));
+  const [exportYear] = useState(now.getFullYear());
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -250,8 +265,16 @@ export default function POS() {
     setMode("create");
   };
 
+  const handleOpenExportModal = () => setShowExportModal(true);
+
   const handleDownload = () => {
-    const url = `${API_BASE_URL}/api/invoices/export/`;
+    const params = new URLSearchParams({
+      dte_type: exportDteType,
+      month: exportMonth,
+      year: String(exportYear),
+    });
+
+    const url = `${API_BASE_URL}/api/invoices/export/?${params.toString()}`;
 
     const link = document.createElement("a");
     link.href = url;
@@ -259,6 +282,8 @@ export default function POS() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+
+    setShowExportModal(false);
   };
 
   return (
@@ -302,7 +327,7 @@ export default function POS() {
             <Button
               variant="outline"
               className="flex-shrink-0"
-              onClick={handleDownload}
+              onClick={handleOpenExportModal}
             >
               <Download className="h-4 w-4 md:mr-2" />
               <span className="hidden md:inline">Exportar</span>
@@ -504,6 +529,68 @@ export default function POS() {
         selectedServices={selectedServices}
         onCancel={handleCancelSelection}
       />
+
+      <Dialog open={showExportModal} onOpenChange={setShowExportModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Exportar libro de ventas</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Tipo de DTE</Label>
+              <Select
+                value={exportDteType}
+                onValueChange={(value) =>
+                  setExportDteType(
+                    value as "consumidores" | "contribuyentes"
+                  )
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="consumidores">Consumidores finales</SelectItem>
+                  <SelectItem value="contribuyentes">
+                    Crédito fiscal (contribuyentes)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Mes</Label>
+              <Select
+                value={exportMonth}
+                onValueChange={(value) => setExportMonth(value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona mes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">Enero</SelectItem>
+                  <SelectItem value="2">Febrero</SelectItem>
+                  <SelectItem value="3">Marzo</SelectItem>
+                  <SelectItem value="4">Abril</SelectItem>
+                  <SelectItem value="5">Mayo</SelectItem>
+                  <SelectItem value="6">Junio</SelectItem>
+                  <SelectItem value="7">Julio</SelectItem>
+                  <SelectItem value="8">Agosto</SelectItem>
+                  <SelectItem value="9">Septiembre</SelectItem>
+                  <SelectItem value="10">Octubre</SelectItem>
+                  <SelectItem value="11">Noviembre</SelectItem>
+                  <SelectItem value="12">Diciembre</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowExportModal(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleDownload}>Descargar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );
