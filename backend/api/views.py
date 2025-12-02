@@ -225,7 +225,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="export")
     def export(self, request, *args, **kwargs):
-        export_type = request.query_params.get("type")
+        export_type = (request.query_params.get("type") or "").lower()
         export_format = (request.query_params.get("format") or "csv").lower()
         month_param = request.query_params.get("month")
         year_param = request.query_params.get("year")
