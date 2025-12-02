@@ -571,7 +571,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
                 "psv": 0,
                 "precioUni": float(_round_2(unit_price)),
                 "descripcion": descripcion,
-                "ventaGravada": float(_round_2(gross_line)),
+                "ventaGravada": float(_round_2(line_base)),
                 "numeroDocumento": None,
             }
         )
