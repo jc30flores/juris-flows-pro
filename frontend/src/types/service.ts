@@ -11,6 +11,7 @@ export interface Service {
   name: string;
   category: number;
   base_price: number | string;
+  cost?: number | string;
   active: boolean;
 }
 

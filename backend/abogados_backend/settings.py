@@ -6,6 +6,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv("SECRET_KEY", "changeme")
 DEBUG = True
 
+PRICE_OVERRIDE_CODE = os.getenv("PRICE_OVERRIDE_CODE", "12345")
+
 ALLOWED_HOSTS = [
     "cuska-juridico.cuskatech.com",
     "localhost",

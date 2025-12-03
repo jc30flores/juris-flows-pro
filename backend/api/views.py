@@ -1,6 +1,7 @@
 import csv
 from datetime import date, datetime, timedelta
 
+from django.conf import settings
 from django.contrib.auth.hashers import check_password
 from django.db import models
 from django.db.models import Q
@@ -287,3 +288,16 @@ class ActivityViewSet(viewsets.ReadOnlyModelViewSet):
         if search:
             qs = qs.filter(description__icontains=search)
         return qs
+
+
+class PriceOverrideValidationView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        code = request.data.get("code", "")
+        if code == settings.PRICE_OVERRIDE_CODE:
+            return Response({"valid": True}, status=status.HTTP_200_OK)
+        return Response(
+            {"valid": False, "detail": "Código de acceso inválido."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
