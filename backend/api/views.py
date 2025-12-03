@@ -1,5 +1,12 @@
+import csv
+from datetime import date, datetime, timedelta
+
 from django.contrib.auth.hashers import check_password
 from django.db import models
+from django.db.models import Q
+from django.http import HttpResponse
+from django.utils import timezone
+from django.utils.timezone import localtime
 from rest_framework import permissions, status, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -31,6 +38,121 @@ from .serializers import (
 )
 
 
+def filter_invoices_queryset(queryset, params):
+    search = params.get("search")
+    date_filter = params.get("filter") or params.get("date_filter")
+    client_id = params.get("client")
+    doc_type = params.get("doc_type")
+    payment_method = params.get("payment_method")
+    dte_status = params.get("dte_status")
+    start_date = params.get("start_date")
+    end_date = params.get("end_date")
+
+    if search:
+        queryset = queryset.filter(
+            Q(number__icontains=search)
+            | Q(client__full_name__icontains=search)
+            | Q(client__company_name__icontains=search)
+        )
+
+    if date_filter in {"today"}:
+        today = timezone.localdate()
+        queryset = queryset.filter(date=today)
+    elif date_filter in {"week", "this-week"}:
+        today = timezone.localdate()
+        start_of_week = today - timedelta(days=today.weekday())
+        queryset = queryset.filter(date__gte=start_of_week)
+    elif date_filter in {"month", "this-month"}:
+        today = timezone.localdate()
+        start_of_month = today.replace(day=1)
+        queryset = queryset.filter(date__gte=start_of_month)
+
+    if start_date:
+        queryset = queryset.filter(date__gte=start_date)
+    if end_date:
+        queryset = queryset.filter(date__lte=end_date)
+
+    if client_id:
+        queryset = queryset.filter(client_id=client_id)
+    if doc_type:
+        queryset = queryset.filter(doc_type=doc_type)
+    if payment_method:
+        queryset = queryset.filter(payment_method=payment_method)
+    if dte_status:
+        queryset = queryset.filter(dte_status=dte_status)
+
+    return queryset
+
+
+class InvoiceExportAllCSVAPIView(APIView):
+    """
+    GET /api/invoices/export/
+    Descarga un CSV con todas las facturas.
+    """
+
+    def get(self, request, *args, **kwargs):
+        dte_type = request.GET.get("dte_type")
+        month = int(request.GET.get("month") or localtime(timezone.now()).month)
+        year = int(request.GET.get("year") or localtime(timezone.now()).year)
+
+        invoices = Invoice.objects.all()
+
+        invoices = invoices.filter(date__year=year, date__month=month)
+
+        if dte_type == "consumidores":
+            invoices = invoices.filter(doc_type=Invoice.CF)
+        elif dte_type == "contribuyentes":
+            invoices = invoices.filter(doc_type=Invoice.CCF)
+
+        invoices = invoices.order_by("id")
+
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="todas-las-ventas.csv"'
+
+        writer = csv.writer(response)
+        writer.writerow(
+            [
+                "NumeroFactura",
+                "Fecha",
+                "Cliente",
+                "TipoDocumento",
+                "MetodoPago",
+                "EstadoDTE",
+                "Total",
+            ]
+        )
+
+        for inv in invoices:
+            numero = getattr(inv, "number", getattr(inv, "invoice_number", inv.id))
+            fecha_field = getattr(inv, "date", getattr(inv, "issue_date", None))
+            if fecha_field:
+                if isinstance(fecha_field, datetime):
+                    fecha_dt = localtime(fecha_field)
+                    fecha = fecha_dt.strftime("%Y-%m-%d")
+                else:
+                    fecha = fecha_field.strftime("%Y-%m-%d")
+            else:
+                fecha = ""
+            cliente = getattr(getattr(inv, "client", None), "name", "") or ""
+            tipo_doc = getattr(inv, "doc_type", getattr(inv, "type", ""))
+            metodo = getattr(inv, "payment_method", "")
+            estado_dte = getattr(inv, "dte_status", "")
+            total = getattr(inv, "total", 0) or 0
+
+            writer.writerow(
+                [
+                    numero,
+                    fecha,
+                    cliente,
+                    tipo_doc,
+                    metodo,
+                    estado_dte,
+                    f"{float(total):.2f}",
+                ]
+            )
+
+        return response
+
 class ServiceCategoryViewSet(viewsets.ModelViewSet):
     queryset = ServiceCategory.objects.all()
     serializer_class = ServiceCategorySerializer
@@ -51,15 +173,25 @@ class ServiceViewSet(viewsets.ModelViewSet):
 
 
 class ClientViewSet(viewsets.ModelViewSet):
-    queryset = Client.objects.all()
+    queryset = Client.objects.filter(is_deleted=False)
     serializer_class = ClientSerializer
     permission_classes = [permissions.AllowAny]
+
+    def perform_destroy(self, instance):
+        instance.is_deleted = True
+        instance.save(update_fields=["is_deleted"])
 
 
 class InvoiceViewSet(viewsets.ModelViewSet):
     queryset = Invoice.objects.select_related("client").prefetch_related("items").all()
     serializer_class = InvoiceSerializer
     permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if getattr(self, "action", None) in {"list"}:
+            return filter_invoices_queryset(queryset, self.request.query_params)
+        return queryset
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)

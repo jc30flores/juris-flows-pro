@@ -46,6 +46,7 @@ class Client(models.Model):
     municipality_code = models.CharField(max_length=4, blank=True, null=True)
     activity_code = models.CharField(max_length=10, blank=True, null=True)
     activity_description = models.CharField(max_length=255, blank=True, default="")
+    is_deleted = models.BooleanField(default=False)
 
     def __str__(self) -> str:
         return self.company_name or self.full_name
