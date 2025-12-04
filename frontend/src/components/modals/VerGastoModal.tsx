@@ -12,12 +12,14 @@ interface VerGastoModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   gasto: Expense | null;
+  onDelete: (expense: Expense) => void;
 }
 
 export function VerGastoModal({
   open,
   onOpenChange,
   gasto,
+  onDelete,
 }: VerGastoModalProps) {
   if (!gasto) return null;
 
@@ -55,8 +57,18 @@ export function VerGastoModal({
             </div>
           </div>
 
-          <div className="flex justify-end pt-4">
-            <Button onClick={() => onOpenChange(false)}>Cerrar</Button>
+          <div className="flex justify-end pt-4 space-x-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cerrar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                onDelete(gasto);
+              }}
+            >
+              Eliminar gasto
+            </Button>
           </div>
         </div>
       </DialogContent>

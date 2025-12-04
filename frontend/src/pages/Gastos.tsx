@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Download, Filter } from "lucide-react";
+import { Plus, Download, Filter, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -13,6 +13,17 @@ import { NuevoGastoModal } from "@/components/modals/NuevoGastoModal";
 import { VerGastoModal } from "@/components/modals/VerGastoModal";
 import { api } from "@/lib/api";
 import { Expense, ExpensePayload } from "@/types/expense";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "@/hooks/use-toast";
 
 export default function Gastos() {
   const [filter, setFilter] = useState("all");
@@ -25,6 +36,8 @@ export default function Gastos() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const fetchExpenses = async () => {
     setLoading(true);
@@ -43,6 +56,39 @@ export default function Gastos() {
   const handleCreateExpense = async (payload: ExpensePayload) => {
     await api.post("/expenses/", payload);
     await fetchExpenses();
+  };
+
+  const handleDeleteExpense = async () => {
+    if (!expenseToDelete) return;
+
+    try {
+      await api.delete(`/expenses/${expenseToDelete.id}/`);
+      setExpenses((prev) =>
+        prev.filter((expense) => expense.id !== expenseToDelete.id),
+      );
+      if (gastoSeleccionado?.id === expenseToDelete.id) {
+        setShowVerModal(false);
+        setGastoSeleccionado(null);
+      }
+      toast({
+        title: "Gasto eliminado correctamente",
+        variant: "default",
+      });
+    } catch (err) {
+      console.error("Error al eliminar gasto", err);
+      toast({
+        title: "No se pudo eliminar el gasto. Intenta de nuevo.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeleteDialogOpen(false);
+      setExpenseToDelete(null);
+    }
+  };
+
+  const openDeleteDialog = (expense: Expense) => {
+    setExpenseToDelete(expense);
+    setDeleteDialogOpen(true);
   };
 
   useEffect(() => {
@@ -173,6 +219,17 @@ export default function Gastos() {
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">{gasto.date}</p>
                 </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-destructive"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openDeleteDialog(gasto);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
               <div className="flex items-center justify-between pt-3 border-t border-border">
                 <span className="text-muted-foreground text-sm">Total:</span>
@@ -201,6 +258,7 @@ export default function Gastos() {
                   <th className="px-4 py-3 text-left text-sm font-medium">Proveedor</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Fecha</th>
                   <th className="px-4 py-3 text-right text-sm font-medium">Total</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -219,13 +277,26 @@ export default function Gastos() {
                     <td className="px-4 py-3 text-right font-semibold">
                       ${Number(gasto.total).toFixed(2)}
                     </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDeleteDialog(gasto);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </td>
                   </tr>
                 ))}
                 {filteredExpenses.length === 0 && (
                   <tr>
                     <td
                       className="px-4 py-3 text-sm text-muted-foreground"
-                      colSpan={4}
+                      colSpan={5}
                     >
                       No hay gastos registrados.
                     </td>
@@ -249,7 +320,25 @@ export default function Gastos() {
         open={showVerModal}
         onOpenChange={setShowVerModal}
         gasto={gastoSeleccionado}
+        onDelete={openDeleteDialog}
       />
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Seguro que deseas eliminar este gasto?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteExpense}>
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
