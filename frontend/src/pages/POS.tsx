@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
 import { ServiceSelectorModal } from "@/components/modals/ServiceSelectorModal";
 import { API_BASE_URL, api } from "@/lib/api";
+import { getLocalDateISO, parseLocalDate } from "@/lib/utils";
 import { Client } from "@/types/client";
 import { Invoice, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
 import { Service } from "@/types/service";
@@ -50,7 +51,7 @@ const isInvoiceInCurrentMonth = (dateValue: string | Date): boolean => {
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
 
-  const d = typeof dateValue === "string" ? new Date(dateValue) : dateValue;
+  const d = parseLocalDate(dateValue);
   if (Number.isNaN(d.getTime())) return false;
 
   return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
@@ -184,9 +185,10 @@ export default function POS() {
   }, [clients]);
 
   const filteredInvoices = useMemo(() => {
-    const today = new Date().toISOString().split("T")[0];
+    const today = getLocalDateISO();
     const now = new Date();
     const startOfWeek = new Date(now);
+    startOfWeek.setHours(0, 0, 0, 0);
     startOfWeek.setDate(now.getDate() - now.getDay());
 
     return invoices.filter((invoice) => {
@@ -196,7 +198,7 @@ export default function POS() {
 
       if (!matchesSearch) return false;
 
-      const invoiceDate = new Date(invoice.date);
+      const invoiceDate = parseLocalDate(invoice.date);
 
       if (filter === "today") {
         return invoice.date === today;
@@ -207,7 +209,7 @@ export default function POS() {
       }
 
       if (filter === "month" || filter === "this-month") {
-        return isInvoiceInCurrentMonth(invoice.date);
+        return isInvoiceInCurrentMonth(invoiceDate);
       }
 
       return true;

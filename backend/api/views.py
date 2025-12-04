@@ -24,6 +24,19 @@ from .models import (
     ServiceCategory,
     StaffUser,
 )
+
+
+def _parse_date_param(value):
+    if not value:
+        return None
+
+    try:
+        if "T" in value:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return timezone.localdate(parsed)
+        return date.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
 from .connectivity import get_connectivity_status
 from .serializers import (
     ActivitySerializer,
@@ -68,10 +81,13 @@ def filter_invoices_queryset(queryset, params):
         start_of_month = today.replace(day=1)
         queryset = queryset.filter(date__gte=start_of_month)
 
-    if start_date:
-        queryset = queryset.filter(date__gte=start_date)
-    if end_date:
-        queryset = queryset.filter(date__lte=end_date)
+    parsed_start_date = _parse_date_param(start_date)
+    parsed_end_date = _parse_date_param(end_date)
+
+    if parsed_start_date:
+        queryset = queryset.filter(date__gte=parsed_start_date)
+    if parsed_end_date:
+        queryset = queryset.filter(date__lte=parsed_end_date)
 
     if client_id:
         queryset = queryset.filter(client_id=client_id)
