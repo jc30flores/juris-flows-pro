@@ -187,6 +187,43 @@ def interpret_dte_response(response_data: dict) -> Tuple[str, str, str]:
     return "PENDIENTE", "SIN_RESPUESTA", "DTE en estado PENDIENTE: la respuesta de la API no se pudo interpretar."
 
 
+def persist_invoice_dte_identifiers(
+    invoice: Invoice,
+    response_data: dict,
+    numero_control: str | None,
+    fallback_codigo_generacion: str | None,
+) -> None:
+    if not isinstance(response_data, dict):
+        return
+
+    if response_data.get("success") is not True:
+        return
+
+    codigo_generacion = (
+        response_data.get("codigo_generacion")
+        or response_data.get("codigoGeneracion")
+        or response_data.get("codigo_generacion")
+        or response_data.get("uuid")
+        or fallback_codigo_generacion
+    )
+    numero_ctrl = (
+        response_data.get("numero_control")
+        or response_data.get("numeroControl")
+        or numero_control
+    )
+
+    updates = {}
+    if codigo_generacion:
+        updates["dte_codigo_generacion"] = codigo_generacion
+    if numero_ctrl:
+        updates["dte_numero_control"] = numero_ctrl
+
+    if updates:
+        Invoice.objects.filter(pk=invoice.pk).update(**updates)
+        for key, value in updates.items():
+            setattr(invoice, key, value)
+
+
 EMITTER_INFO = {
     "nit": "12101304761012",
     "nrc": "1880600",
@@ -457,6 +494,9 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
 
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
+        persist_invoice_dte_identifiers(
+            invoice, response_data, numero_control, codigo_generacion
+        )
         estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
         record.hacienda_state = estado_hacienda
         record.status = estado_interno
@@ -727,6 +767,9 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
 
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
+        persist_invoice_dte_identifiers(
+            invoice, response_data, numero_control, codigo_generacion
+        )
         estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
         record.hacienda_state = estado_hacienda
         record.status = estado_interno
@@ -952,6 +995,9 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
 
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
+        persist_invoice_dte_identifiers(
+            invoice, response_data, numero_control, codigo_generacion
+        )
         estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
         record.hacienda_state = estado_hacienda
         record.status = estado_interno

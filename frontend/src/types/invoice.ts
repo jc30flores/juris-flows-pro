@@ -28,6 +28,8 @@ export interface Invoice {
   payment_method: PaymentMethod;
   dte_status: DteStatus;
   dte_message?: string;
+  dte_codigo_generacion?: string | null;
+  dte_numero_control?: string | null;
   dte_generation_code?: string;
   hacienda_uuid?: string;
   dte_uuid?: string;

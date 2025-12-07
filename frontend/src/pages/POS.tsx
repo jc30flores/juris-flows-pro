@@ -164,14 +164,14 @@ export default function POS() {
     const recordList = Array.isArray(possibleRecords) ? possibleRecords : [];
 
     const fallbacks = [
+      invoice.dte_codigo_generacion,
       (invoice as Invoice & { dte_generation_code?: string }).dte_generation_code,
-      (invoice as Invoice & { hacienda_uuid?: string }).hacienda_uuid,
       (invoice as Invoice & { dte_uuid?: string }).dte_uuid,
-      (invoice as Invoice & { dte?: { codigoGeneracion?: string } }).dte?.
-        codigoGeneracion,
-      (invoice as Invoice & { dte?: { codigo_generacion?: string } }).dte?.
-        codigo_generacion,
-      (invoice as Invoice & { dte?: { uuid?: string } }).dte?.uuid,
+      (invoice as Invoice & { hacienda_uuid?: string }).hacienda_uuid,
+      (invoice as Invoice & { dte_numero_control?: string | null }).dte_numero_control,
+      invoice.dte?.codigoGeneracion,
+      invoice.dte?.codigo_generacion,
+      invoice.dte?.uuid,
     ];
 
     for (const candidate of fallbacks) {
