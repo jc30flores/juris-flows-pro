@@ -6,6 +6,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv("SECRET_KEY", "changeme")
 DEBUG = True
 
+PRICE_OVERRIDE_CODE = os.getenv("PRICE_OVERRIDE_CODE", "12345")
+
 ALLOWED_HOSTS = [
     "cuska-juridico.cuskatech.com",
     "localhost",
@@ -109,3 +111,11 @@ INTERNET_HEALTH_URL = os.getenv("INTERNET_HEALTH_URL", "https://www.google.com/g
 API_HEALTH_URL = os.getenv("API_HEALTH_URL", "https://t12101304761012.cheros.dev/health")
 CONNECTIVITY_CHECK_INTERVAL = int(os.getenv("CONNECTIVITY_CHECK_INTERVAL", "15"))
 CONNECTIVITY_CHECK_TIMEOUT = int(os.getenv("CONNECTIVITY_CHECK_TIMEOUT", "5"))
+DTE_API_BASE_URL = os.getenv(
+    "DTE_API_BASE_URL", "https://t12101304761012.cheros.dev/api/v1"
+)
+DTE_API_TOKEN = os.getenv("DTE_API_TOKEN", "api_k_12101304761012")
+DTE_AMBIENTE = os.getenv("DTE_AMBIENTE", "00")
+DTE_CLIENT_DOC_TYPE = os.getenv("DTE_CLIENT_DOC_TYPE", "13")
+DTE_RESP_DOC_TYPE = os.getenv("DTE_RESP_DOC_TYPE", "36")
+DTE_RESP_DOC_NUMBER = os.getenv("DTE_RESP_DOC_NUMBER", "12101304761012")

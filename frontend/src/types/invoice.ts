@@ -8,7 +8,9 @@ export type DteStatus =
   | "Rechazado"
   | "ACEPTADO"
   | "RECHAZADO"
-  | "ERROR";
+  | "ERROR"
+  | "INVALIDADO"
+  | "Invalidado";
 
 export interface InvoiceItem {
   id: number;
@@ -23,16 +25,48 @@ export interface Invoice {
   id: number;
   number: string;
   date: string;
+  issued_at?: string;
   client: number;
   doc_type: InvoiceDocType;
   payment_method: PaymentMethod;
   dte_status: DteStatus;
   dte_message?: string;
+  dte_codigo_generacion?: string | null;
+  dte_numero_control?: string | null;
+  dte_generation_code?: string;
+  hacienda_uuid?: string;
+  dte_uuid?: string;
+  has_credit_note?: boolean;
+  credit_note_status?: string | null;
+  dte?: {
+    codigoGeneracion?: string;
+    codigo_generacion?: string;
+    uuid?: string;
+  };
+  dte_records?: Array<{
+    dte_type?: string;
+    status?: string;
+    hacienda_state?: string;
+    control_number?: string;
+    issue_date?: string;
+    codigoGeneracion?: string;
+    codigo_generacion?: string;
+    hacienda_uuid?: string;
+    uuid?: string;
+    response_payload?: Record<string, unknown>;
+  }>;
   observations?: string;
   total: number | string;
   created_at: string;
   updated_at: string;
   items?: InvoiceItem[];
+}
+
+export interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
 }
 
 export interface InvoiceItemPayload {

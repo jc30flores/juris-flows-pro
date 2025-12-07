@@ -6,12 +6,20 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Tuple
 
 import requests
+from django.conf import settings
 from django.utils import timezone
 
 from .connectivity import get_connectivity_status as _connectivity_status_snapshot
 from .models import Activity, DTERecord, Invoice, InvoiceItem, Service
 
 logger = logging.getLogger(__name__)
+
+DTE_API_BASE_URL = getattr(
+    settings, "DTE_API_BASE_URL", "https://t12101304761012.cheros.dev/api/v1"
+)
+DTE_API_TOKEN = getattr(settings, "DTE_API_TOKEN", "api_k_12101304761012")
+DTE_AMBIENTE = getattr(settings, "DTE_AMBIENTE", "00")
+DTE_CLIENT_DOC_TYPE = getattr(settings, "DTE_CLIENT_DOC_TYPE", "13")
 
 
 IVA_RATE = Decimal("0.13")
@@ -42,6 +50,18 @@ def split_gross_amount_with_tax(gross) -> tuple[Decimal, Decimal]:
     iva = _round_2(iva_unrounded)
     base = gross_dec - iva
     return base, iva
+
+
+def _build_dte_headers():
+    return {
+        "Authorization": f"Bearer {DTE_API_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+
+def _build_dte_endpoint(path: str) -> str:
+    base = getattr(settings, "DTE_API_BASE_URL", DTE_API_BASE_URL)
+    return f"{base.rstrip('/')}/{path.lstrip('/')}"
 
 
 def get_connectivity_status():
@@ -187,6 +207,117 @@ def interpret_dte_response(response_data: dict) -> Tuple[str, str, str]:
     return "PENDIENTE", "SIN_RESPUESTA", "DTE en estado PENDIENTE: la respuesta de la API no se pudo interpretar."
 
 
+def persist_invoice_dte_identifiers(
+    invoice: Invoice,
+    response_data: dict,
+    numero_control: str | None,
+    fallback_codigo_generacion: str | None,
+) -> None:
+    if not isinstance(response_data, dict):
+        return
+
+    if response_data.get("success") is not True:
+        return
+
+    codigo_generacion = (
+        response_data.get("codigo_generacion")
+        or response_data.get("codigoGeneracion")
+        or response_data.get("codigo_generacion")
+        or response_data.get("uuid")
+        or fallback_codigo_generacion
+    )
+    numero_ctrl = (
+        response_data.get("numero_control")
+        or response_data.get("numeroControl")
+        or numero_control
+    )
+
+    updates = {}
+    if codigo_generacion:
+        updates["dte_codigo_generacion"] = codigo_generacion
+    if numero_ctrl:
+        updates["dte_numero_control"] = numero_ctrl
+
+    if updates:
+        Invoice.objects.filter(pk=invoice.pk).update(**updates)
+        for key, value in updates.items():
+            setattr(invoice, key, value)
+
+
+def _extract_generation_code(invoice: Invoice, record: DTERecord) -> str:
+    response_payload = record.response_payload if isinstance(record.response_payload, dict) else {}
+    hacienda_response = (
+        response_payload.get("respuesta_hacienda")
+        or response_payload.get("hacienda_response")
+        or {}
+    )
+
+    candidates = [
+        getattr(invoice, "dte_codigo_generacion", None),
+        response_payload.get("codigo_generacion"),
+        response_payload.get("codigoGeneracion"),
+        response_payload.get("uuid"),
+        hacienda_response.get("codigoGeneracion"),
+        hacienda_response.get("uuid"),
+        record.hacienda_uuid,
+    ]
+
+    for candidate in candidates:
+        if candidate:
+            return str(candidate)
+
+    return ""
+
+
+def _extract_control_number(invoice: Invoice, record: DTERecord) -> str:
+    candidates = [
+        record.control_number,
+        getattr(invoice, "dte_numero_control", None),
+    ]
+
+    for candidate in candidates:
+        if candidate:
+            return str(candidate)
+
+    response_payload = record.response_payload if isinstance(record.response_payload, dict) else {}
+    return str(response_payload.get("numero_control") or "")
+
+
+def _extract_sello_recibido(record: DTERecord) -> str:
+    response_payload = record.response_payload if isinstance(record.response_payload, dict) else {}
+    hacienda_response = (
+        response_payload.get("respuesta_hacienda")
+        or response_payload.get("hacienda_response")
+        or {}
+    )
+    return (
+        hacienda_response.get("selloRecibido")
+        or response_payload.get("selloRecibido")
+        or ""
+    )
+
+
+def _map_record_to_tipo_dte(record: DTERecord) -> str:
+    rtype = (record.dte_type or "").upper()
+    if rtype in {"CF", "01"}:
+        return "01"
+    if rtype in {"SE", "SX", "14"}:
+        return "14"
+    if rtype in {"05", "NC"}:
+        return "05"
+    return rtype or "01"
+
+
+def _compute_vat_from_total(total_amount) -> float:
+    try:
+        total_dec = Decimal(str(total_amount))
+    except Exception:  # noqa: BLE001
+        total_dec = Decimal("0")
+
+    _, iva = split_gross_amount_with_tax(total_dec)
+    return float(_round_2(iva))
+
+
 EMITTER_INFO = {
     "nit": "12101304761012",
     "nrc": "1880600",
@@ -208,6 +339,14 @@ EMITTER_INFO = {
     "tipoEstablecimiento": "02",
 }
 
+DTE_RESP_DOC_TYPE = getattr(settings, "DTE_RESP_DOC_TYPE", "36")
+DTE_RESP_DOC_NUMBER = getattr(
+    settings, "DTE_RESP_DOC_NUMBER", EMITTER_INFO.get("nit", "")
+)
+DTE_INVALIDATION_REASON = getattr(
+    settings, "DTE_INVALIDATION_REASON", "Rescindir de la operación realizada"
+)
+
 
 def _to_decimal(value: Decimal | float | int | str) -> Decimal:
     return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -217,36 +356,60 @@ def _format_currency(value: Decimal) -> float:
     return float(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
-def _build_receptor(invoice):
+def _resolve_receiver_identity(invoice, record: DTERecord | None = None):
     client = getattr(invoice, "client", None)
-    emitter_address = EMITTER_INFO["direccion"]
-    if not client:
-        return {
-            "correo": None,
-            "nombre": "VENTA AL PUBLICO",
-            "tipoDocumento": "13",
-            "direccion": emitter_address,
-            "numDocumento": "00000000-0",
-            "nrc": None,
-            "telefono": "00000000",
-            "codActividad": None,
-            "descActividad": None,
-        }, "00000000-0", "VENTA AL PUBLICO"
 
-    receiver_name = client.company_name or client.full_name or "VENTA AL PUBLICO"
-    receiver_document = client.nit or client.dui or "00000000-0"
-    receiver_phone = client.phone or "00000000"
-    receiver_email = client.email or None
+    receiver_name = (
+        (record.receiver_name if record else None)
+        or (client.company_name if client else "")
+        or (client.full_name if client else "")
+        or "VENTA AL PUBLICO"
+    )
+
+    receiver_document = (
+        (record.receiver_nit if record else None)
+        or (client.nit if client else None)
+        or (client.dui if client else None)
+        or "00000000-0"
+    )
+
+    receiver_doc_type = DTE_CLIENT_DOC_TYPE
+    if client:
+        if client.nit:
+            receiver_doc_type = "36"
+        elif client.dui:
+            receiver_doc_type = "13"
+
+    receiver_phone = getattr(client, "phone", None) or "00000000"
+    receiver_email = getattr(client, "email", None) or EMITTER_INFO.get("correo")
+
+    return receiver_name, receiver_document, receiver_doc_type, receiver_phone, receiver_email
+
+
+def _build_receptor(invoice):
+    emitter_address = EMITTER_INFO["direccion"]
+    (
+        receiver_name,
+        receiver_document,
+        receiver_doc_type,
+        receiver_phone,
+        receiver_email,
+    ) = _resolve_receiver_identity(invoice)
+
+    client = getattr(invoice, "client", None)
+
     receiver_address = {
-        "municipio": client.municipality_code or emitter_address.get("municipio", "22"),
+        "municipio": (client.municipality_code if client else None)
+        or emitter_address.get("municipio", "22"),
         "complemento": emitter_address.get("complemento", ""),
-        "departamento": client.department_code or emitter_address.get("departamento", "12"),
+        "departamento": (client.department_code if client else None)
+        or emitter_address.get("departamento", "12"),
     }
 
     receptor_payload = {
         "correo": receiver_email,
         "nombre": receiver_name,
-        "tipoDocumento": "13",
+        "tipoDocumento": receiver_doc_type,
         "direccion": receiver_address,
         "numDocumento": receiver_document,
         "nrc": None,
@@ -381,10 +544,10 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
             "extension": {
                 "observaciones": observaciones,
                 "placaVehiculo": None,
-                "docuRecibe": None,
-                "nombEntrega": None,
-                "nombRecibe": None,
-                "docuEntrega": None,
+                "docuRecibe": receiver_doc_for_extension,
+                "nombEntrega": EMITTER_INFO.get("nombre"),
+                "nombRecibe": client_name,
+                "docuEntrega": emitter_doc_for_extension,
             },
             "cuerpoDocumento": cuerpo_documento,
             "emisor": {
@@ -397,7 +560,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/factura"
+    url = _build_dte_endpoint("/dte/factura")
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
@@ -415,10 +578,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         total_amount=invoice.total,
         request_payload=payload,
     )
-    headers = {
-        "Authorization": "Bearer api_k_12101304761012",
-        "Content-Type": "application/json",
-    }
+    headers = _build_dte_headers()
 
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=30)
@@ -457,6 +617,9 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
 
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
+        persist_invoice_dte_identifiers(
+            invoice, response_data, numero_control, codigo_generacion
+        )
         estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
         record.hacienda_state = estado_hacienda
         record.status = estado_interno
@@ -478,7 +641,14 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         return record
 
 
-def send_ccf_dte_for_invoice(invoice) -> DTERecord:
+def send_ccf_dte_for_invoice(
+    invoice,
+    *,
+    record_type: str = "CCF",
+    print_label: str = "DTE CREDITO FISCAL",
+    observations_override: str | None = None,
+    issue_date_override=None,
+) -> DTERecord:
     """
     Construye el JSON DTE para tipo CCF (03) a partir de la factura y sus items,
     lo envía al endpoint externo y registra el request/response en DTERecord.
@@ -539,6 +709,11 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         receptor["descActividad"] = client_desc_act
     elif client_cod_act:
         receptor["descActividad"] = "Actividad no especificada"
+
+    receiver_doc_for_extension = (
+        client_nit or client_nrc or getattr(client, "dui", None) or None
+    )
+    emitter_doc_for_extension = EMITTER_INFO.get("nit")
 
     items: list[InvoiceItem] = list(invoice.items.select_related("service"))
     cuerpo_documento = []
@@ -632,6 +807,12 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
     if not observaciones:
         observaciones = "Crédito fiscal para deducción fiscal del cliente"
 
+    observaciones = (
+        observations_override
+        if observations_override is not None
+        else (invoice.observations or None)
+    )
+
     payload = {
         "dte": {
             "apendice": None,
@@ -643,7 +824,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
                 "tipoDte": "03",
                 "version": 3,
                 "tipoContingencia": None,
-                "ambiente": "00",
+                "ambiente": DTE_AMBIENTE,
                 "numeroControl": numero_control,
                 "horEmi": hor_emi,
                 "tipoOperacion": 1,
@@ -653,10 +834,10 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
             "extension": {
                 "observaciones": observaciones,
                 "placaVehiculo": None,
-                "docuRecibe": None,
-                "nombEntrega": None,
-                "nombRecibe": None,
-                "docuEntrega": None,
+                "docuRecibe": receiver_doc_for_extension,
+                "nombEntrega": EMITTER_INFO.get("nombre"),
+                "nombRecibe": client_name,
+                "docuEntrega": emitter_doc_for_extension,
             },
             "cuerpoDocumento": cuerpo_documento,
             "emisor": {**EMITTER_INFO},
@@ -667,28 +848,24 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/credito-fiscal"
+    url = _build_dte_endpoint("/dte/credito-fiscal")
 
-    print(f'\nENDPOINT DTE: "{url}"\n')
-    print("\nJSON DTE ENVIO:\n")
+    print(f"=== {print_label} REQUEST ===")
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
     record = DTERecord.objects.create(
         invoice=invoice,
-        dte_type="CCF",
+        dte_type=record_type,
         status="ENVIANDO",
         control_number=numero_control,
         issuer_nit=EMITTER_INFO["nit"],
         receiver_nit=client_nit,
         receiver_name=client_name,
-        issue_date=invoice.date,
+        issue_date=issue_date_override or invoice.date,
         total_amount=_to_decimal(total_operacion),
         request_payload=payload,
     )
-    headers = {
-        "Authorization": "Bearer api_k_12101304761012",
-        "Content-Type": "application/json",
-    }
+    headers = _build_dte_headers()
 
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=30)
@@ -722,11 +899,14 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         except ValueError:
             response_data = {"raw_text": response.text}
 
-        print("\nJSON API RESPUESTA:\n")
+        print(f"=== {print_label} RESPONSE ===")
         print(json.dumps(response_data, indent=2, ensure_ascii=False))
 
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
+        persist_invoice_dte_identifiers(
+            invoice, response_data, numero_control, codigo_generacion
+        )
         estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
         record.hacienda_state = estado_hacienda
         record.status = estado_interno
@@ -746,6 +926,326 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         invoice._dte_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
         invoice.save(update_fields=["dte_status"])
         return record
+
+
+def send_ccf_credit_note_for_invoice(invoice) -> DTERecord:
+    """Envía un DTE de Nota de Crédito (05) referenciando un CCF previo."""
+
+    accepted_states = {"ACEPTADO", "APROBADO", "PROCESADO", "RECIBIDO"}
+
+    base_record = (
+        invoice.dte_records.filter(
+            dte_type__in=["03", "CCF"], status__in=accepted_states
+        )
+        .order_by("-created_at")
+        .first()
+    )
+
+    if not base_record:
+        base_record = (
+            invoice.dte_records.filter(
+                dte_type__in=["03", "CCF"],
+                hacienda_state__in=["PROCESADO", "RECIBIDO", "ACEPTADO", "APROBADO"],
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+    if not base_record:
+        raise ValueError(
+            "No existe DTE CCF aceptado para generar Nota de Crédito."
+        )
+
+    control_number_ccf = _extract_control_number(invoice, base_record)
+    if not control_number_ccf:
+        raise ValueError(
+            "No se encontró número de control del CCF para la Nota de Crédito."
+        )
+
+    issue_date_ccf = base_record.issue_date or invoice.date
+    issue_date_ccf_iso = issue_date_ccf.isoformat() if issue_date_ccf else None
+
+    codigo_generacion = str(uuid.uuid4()).upper()
+    random_suffix = "".join(str(random.randint(0, 9)) for _ in range(15))
+    numero_control = f"DTE-05-M002P001-{random_suffix}"
+
+    now_local = timezone.localtime()
+    fec_emi = now_local.date().isoformat()
+    hor_emi = now_local.strftime("%H:%M:%S")
+
+    client = getattr(invoice, "client", None)
+    emitter_address = EMITTER_INFO["direccion"]
+
+    client_name = (client.company_name if client else "") or (client.full_name if client else "") or "CLIENTE"
+    client_trade_name = client.company_name if client and client.company_name else client_name
+    client_nit = (client.nit if client else "") or ""
+    raw_nrc = getattr(client, "nrc", "") or ""
+    client_nrc_digits = "".join(ch for ch in raw_nrc if str(ch).isdigit())
+    client_nrc = (
+        client_nrc_digits if 6 <= len(client_nrc_digits) <= 8 else None
+    )
+    client_phone = (client.phone if client else "") or "00000000"
+    client_email = (client.email if client else "") or None
+    client_cod_act = getattr(client, "activity_code", None) or None
+    client_desc_act = getattr(client, "activity_description", None) or None
+
+    if not client_desc_act and client_cod_act:
+        act = Activity.objects.filter(code=client_cod_act).first()
+        if act:
+            client_desc_act = act.description
+
+    client_address = {
+        "municipio": (client.municipality_code if client else None)
+        or emitter_address.get("municipio", "22"),
+        "complemento": (getattr(client, "direccion", None) or "")
+        or emitter_address.get("complemento", ""),
+        "departamento": (client.department_code if client else None)
+        or emitter_address.get("departamento", "12"),
+    }
+
+    receptor = {
+        "nombre": client_name,
+        "nombreComercial": client_trade_name,
+        "direccion": client_address,
+        "correo": client_email,
+        "nit": client_nit,
+        "telefono": client_phone,
+    }
+
+    if client_nrc:
+        receptor["nrc"] = client_nrc
+    if client_cod_act:
+        receptor["codActividad"] = client_cod_act
+    if client_desc_act:
+        receptor["descActividad"] = client_desc_act
+    elif client_cod_act:
+        receptor["descActividad"] = "Actividad no especificada"
+
+    receiver_doc_for_extension = (
+        client_nit or client_nrc or getattr(client, "dui", None) or None
+    )
+    emitter_doc_for_extension = EMITTER_INFO.get("nit")
+
+    items: list[InvoiceItem] = list(invoice.items.select_related("service"))
+    cuerpo_documento = []
+    total_base = Decimal("0.00")
+    total_iva = Decimal("0.00")
+
+    for index, item in enumerate(items, start=1):
+        gross_unit = Decimal(str(item.unit_price))
+        qty_dec = Decimal(str(item.quantity))
+        gross_line = gross_unit * qty_dec
+        line_base, iva_line = split_gross_amount_with_tax(gross_line)
+
+        total_base += line_base
+        total_iva += iva_line
+
+        service: Service | None = getattr(item, "service", None)
+        descripcion = service.name if service else "Servicio"
+        codigo = service.code if service and service.code else "SERVICIO"
+
+        precio_base_unitario = _round_2(line_base / qty_dec) if qty_dec else _round_2(Decimal("0"))
+
+        cuerpo_documento.append(
+            {
+                "ventaExenta": 0,
+                "numItem": index,
+                "tipoItem": 1,
+                "codigo": codigo,
+                "cantidad": float(qty_dec),
+                "tributos": ["20"],
+                "uniMedida": 59,
+                "noGravado": 0,
+                "codTributo": None,
+                "montoDescu": 0,
+                "ventaNoSuj": 0,
+                "psv": 0,
+                "precioUni": float(precio_base_unitario),
+                "descripcion": descripcion,
+                "ventaGravada": float(_round_2(line_base)),
+                "numeroDocumento": control_number_ccf,
+            }
+        )
+
+    total_base = _round_2(total_base)
+    total_iva = _round_2(total_iva)
+    total_operacion = _round_2(total_base + total_iva)
+    total_letras = amount_to_spanish_words(total_operacion)
+
+    resumen = {
+        "totalDescu": 0,
+        "ivaRete1": 0,
+        "pagos": [
+            {
+                "plazo": None,
+                "periodo": None,
+                "codigo": "01",
+                "referencia": None,
+                "montoPago": float(total_operacion),
+            }
+        ],
+        "porcentajeDescuento": 0,
+        "saldoFavor": 0,
+        "totalNoGravado": 0,
+        "totalGravada": float(total_base),
+        "descuExenta": 0,
+        "subTotal": float(total_base),
+        "totalLetras": total_letras,
+        "descuNoSuj": 0,
+        "subTotalVentas": float(total_base),
+        "reteRenta": 0,
+        "tributos": [
+            {
+                "valor": float(total_iva),
+                "descripcion": "Impuesto al Valor Agregado 13%",
+                "codigo": "20",
+            }
+        ],
+        "totalNoSuj": 0,
+        "montoTotalOperacion": float(total_operacion),
+        "descuGravada": 0,
+        "totalExenta": 0,
+        "condicionOperacion": 1,
+        "totalPagar": float(total_operacion),
+        "ivaPerci1": 0,
+        "numPagoElectronico": None,
+    }
+
+    reference_observation = (
+        f"Nota de Crédito por devolución parcial. Referencia Crédito Fiscal {control_number_ccf}"
+    )
+    override_observation = invoice.observations.strip() if invoice.observations else ""
+    observaciones = override_observation or reference_observation
+
+    payload = {
+        "dte": {
+            "apendice": None,
+            "identificacion": {
+                "codigoGeneracion": codigo_generacion,
+                "motivoContin": None,
+                "fecEmi": fec_emi,
+                "tipoModelo": 1,
+                "tipoDte": "05",
+                "version": 3,
+                "tipoContingencia": None,
+                "ambiente": DTE_AMBIENTE,
+                "numeroControl": numero_control,
+                "horEmi": hor_emi,
+                "tipoOperacion": 1,
+                "tipoMoneda": "USD",
+            },
+            "documentoRelacionado": [
+                {
+                    "numeroDocumento": control_number_ccf,
+                    "tipoDocumento": "03",
+                    "tipoGeneracion": 1,
+                    "fechaEmision": issue_date_ccf_iso,
+                }
+            ],
+            "emisor": {**EMITTER_INFO},
+            "receptor": receptor,
+            "cuerpoDocumento": cuerpo_documento,
+            "resumen": resumen,
+            "extension": {
+                "observaciones": observaciones,
+                "placaVehiculo": None,
+                "docuRecibe": receiver_doc_for_extension,
+                "nombEntrega": EMITTER_INFO.get("nombre"),
+                "nombRecibe": client_name,
+                "docuEntrega": emitter_doc_for_extension,
+            },
+            "ventaTercero": None,
+            "otrosDocumentos": None,
+        }
+    }
+
+    url = _build_dte_endpoint("/dte/nota-credito")
+
+    print("=== DTE NOTA CREDITO REQUEST ===")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+    record = DTERecord.objects.create(
+        invoice=invoice,
+        dte_type="05",
+        status="ENVIANDO",
+        control_number=numero_control,
+        issuer_nit=EMITTER_INFO["nit"],
+        receiver_nit=client_nit,
+        receiver_name=client_name,
+        issue_date=now_local.date(),
+        total_amount=_to_decimal(total_operacion),
+        request_payload=payload,
+    )
+    headers = _build_dte_headers()
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+    except requests.exceptions.RequestException as exc:
+        print("Error sending DTE:", exc)
+
+        record.response_payload = {
+            "success": None,
+            "error": {
+                "type": "network_error",
+                "message": str(exc),
+            },
+        }
+        record.hacienda_state = "SIN_RESPUESTA"
+        record.status = "PENDIENTE"
+        record.save(update_fields=["response_payload", "hacienda_state", "status"])
+
+        invoice.dte_status = "PENDIENTE"
+        invoice.save(update_fields=["dte_status"])
+
+        invoice._dte_message = (
+            "No se pudo contactar con la API de DTE (problema de red o indisponibilidad). "
+            "El DTE se ha dejado en estado PENDIENTE para reenviarlo más tarde."
+        )
+
+        return record
+
+    try:
+        try:
+            response_data = response.json()
+        except ValueError:
+            response_data = {"raw_text": response.text}
+
+        print("=== DTE NOTA CREDITO RESPONSE ===")
+        print(json.dumps(response_data, indent=2, ensure_ascii=False))
+
+        record.response_payload = response_data
+        record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
+        persist_invoice_dte_identifiers(
+            invoice, response_data, numero_control, codigo_generacion
+        )
+        estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
+        record.hacienda_state = estado_hacienda
+        record.status = estado_interno
+        record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
+
+        invoice.dte_status = estado_interno
+        invoice.save(update_fields=["dte_status"])
+        invoice._dte_message = user_message
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Error sending credit note DTE", exc_info=exc)
+        record.response_payload = {"error": str(exc)}
+        record.status = "PENDIENTE"
+        record.hacienda_state = "SIN_RESPUESTA"
+        record.save(update_fields=["response_payload", "status", "hacienda_state"])
+        invoice.dte_status = "PENDIENTE"
+        invoice._dte_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
+        invoice.save(update_fields=["dte_status"])
+
+    status_upper = (record.status or "").upper()
+    hacienda_upper = (record.hacienda_state or "").upper()
+
+    accepted = status_upper in accepted_states or hacienda_upper in accepted_states
+
+    invoice.has_credit_note = accepted
+    invoice.credit_note_status = record.status or record.hacienda_state or None
+    invoice.save(update_fields=["has_credit_note", "credit_note_status"])
+
+    return record
 
 
 def send_se_dte_for_invoice(invoice) -> DTERecord:
@@ -892,7 +1392,7 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/sujeto-excluido"
+    url = _build_dte_endpoint("/dte/sujeto-excluido")
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
@@ -910,10 +1410,7 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         total_amount=_to_decimal(total_pagar),
         request_payload=payload,
     )
-    headers = {
-        "Authorization": "Bearer api_k_12101304761012",
-        "Content-Type": "application/json",
-    }
+    headers = _build_dte_headers()
 
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=30)
@@ -952,6 +1449,9 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
 
         record.response_payload = response_data
         record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
+        persist_invoice_dte_identifiers(
+            invoice, response_data, numero_control, codigo_generacion
+        )
         estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
         record.hacienda_state = estado_hacienda
         record.status = estado_interno
@@ -971,3 +1471,170 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         invoice._dte_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
         invoice.save(update_fields=["dte_status"])
         return record
+
+
+def _build_invalidation_payload(
+    invoice: Invoice, record: DTERecord
+) -> tuple[dict, str, str, str, str]:
+    generation_code = _extract_generation_code(invoice, record)
+    control_number = _extract_control_number(invoice, record)
+    sello_recibido = _extract_sello_recibido(record)
+    tipo_dte = _map_record_to_tipo_dte(record)
+
+    (
+        receiver_name,
+        receiver_document,
+        receiver_doc_type,
+        receiver_phone,
+        receiver_email,
+    ) = _resolve_receiver_identity(invoice, record)
+
+    issue_date = record.issue_date or getattr(invoice, "date", None) or timezone.localdate()
+    if hasattr(issue_date, "isoformat"):
+        issue_date_str = issue_date.isoformat()
+    else:
+        issue_date_str = str(issue_date)
+
+    total_amount = record.total_amount or getattr(invoice, "total", 0)
+    iva_amount = _compute_vat_from_total(total_amount)
+
+    now_local = timezone.localtime()
+    identificacion_codigo = str(uuid.uuid4()).upper()
+
+    payload = {
+        "invalidacion": {
+            "identificacion": {
+                "version": 2,
+                "ambiente": DTE_AMBIENTE,
+                "codigoGeneracion": identificacion_codigo,
+                "fecAnula": now_local.date().isoformat(),
+                "horAnula": now_local.strftime("%H:%M:%S"),
+            },
+            "emisor": {
+                "nit": EMITTER_INFO.get("nit"),
+                "nombre": EMITTER_INFO.get("nombre"),
+                "tipoEstablecimiento": EMITTER_INFO.get("tipoEstablecimiento", "02"),
+                "nomEstablecimiento": EMITTER_INFO.get("nombreComercial"),
+                "codEstableMH": EMITTER_INFO.get("codEstableMH"),
+                "codEstable": EMITTER_INFO.get("codEstable"),
+                "codPuntoVentaMH": EMITTER_INFO.get("codPuntoVentaMH"),
+                "codPuntoVenta": EMITTER_INFO.get("codPuntoVenta"),
+                "telefono": EMITTER_INFO.get("telefono"),
+                "correo": EMITTER_INFO.get("correo"),
+            },
+            "documento": {
+                "tipoDte": tipo_dte,
+                "codigoGeneracion": generation_code,
+                "selloRecibido": sello_recibido,
+                "numeroControl": control_number,
+                "fecEmi": issue_date_str,
+                "montoIva": iva_amount,
+                "codigoGeneracionR": None,
+                "tipoDocumento": receiver_doc_type,
+                "numDocumento": receiver_document,
+                "nombre": receiver_name,
+                "telefono": receiver_phone,
+                "correo": receiver_email,
+            },
+            "motivo": {
+                "tipoAnulacion": 2,
+                "motivoAnulacion": DTE_INVALIDATION_REASON,
+                "nombreResponsable": EMITTER_INFO.get("nombre"),
+                "tipDocResponsable": DTE_RESP_DOC_TYPE,
+                "numDocResponsable": DTE_RESP_DOC_NUMBER,
+                "nombreSolicita": EMITTER_INFO.get("nombre"),
+                "tipDocSolicita": DTE_RESP_DOC_TYPE,
+                "numDocSolicita": DTE_RESP_DOC_NUMBER,
+            },
+        }
+    }
+
+    return payload, generation_code, control_number, receiver_name, receiver_document
+
+
+def invalidate_dte_for_invoice(invoice: Invoice, record: DTERecord) -> tuple[str, dict]:
+    payload, generation_code, control_number, receiver_name, receiver_document = _build_invalidation_payload(
+        invoice, record
+    )
+
+    if not generation_code or not control_number:
+        raise ValueError("No se encontró información de DTE para invalidar.")
+
+    print("=== DTE INVALIDACION REQUEST ===")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+    invalidation_record = DTERecord.objects.create(
+        invoice=invoice,
+        dte_type=f"ANU_{record.dte_type}",
+        status="ENVIANDO",
+        control_number=control_number,
+        issuer_nit=EMITTER_INFO["nit"],
+        receiver_nit=record.receiver_nit or receiver_document,
+        receiver_name=record.receiver_name or receiver_name,
+        issue_date=timezone.localdate(),
+        total_amount=_to_decimal(record.total_amount or getattr(invoice, "total", 0)),
+        request_payload=payload,
+    )
+
+    url = _build_dte_endpoint("/dte/invalidacion")
+    headers = _build_dte_headers()
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+    except requests.exceptions.RequestException as exc:
+        invalidation_record.response_payload = {
+            "success": None,
+            "error": {"type": "network_error", "message": str(exc)},
+        }
+        invalidation_record.status = "PENDIENTE"
+        invalidation_record.hacienda_state = "SIN_RESPUESTA"
+        invalidation_record.save(
+            update_fields=["response_payload", "status", "hacienda_state"]
+        )
+        invoice._dte_message = "No se pudo contactar con la API de DTE para invalidar."
+        return invoice.dte_status, invalidation_record.response_payload
+
+    try:
+        try:
+            response_data = response.json()
+        except ValueError:
+            response_data = {"raw_text": response.text}
+
+        print("=== DTE INVALIDACION RESPONSE ===")
+        print(json.dumps(response_data, indent=2, ensure_ascii=False))
+
+        invalidation_record.response_payload = response_data
+        invalidation_record.hacienda_uuid = (
+            response_data.get("uuid", "") if isinstance(response_data, dict) else ""
+        )
+
+        success = isinstance(response_data, dict) and response_data.get("success") is True
+        estado_hacienda = ""
+        if isinstance(response_data, dict):
+            hacienda_response = response_data.get("respuesta_hacienda") or response_data.get("hacienda_response") or {}
+            estado_hacienda = hacienda_response.get("estado", "")
+
+        if success:
+            invalidation_record.status = "INVALIDADO"
+            invoice.dte_status = Invoice.INVALIDATED
+            invoice.save(update_fields=["dte_status"])
+        else:
+            invalidation_record.status = "RECHAZADO"
+            invoice._dte_message = "No se pudo invalidar el DTE en Hacienda."
+
+        invalidation_record.hacienda_state = estado_hacienda or invalidation_record.hacienda_state
+        invalidation_record.save(
+            update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"]
+        )
+
+        return invoice.dte_status, response_data
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Error invalidating DTE", exc_info=exc)
+        invalidation_record.response_payload = {"error": str(exc)}
+        invalidation_record.status = "RECHAZADO"
+        invalidation_record.hacienda_state = "SIN_RESPUESTA"
+        invalidation_record.save(
+            update_fields=["response_payload", "status", "hacienda_state"]
+        )
+        invoice._dte_message = "Ocurrió un error inesperado al invalidar el DTE."
+        return invoice.dte_status, invalidation_record.response_payload

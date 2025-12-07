@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+import { Pencil } from "lucide-react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Service } from "@/types/service";
 import { SelectedServicePayload } from "@/types/invoice";
+import { ChangeServicePriceModal } from "./ChangeServicePriceModal";
 
 interface ServiceSelectorModalProps {
   open: boolean;
@@ -23,6 +25,7 @@ export function ServiceSelectorModal({
 }: ServiceSelectorModalProps) {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<SelectedServicePayload[]>([]);
+  const [priceModalServiceId, setPriceModalServiceId] = useState<number | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -39,6 +42,13 @@ export function ServiceSelectorModal({
       return haystack.includes(term);
     });
   }, [search, services]);
+
+  const servicesById = useMemo(() => {
+    return services.reduce<Record<number, Service>>((acc, service) => {
+      acc[service.id] = service;
+      return acc;
+    }, {});
+  }, [services]);
 
   const updateQuantity = (service: Service, delta: number) => {
     setSelected((prev) => {
@@ -80,23 +90,48 @@ export function ServiceSelectorModal({
     [selected],
   );
 
+  const handlePriceUpdated = (serviceId: number, newPrice: number) => {
+    setSelected((prev) =>
+      prev.map((item) =>
+        item.service_id === serviceId
+          ? {
+              ...item,
+              price: newPrice,
+              subtotal: Number((newPrice * item.quantity).toFixed(2)),
+            }
+          : item,
+      ),
+    );
+  };
+
+  const serviceForPriceChange = useMemo(
+    () => selected.find((item) => item.service_id === priceModalServiceId) || null,
+    [priceModalServiceId, selected],
+  );
+
+  const costForService = useMemo(() => {
+    if (!priceModalServiceId) return 0;
+    return Number(servicesById[priceModalServiceId]?.cost || 0);
+  }, [priceModalServiceId, servicesById]);
+
   const handleConfirm = () => {
     onConfirm(selected);
   };
 
   return (
-    <Dialog open={open} onOpenChange={(value) => !value && onCancel()}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Seleccionar Servicios</DialogTitle>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={(value) => !value && onCancel()}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Seleccionar Servicios</DialogTitle>
+          </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="searchService">Buscar servicio por nombre o texto</Label>
-            <Input
-              id="searchService"
-              placeholder="Buscar servicio por nombre o texto"
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="searchService">Buscar servicio por nombre o texto</Label>
+              <Input
+                id="searchService"
+                placeholder="Buscar servicio por nombre o texto"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => {
@@ -117,7 +152,8 @@ export function ServiceSelectorModal({
                   {filteredServices.map((service) => (
                     <li
                       key={service.id}
-                      className="flex flex-wrap items-center gap-2 px-4 py-3 text-sm sm:text-base"
+                      className="flex flex-wrap items-center gap-2 px-4 py-3 text-sm sm:text-base cursor-pointer"
+                      onClick={() => updateQuantity(service, 1)}
                     >
                       <div className="flex-1 min-w-0 text-left">
                         <p className="font-medium leading-tight truncate">
@@ -130,7 +166,10 @@ export function ServiceSelectorModal({
                           variant="outline"
                           size="icon"
                           className="h-8 w-8"
-                          onClick={() => updateQuantity(service, -1)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            updateQuantity(service, -1);
+                          }}
                         >
                           -
                         </Button>
@@ -139,7 +178,10 @@ export function ServiceSelectorModal({
                           variant="outline"
                           size="icon"
                           className="h-8 w-8"
-                          onClick={() => updateQuantity(service, 1)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            updateQuantity(service, 1);
+                          }}
                         >
                           +
                         </Button>
@@ -182,8 +224,20 @@ export function ServiceSelectorModal({
                             <p className="text-xs text-muted-foreground">ID: {item.service_id}</p>
                           </td>
                           <td className="px-4 py-3 text-center">{item.quantity}</td>
-                          <td className="px-4 py-3 text-right font-semibold">
-                            ${Number(item.subtotal).toFixed(2)}
+                          <td className="px-4 py-3 text-right">
+                            <div className="inline-flex items-center justify-end gap-2">
+                              <span className="font-semibold">${Number(item.subtotal).toFixed(2)}</span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => setPriceModalServiceId(item.service_id)}
+                                aria-label={`Cambiar precio de ${item.name}`}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -205,7 +259,19 @@ export function ServiceSelectorModal({
                       </div>
                       <div className="flex items-center justify-between text-sm">
                         <span>Subtotal:</span>
-                        <span className="font-semibold">${Number(item.subtotal).toFixed(2)}</span>
+                        <span className="inline-flex items-center gap-2 font-semibold">
+                          ${Number(item.subtotal).toFixed(2)}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => setPriceModalServiceId(item.service_id)}
+                            aria-label={`Cambiar precio de ${item.name}`}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </span>
                       </div>
                     </div>
                   ))}
@@ -215,17 +281,31 @@ export function ServiceSelectorModal({
               <p className="text-sm text-muted-foreground">No hay servicios seleccionados.</p>
             )}
           </div>
-        </div>
+          </div>
 
-        <DialogFooter className="gap-2">
-          <Button variant="outline" type="button" onClick={onCancel}>
-            Cancelar
-          </Button>
-          <Button type="button" onClick={handleConfirm} disabled={selected.length === 0}>
-            Confirmar selección
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" type="button" onClick={onCancel}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={handleConfirm} disabled={selected.length === 0}>
+              Confirmar selección
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ChangeServicePriceModal
+        open={Boolean(serviceForPriceChange)}
+        serviceName={serviceForPriceChange?.name || ""}
+        currentPrice={Number(serviceForPriceChange?.price || 0)}
+        cost={costForService}
+        onClose={() => setPriceModalServiceId(null)}
+        onPriceUpdated={(newPrice) => {
+          if (serviceForPriceChange) {
+            handlePriceUpdated(serviceForPriceChange.service_id, newPrice);
+          }
+        }}
+      />
+    </>
   );
 }

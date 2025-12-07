@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Download, Filter, Pencil, Trash2 } from "lucide-react";
+import { Plus, Download, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,8 +20,14 @@ import { Label } from "@/components/ui/label";
 import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
 import { ServiceSelectorModal } from "@/components/modals/ServiceSelectorModal";
 import { API_BASE_URL, api } from "@/lib/api";
+import { formatDateTime } from "@/lib/utils";
 import { Client } from "@/types/client";
-import { Invoice, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
+import {
+  Invoice,
+  InvoicePayload,
+  PaginatedResponse,
+  SelectedServicePayload,
+} from "@/types/invoice";
 import { Service } from "@/types/service";
 import { toast } from "@/hooks/use-toast";
 
@@ -30,7 +36,14 @@ const getDteBadgeStyle = (status: string | undefined) => {
   if (normalized === "ACEPTADO" || status === "Aprobado") {
     return "bg-success/10 text-success";
   }
-  if (normalized === "RECHAZADO" || status === "Rechazado" || normalized === "ERROR") {
+  if (
+    normalized === "RECHAZADO" ||
+    status === "Rechazado" ||
+    normalized === "ERROR"
+  ) {
+    return "bg-destructive/10 text-destructive";
+  }
+  if (normalized === "INVALIDADO") {
     return "bg-destructive/10 text-destructive";
   }
   return "bg-warning/10 text-warning";
@@ -41,24 +54,13 @@ const getDteDisplayStatus = (status: string | undefined) => {
   if (normalized === "ACEPTADO") return "ACEPTADO";
   if (normalized === "RECHAZADO") return "RECHAZADO";
   if (normalized === "PENDIENTE") return "Pendiente";
+  if (normalized === "INVALIDADO") return "INVALIDADO";
   return status || "";
-};
-
-const isInvoiceInCurrentMonth = (dateValue: string | Date): boolean => {
-  if (!dateValue) return false;
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth();
-
-  const d = typeof dateValue === "string" ? new Date(dateValue) : dateValue;
-  if (Number.isNaN(d.getTime())) return false;
-
-  return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
 };
 
 export default function POS() {
   const now = new Date();
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState("today");
   const [search, setSearch] = useState("");
   const [showNuevaFacturaModal, setShowNuevaFacturaModal] = useState(false);
   const [showServiceSelectorModal, setShowServiceSelectorModal] = useState(false);
@@ -71,37 +73,90 @@ export default function POS() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [services, setServices] = useState<Service[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [error, setError] = useState("");
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [selectedServices, setSelectedServices] = useState<SelectedServicePayload[]>([]);
+  const [invalidatingId, setInvalidatingId] = useState<number | null>(null);
+  const [creditNotingId, setCreditNotingId] = useState<number | null>(null);
 
-  const fetchInitialData = async () => {
-    setLoading(true);
-    setError("");
+  const PAGE_SIZE = 50;
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+
+  const fetchStaticData = async () => {
     try {
-      const [invoiceResponse, clientResponse, serviceResponse] =
-        await Promise.all([
-          api.get<Invoice[]>("/invoices/"),
-          api.get<Client[]>("/clients/"),
-          api.get<Service[]>("/services/"),
-        ]);
+      const [clientResponse, serviceResponse] = await Promise.all([
+        api.get<Client[]>("/clients/"),
+        api.get<Service[]>("/services/"),
+      ]);
 
-      setInvoices(invoiceResponse.data);
       setClients(clientResponse.data);
       setServices(serviceResponse.data);
+    } catch (err) {
+      console.error("Error al cargar catálogos", err);
+    }
+  };
+
+  const fetchInvoices = async (
+    pageToLoad = currentPage,
+    filterValue = filter,
+    searchValue = search,
+  ) => {
+    setLoadingInvoices(true);
+    setError("");
+
+    try {
+      let nextCount = 0;
+      const params: Record<string, string | number | undefined> = {
+        page: pageToLoad,
+        page_size: PAGE_SIZE,
+      };
+
+      if (filterValue && filterValue !== "all") {
+        params.filter = filterValue;
+      }
+
+      if (searchValue.trim()) {
+        params.search = searchValue.trim();
+      }
+
+      const response = await api.get<PaginatedResponse<Invoice> | Invoice[]>(
+        "/invoices/",
+        { params },
+      );
+
+      if (Array.isArray(response.data)) {
+        setInvoices(response.data);
+        nextCount = response.data.length;
+        setTotalCount(nextCount);
+      } else {
+        const data = response.data as PaginatedResponse<Invoice>;
+        setInvoices(data.results || []);
+        nextCount = data.count || 0;
+        setTotalCount(nextCount);
+      }
+
+      const nextTotalPages = Math.max(1, Math.ceil(nextCount / PAGE_SIZE));
+      if (pageToLoad > nextTotalPages) {
+        setCurrentPage(nextTotalPages);
+      }
     } catch (err) {
       console.error("Error al cargar facturas", err);
       setError("No se pudieron cargar las facturas");
     } finally {
-      setLoading(false);
+      setLoadingInvoices(false);
     }
   };
 
   useEffect(() => {
-    fetchInitialData();
+    fetchStaticData();
   }, []);
+
+  useEffect(() => {
+    fetchInvoices(currentPage);
+  }, [filter, search, currentPage]);
 
   const handleSaveInvoice = async (payload: InvoicePayload) => {
     try {
@@ -142,7 +197,8 @@ export default function POS() {
         }
       }
 
-      await fetchInitialData();
+      setCurrentPage(1);
+      await fetchInvoices(1);
       setSelectedInvoice(null);
       setMode("create");
       setSelectedServices([]);
@@ -158,22 +214,217 @@ export default function POS() {
     }
   };
 
-  const handleDeleteInvoice = async (invoiceId: number) => {
-    try {
-      await api.delete(`/invoices/${invoiceId}/`);
-      setInvoices((prev) => prev.filter((invoice) => invoice.id !== invoiceId));
+  const getGenerationCode = (invoice: Invoice): string => {
+    const possibleRecords = (invoice as Invoice & { dte_records?: unknown }).dte_records;
+    const recordList = Array.isArray(possibleRecords) ? possibleRecords : [];
+
+    const fallbacks = [
+      invoice.dte_codigo_generacion,
+      (invoice as Invoice & { dte_generation_code?: string }).dte_generation_code,
+      (invoice as Invoice & { dte_uuid?: string }).dte_uuid,
+      (invoice as Invoice & { hacienda_uuid?: string }).hacienda_uuid,
+      (invoice as Invoice & { dte_numero_control?: string | null }).dte_numero_control,
+      invoice.dte?.codigoGeneracion,
+      invoice.dte?.codigo_generacion,
+      invoice.dte?.uuid,
+    ];
+
+    for (const candidate of fallbacks) {
+      if (candidate) return String(candidate).toUpperCase();
+    }
+
+    for (const record of recordList) {
+      const code =
+        (record as { codigoGeneracion?: string }).codigoGeneracion ||
+        (record as { codigo_generacion?: string }).codigo_generacion ||
+        (record as { hacienda_uuid?: string }).hacienda_uuid ||
+        (record as { uuid?: string }).uuid ||
+        (record as { response_payload?: Record<string, unknown> }).response_payload?.
+          codigoGeneracion ||
+        (record as { response_payload?: Record<string, unknown> }).response_payload?.uuid;
+      if (code) return String(code).toUpperCase();
+    }
+
+    return "";
+  };
+
+  const handleCopyGenerationCode = async (invoice: Invoice) => {
+    const code = getGenerationCode(invoice);
+    if (!code) {
       toast({
-        title: "Factura eliminada",
-        description: "La factura se ha eliminado correctamente",
+        title: "No existe código de generación para esta factura.",
+        variant: "destructive",
       });
-    } catch (err) {
-      console.error("Error al eliminar factura", err);
+      return;
+    }
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(code);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = code;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      toast({ title: "Código copiado al portapapeles" });
+    } catch (error) {
+      console.error("Error al copiar código de generación", error);
       toast({
-        title: "No se pudo eliminar la factura",
-        description: "Intenta nuevamente.",
+        title: "No se pudo copiar el código de generación.",
         variant: "destructive",
       });
     }
+  };
+
+  const handleInvalidateInvoice = async (invoice: Invoice) => {
+    const confirmed = window.confirm(
+      "¿Seguro que deseas invalidar este DTE? Esta acción no se puede deshacer."
+    );
+
+    if (!confirmed) return;
+
+    setInvalidatingId(invoice.id);
+    try {
+      const response = await api.post<{ dte_status?: string; message?: string }>(
+        `/invoices/${invoice.id}/invalidate/`
+      );
+
+      const message = response.data?.message || "DTE invalidado correctamente";
+      toast({ title: message });
+
+      setInvoices((prev) =>
+        prev.map((item) =>
+          item.id === invoice.id
+            ? { ...item, dte_status: response.data?.dte_status || item.dte_status }
+            : item
+        )
+      );
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || "Error al invalidar DTE.";
+      toast({ title: detail, variant: "destructive" });
+    } finally {
+      setInvalidatingId(null);
+    }
+  };
+
+  const handleSendCreditNote = async (invoice: Invoice) => {
+    if (hasAcceptedCreditNote(invoice)) {
+      toast({
+        title: "Esta factura ya tiene una Nota de Crédito aceptada.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "¿Deseas generar y enviar un DTE de crédito fiscal (Nota de Crédito) para esta factura CCF?"
+    );
+
+    if (!confirmed) return;
+
+    setCreditNotingId(invoice.id);
+    try {
+      const response = await api.post<{
+        dte_status?: string;
+        message?: string;
+        has_credit_note?: boolean;
+        credit_note_status?: string | null;
+      }>(
+        `/invoices/${invoice.id}/credit-note/`
+      );
+
+      const message =
+        response.data?.message || "Nota de crédito enviada correctamente.";
+      toast({ title: message });
+
+      setInvoices((prev) =>
+        prev.map((item) =>
+          item.id === invoice.id
+            ? {
+                ...item,
+                dte_status: response.data?.dte_status || item.dte_status,
+                has_credit_note:
+                  response.data?.has_credit_note ?? item.has_credit_note,
+                credit_note_status:
+                  response.data?.credit_note_status ?? item.credit_note_status,
+              }
+            : item
+        )
+      );
+    } catch (error: any) {
+      const detail =
+        error?.response?.data?.detail || "Error al enviar la nota de crédito.";
+      toast({ title: detail, variant: "destructive" });
+    } finally {
+      setCreditNotingId(null);
+    }
+  };
+
+  const hasAcceptedCreditNote = (invoice: Invoice) => {
+    const acceptedStates = new Set(["ACEPTADO", "APROBADO", "PROCESADO", "RECIBIDO"]);
+    const creditStatus = (invoice.credit_note_status || "").toUpperCase();
+    const baseAccepted = invoice.has_credit_note && acceptedStates.has(creditStatus);
+
+    if (baseAccepted) return true;
+
+    const possibleRecords = (invoice as Invoice & { dte_records?: unknown }).dte_records;
+    const recordList = Array.isArray(possibleRecords) ? possibleRecords : [];
+
+    return recordList.some((record) => {
+      const recordType = ((record as { dte_type?: string }).dte_type || "").toUpperCase();
+      const recordStatus = ((record as { status?: string }).status || "").toUpperCase();
+      const recordHacienda = ((record as { hacienda_state?: string }).hacienda_state || "").toUpperCase();
+
+      if (!recordType || (recordType !== "05" && recordType !== "NC")) return false;
+
+      return acceptedStates.has(recordStatus) || acceptedStates.has(recordHacienda);
+    });
+  };
+
+  const getInvoiceActions = (invoice: Invoice) => {
+    const isCCF = invoice.doc_type === "CCF";
+    if (isCCF) {
+      const creditNoteDisabled =
+        creditNotingId === invoice.id || hasAcceptedCreditNote(invoice);
+      const creditNoteTitle = hasAcceptedCreditNote(invoice)
+        ? "Esta factura ya tiene una Nota de Crédito aceptada."
+        : undefined;
+
+      return [
+        {
+          label:
+            creditNotingId === invoice.id ? "Enviando..." : "NOTA DE CRÉDITO",
+          key: "nota-credito",
+          onClick: () => handleSendCreditNote(invoice),
+          disabled: creditNoteDisabled,
+          title: creditNoteTitle,
+        },
+        { label: "ENVIAR", key: "enviar" },
+        {
+          label: "COPIAR",
+          key: "copiar",
+          onClick: () => handleCopyGenerationCode(invoice),
+        },
+      ];
+    }
+
+    return [
+      {
+        label: invalidatingId === invoice.id ? "Invalidando..." : "INVALIDAR",
+        key: "invalidar",
+        onClick: () => handleInvalidateInvoice(invoice),
+        disabled: invalidatingId === invoice.id,
+      },
+      { label: "ENVIAR", key: "enviar" },
+      {
+        label: "COPIAR",
+        key: "copiar",
+        onClick: () => handleCopyGenerationCode(invoice),
+      },
+    ];
   };
 
   const clientLookup = useMemo(() => {
@@ -183,43 +434,17 @@ export default function POS() {
     }, {});
   }, [clients]);
 
-  const filteredInvoices = useMemo(() => {
-    const today = new Date().toISOString().split("T")[0];
-    const now = new Date();
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - now.getDay());
-
-    return invoices.filter((invoice) => {
-      const matchesSearch = `${invoice.number} ${clientLookup[invoice.client] || ""}`
-        .toLowerCase()
-        .includes(search.toLowerCase());
-
-      if (!matchesSearch) return false;
-
-      const invoiceDate = new Date(invoice.date);
-
-      if (filter === "today") {
-        return invoice.date === today;
-      }
-
-      if (filter === "week" || filter === "this-week") {
-        return invoiceDate >= startOfWeek;
-      }
-
-      if (filter === "month" || filter === "this-month") {
-        return isInvoiceInCurrentMonth(invoice.date);
-      }
-
-      return true;
-    });
-  }, [clientLookup, filter, invoices, search]);
-
   const totalInvoicesAmount = useMemo(() => {
-    return filteredInvoices.reduce((sum, invoice) => {
+    return invoices.reduce((sum, invoice) => {
       const total = Number(invoice.total) || 0;
       return sum + total;
     }, 0);
-  }, [filteredInvoices]);
+  }, [invoices]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+
+  const formatInvoiceDateTime = (invoice: Invoice) =>
+    formatDateTime(invoice.issued_at || invoice.created_at || invoice.date);
 
   const handleOpenCreate = () => {
     setMode("create");
@@ -227,28 +452,6 @@ export default function POS() {
     setSelectedServices([]);
     setShowServiceSelectorModal(true);
     setShowNuevaFacturaModal(false);
-  };
-
-  const handleOpenEdit = (invoice: Invoice) => {
-    setMode("edit");
-    setSelectedInvoice(invoice);
-    const items = invoice.items || [];
-    const mappedServices = items.map((item) => {
-      const service = services.find((s) => s.id === item.service);
-      const price = Number(item.unit_price || service?.base_price || 0);
-      const quantity = item.quantity || 1;
-      return {
-        service_id: item.service,
-        name: service?.name || `Servicio ${item.service}`,
-        price,
-        quantity,
-        subtotal: Number((price * quantity).toFixed(2)),
-      } as SelectedServicePayload;
-    });
-
-    setSelectedServices(mappedServices);
-    setShowServiceSelectorModal(false);
-    setShowNuevaFacturaModal(true);
   };
 
   const handleConfirmServices = (servicesSelected: SelectedServicePayload[]) => {
@@ -308,11 +511,20 @@ export default function POS() {
               placeholder="Buscar por número, cliente..."
               className="w-full"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setCurrentPage(1);
+              }}
             />
           </div>
           <div className="flex gap-2">
-            <Select value={filter} onValueChange={setFilter}>
+            <Select
+              value={filter}
+              onValueChange={(value) => {
+                setFilter(value);
+                setCurrentPage(1);
+              }}
+            >
               <SelectTrigger className="w-full sm:w-[180px]">
                 <Filter className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="Filtrar por..." />
@@ -343,14 +555,14 @@ export default function POS() {
 
       {/* Mobile view - Cards */}
       <div className="grid gap-4 md:hidden">
-        {loading && (
+        {loadingInvoices && (
           <div className="p-4 text-sm text-muted-foreground">Cargando facturas...</div>
         )}
-        {!loading && error && (
+        {!loadingInvoices && error && (
           <div className="p-4 text-sm text-destructive">{error}</div>
         )}
-        {!loading && !error &&
-          filteredInvoices.map((venta) => (
+        {!loadingInvoices && !error &&
+          invoices.map((venta) => (
             <div
               key={venta.id}
               className="rounded-lg border border-border bg-card p-4 shadow-elegant"
@@ -358,7 +570,9 @@ export default function POS() {
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <p className="font-semibold text-lg">{venta.number}</p>
-                  <p className="text-sm text-muted-foreground">{venta.date}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {formatInvoiceDateTime(venta)}
+                  </p>
                 </div>
                 <span
                   className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${getDteBadgeStyle(
@@ -390,29 +604,23 @@ export default function POS() {
                   </span>
                 </div>
               </div>
-              <div className="flex gap-2 mt-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => handleOpenEdit(venta)}
-                >
-                  <Pencil className="h-3 w-3 mr-2" />
-                  Editar
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => handleDeleteInvoice(venta.id)}
-                >
-                  <Trash2 className="h-3 w-3 mr-2 text-destructive" />
-                  Eliminar
-                </Button>
+              <div className="flex gap-2 mt-3 flex-wrap">
+                {getInvoiceActions(venta).map((action) => (
+                  <Button
+                    key={action.key}
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={action.onClick}
+                    disabled={action.disabled}
+                  >
+                    {action.label}
+                  </Button>
+                ))}
               </div>
             </div>
-          ))}
-        {!loading && !error && filteredInvoices.length === 0 && (
+                ))}
+        {!loadingInvoices && !error && invoices.length === 0 && (
           <div className="p-4 text-sm text-muted-foreground">
             No hay facturas registradas.
           </div>
@@ -422,18 +630,18 @@ export default function POS() {
       {/* Desktop view - Table */}
       <div className="hidden md:block rounded-lg border border-border bg-card shadow-elegant overflow-hidden">
         <div className="overflow-x-auto">
-          {loading && (
+          {loadingInvoices && (
             <div className="p-4 text-sm text-muted-foreground">Cargando facturas...</div>
           )}
-          {!loading && error && (
+          {!loadingInvoices && error && (
             <div className="p-4 text-sm text-destructive">{error}</div>
           )}
-          {!loading && !error && (
+          {!loadingInvoices && !error && (
             <table className="w-full">
               <thead className="bg-muted/50">
                 <tr className="border-b border-border">
                   <th className="px-4 py-3 text-left text-sm font-medium">Nº Factura</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">Fecha</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Fecha y Hora</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Cliente</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Tipo</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Método Pago</th>
@@ -443,13 +651,15 @@ export default function POS() {
                 </tr>
               </thead>
               <tbody>
-                {filteredInvoices.map((venta) => (
+                {invoices.map((venta) => (
                   <tr
                     key={venta.id}
                     className="border-b border-border hover:bg-muted/30 transition-colors"
                   >
                     <td className="px-4 py-3 font-medium">{venta.number}</td>
-                    <td className="px-4 py-3 text-sm">{venta.date}</td>
+                    <td className="px-4 py-3 text-sm">
+                      {formatInvoiceDateTime(venta)}
+                    </td>
                     <td className="px-4 py-3 text-sm">
                       {clientLookup[venta.client] || "Sin cliente"}
                     </td>
@@ -469,27 +679,24 @@ export default function POS() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-semibold">${Number(venta.total).toFixed(2)}</td>
-                    <td className="px-4 py-3 text-right flex items-center justify-end gap-2">
-                      <Button
-                        variant="ghost"
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {getInvoiceActions(venta).map((action) => (
+                          <Button
+                        key={action.key}
+                        variant="outline"
                         size="sm"
-                        onClick={() => handleOpenEdit(venta)}
+                        onClick={action.onClick}
+                        disabled={action.disabled}
                       >
-                        <Pencil className="h-4 w-4" />
-                        <span className="sr-only">Editar</span>
+                        {action.label}
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteInvoice(venta.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                        <span className="sr-only">Eliminar</span>
-                      </Button>
+                    ))}
+                  </div>
                     </td>
                   </tr>
                 ))}
-                {filteredInvoices.length === 0 && (
+                {invoices.length === 0 && (
                   <tr>
                     <td
                       className="px-4 py-3 text-sm text-muted-foreground"
@@ -504,6 +711,43 @@ export default function POS() {
           )}
         </div>
       </div>
+
+      {!loadingInvoices && !error && (
+        <div className="flex justify-center">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+            >
+              ←
+            </Button>
+            {Array.from({ length: totalPages }, (_, index) => index + 1).map(
+              (pageNumber) => (
+                <Button
+                  key={pageNumber}
+                  variant={pageNumber === currentPage ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setCurrentPage(pageNumber)}
+                >
+                  {pageNumber}
+                </Button>
+              ),
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage === totalPages}
+              onClick={() =>
+                setCurrentPage((prev) => Math.min(totalPages, prev + 1))
+              }
+            >
+              →
+            </Button>
+          </div>
+        </div>
+      )}
 
       <ServiceSelectorModal
         open={showServiceSelectorModal}

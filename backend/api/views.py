@@ -1,6 +1,8 @@
 import csv
+import logging
 from datetime import date, datetime, timedelta
 
+from django.conf import settings
 from django.contrib.auth.hashers import check_password
 from django.db import models
 from django.db.models import Q
@@ -8,6 +10,8 @@ from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.timezone import localtime
 from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -23,6 +27,23 @@ from .models import (
     ServiceCategory,
     StaffUser,
 )
+from .dte_cf_service import (
+    invalidate_dte_for_invoice,
+    send_ccf_credit_note_for_invoice,
+)
+
+
+def _parse_date_param(value):
+    if not value:
+        return None
+
+    try:
+        if "T" in value:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return timezone.localdate(parsed)
+        return date.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
 from .connectivity import get_connectivity_status
 from .serializers import (
     ActivitySerializer,
@@ -36,6 +57,14 @@ from .serializers import (
     ServiceSerializer,
     StaffUserSerializer,
 )
+
+logger = logging.getLogger(__name__)
+
+
+class InvoicePagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = "page_size"
+    max_page_size = 100
 
 
 def filter_invoices_queryset(queryset, params):
@@ -67,10 +96,13 @@ def filter_invoices_queryset(queryset, params):
         start_of_month = today.replace(day=1)
         queryset = queryset.filter(date__gte=start_of_month)
 
-    if start_date:
-        queryset = queryset.filter(date__gte=start_date)
-    if end_date:
-        queryset = queryset.filter(date__lte=end_date)
+    parsed_start_date = _parse_date_param(start_date)
+    parsed_end_date = _parse_date_param(end_date)
+
+    if parsed_start_date:
+        queryset = queryset.filter(date__gte=parsed_start_date)
+    if parsed_end_date:
+        queryset = queryset.filter(date__lte=parsed_end_date)
 
     if client_id:
         queryset = queryset.filter(client_id=client_id)
@@ -183,14 +215,21 @@ class ClientViewSet(viewsets.ModelViewSet):
 
 
 class InvoiceViewSet(viewsets.ModelViewSet):
-    queryset = Invoice.objects.select_related("client").prefetch_related("items").all()
+    queryset = (
+        Invoice.objects.select_related("client")
+        .prefetch_related("items")
+        .all()
+        .order_by("-created_at", "-id")
+    )
     serializer_class = InvoiceSerializer
     permission_classes = [permissions.AllowAny]
+    pagination_class = InvoicePagination
 
     def get_queryset(self):
         queryset = super().get_queryset()
         if getattr(self, "action", None) in {"list"}:
-            return filter_invoices_queryset(queryset, self.request.query_params)
+            filtered = filter_invoices_queryset(queryset, self.request.query_params)
+            return filtered.order_by("-created_at", "-id")
         return queryset
 
     def create(self, request, *args, **kwargs):
@@ -207,6 +246,138 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             data["dte_message"] = dte_message
 
         return Response(data, status=status.HTTP_201_CREATED, headers=headers)
+
+    @action(detail=True, methods=["post"], url_path="invalidate")
+    def invalidate(self, request, pk=None):
+        invoice = self.get_object()
+
+        if invoice.doc_type not in {Invoice.CF, Invoice.SX}:
+            return Response(
+                {"detail": "Solo se pueden invalidar facturas CF o SX."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        record = (
+            invoice.dte_records.filter(dte_type__in=["CF", "SE"])
+            .order_by("-created_at")
+            .first()
+        )
+
+        if not record:
+            return Response(
+                {"detail": "No existe DTE para invalidar esta factura."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            dte_status, response_data = invalidate_dte_for_invoice(invoice, record)
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Error invalidando DTE", exc_info=exc)
+            return Response(
+                {"detail": "Error al invalidar DTE en Hacienda."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        success = dte_status == Invoice.INVALIDATED
+        message = (
+            "DTE invalidado correctamente" if success else "No se pudo invalidar el DTE"
+        )
+        return Response(
+            {
+                "success": success,
+                "message": message,
+                "detail": message,
+                "dte_status": dte_status,
+                "response": response_data,
+            },
+            status=status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST,
+        )
+
+    @action(detail=True, methods=["post"], url_path="credit-note")
+    def credit_note(self, request, pk=None):
+        invoice = self.get_object()
+
+        if invoice.doc_type != Invoice.CCF:
+            return Response(
+                {"detail": "Solo se pueden generar notas de crédito para facturas CCF."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not invoice.items.exists():
+            return Response(
+                {"detail": "La factura no tiene items para generar la nota de crédito."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        accepted_states = {"ACEPTADO", "APROBADO", "PROCESADO", "RECIBIDO"}
+        if invoice.has_credit_note and (
+            (invoice.credit_note_status or "").upper() in accepted_states
+        ):
+            return Response(
+                {
+                    "detail": "Esta factura ya tiene una Nota de Crédito aceptada. No se puede emitir otra.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        existing_nc = invoice.dte_records.filter(
+            dte_type__in=["05", "NC"],
+            status__in=accepted_states,
+        ).exists()
+
+        existing_nc_hacienda = invoice.dte_records.filter(
+            dte_type__in=["05", "NC"],
+            hacienda_state__in=["PROCESADO", "RECIBIDO", "ACEPTADO", "APROBADO"],
+        ).exists()
+
+        if existing_nc or existing_nc_hacienda:
+            return Response(
+                {
+                    "detail": "Esta factura ya tiene una Nota de Crédito aceptada. No se puede emitir otra.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            record = send_ccf_credit_note_for_invoice(invoice)
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Error enviando nota de crédito", exc_info=exc)
+            return Response(
+                {"detail": "Error al generar nota de crédito."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        invoice.refresh_from_db(fields=["dte_status", "has_credit_note", "credit_note_status"])
+
+        credit_note_state_upper = (getattr(invoice, "credit_note_status", "") or "").upper()
+        success = bool(invoice.has_credit_note and credit_note_state_upper in accepted_states)
+        message = (
+            getattr(invoice, "_dte_message", None)
+            or ("Nota de crédito (CCF) enviada correctamente" if success else None)
+            or "No se pudo enviar la nota de crédito"
+        )
+
+        return Response(
+            {
+                "success": success,
+                "message": message,
+                "detail": message,
+                "dte_status": getattr(invoice, "dte_status", None),
+                "has_credit_note": getattr(invoice, "has_credit_note", False),
+                "credit_note_status": getattr(invoice, "credit_note_status", None),
+                "response": getattr(record, "response_payload", None),
+            },
+            status=status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST,
+        )
 
 
 class InvoiceItemViewSet(viewsets.ModelViewSet):
@@ -287,3 +458,16 @@ class ActivityViewSet(viewsets.ReadOnlyModelViewSet):
         if search:
             qs = qs.filter(description__icontains=search)
         return qs
+
+
+class PriceOverrideValidationView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        code = request.data.get("code", "")
+        if code == settings.PRICE_OVERRIDE_CODE:
+            return Response({"valid": True}, status=status.HTTP_200_OK)
+        return Response(
+            {"valid": False, "detail": "Código de acceso inválido."},
+            status=status.HTTP_403_FORBIDDEN,
+        )

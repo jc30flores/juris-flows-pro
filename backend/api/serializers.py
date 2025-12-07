@@ -89,6 +89,7 @@ class InvoiceServiceInputSerializer(serializers.Serializer):
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
+    issued_at = serializers.DateTimeField(source="created_at", read_only=True)
     items = InvoiceItemSerializer(many=True, required=False)
     services = InvoiceServiceInputSerializer(many=True, write_only=True, required=False)
 
