@@ -26,7 +26,10 @@ from .models import (
     ServiceCategory,
     StaffUser,
 )
-from .dte_cf_service import invalidate_dte_for_invoice
+from .dte_cf_service import (
+    invalidate_dte_for_invoice,
+    send_ccf_credit_note_for_invoice,
+)
 
 
 def _parse_date_param(value):
@@ -276,6 +279,52 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 "detail": message,
                 "dte_status": dte_status,
                 "response": response_data,
+            },
+            status=status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST,
+        )
+
+    @action(detail=True, methods=["post"], url_path="credit-note")
+    def credit_note(self, request, pk=None):
+        invoice = self.get_object()
+
+        if invoice.doc_type != Invoice.CCF:
+            return Response(
+                {"detail": "Solo se pueden generar notas de crédito para facturas CCF."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not invoice.items.exists():
+            return Response(
+                {"detail": "La factura no tiene items para generar la nota de crédito."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            record = send_ccf_credit_note_for_invoice(invoice)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Error enviando nota de crédito", exc_info=exc)
+            return Response(
+                {"detail": "Error al generar nota de crédito."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        success = str(getattr(invoice, "dte_status", "")).upper() in {
+            "ACEPTADO",
+            "APROBADO",
+        }
+        message = (
+            getattr(invoice, "_dte_message", None)
+            or ("Nota de crédito (CCF) enviada correctamente" if success else None)
+            or "No se pudo enviar la nota de crédito"
+        )
+
+        return Response(
+            {
+                "success": success,
+                "message": message,
+                "detail": message,
+                "dte_status": getattr(invoice, "dte_status", None),
+                "response": getattr(record, "response_payload", None),
             },
             status=status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST,
         )

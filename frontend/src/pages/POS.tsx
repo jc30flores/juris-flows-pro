@@ -86,6 +86,7 @@ export default function POS() {
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [selectedServices, setSelectedServices] = useState<SelectedServicePayload[]>([]);
   const [invalidatingId, setInvalidatingId] = useState<number | null>(null);
+  const [creditNotingId, setCreditNotingId] = useState<number | null>(null);
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -264,11 +265,50 @@ export default function POS() {
     }
   };
 
+  const handleSendCreditNote = async (invoice: Invoice) => {
+    const confirmed = window.confirm(
+      "¿Deseas generar y enviar un DTE de crédito fiscal (Nota de Crédito) para esta factura CCF?"
+    );
+
+    if (!confirmed) return;
+
+    setCreditNotingId(invoice.id);
+    try {
+      const response = await api.post<{ dte_status?: string; message?: string }>(
+        `/invoices/${invoice.id}/credit-note/`
+      );
+
+      const message =
+        response.data?.message || "Nota de crédito enviada correctamente.";
+      toast({ title: message });
+
+      setInvoices((prev) =>
+        prev.map((item) =>
+          item.id === invoice.id
+            ? { ...item, dte_status: response.data?.dte_status || item.dte_status }
+            : item
+        )
+      );
+    } catch (error: any) {
+      const detail =
+        error?.response?.data?.detail || "Error al enviar la nota de crédito.";
+      toast({ title: detail, variant: "destructive" });
+    } finally {
+      setCreditNotingId(null);
+    }
+  };
+
   const getInvoiceActions = (invoice: Invoice) => {
     const isCCF = invoice.doc_type === "CCF";
     if (isCCF) {
       return [
-        { label: "NOTA DE CRÉDITO", key: "nota-credito" },
+        {
+          label:
+            creditNotingId === invoice.id ? "Enviando..." : "NOTA DE CRÉDITO",
+          key: "nota-credito",
+          onClick: () => handleSendCreditNote(invoice),
+          disabled: creditNotingId === invoice.id,
+        },
         { label: "ENVIAR", key: "enviar" },
         {
           label: "COPIAR",

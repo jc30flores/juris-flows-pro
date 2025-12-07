@@ -542,10 +542,10 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
             "extension": {
                 "observaciones": observaciones,
                 "placaVehiculo": None,
-                "docuRecibe": None,
-                "nombEntrega": None,
-                "nombRecibe": None,
-                "docuEntrega": None,
+                "docuRecibe": receiver_doc_for_extension,
+                "nombEntrega": EMITTER_INFO.get("nombre"),
+                "nombRecibe": client_name,
+                "docuEntrega": emitter_doc_for_extension,
             },
             "cuerpoDocumento": cuerpo_documento,
             "emisor": {
@@ -639,7 +639,13 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         return record
 
 
-def send_ccf_dte_for_invoice(invoice) -> DTERecord:
+def send_ccf_dte_for_invoice(
+    invoice,
+    *,
+    record_type: str = "CCF",
+    print_label: str = "DTE CREDITO FISCAL",
+    observations_override: str | None = None,
+) -> DTERecord:
     """
     Construye el JSON DTE para tipo CCF (03) a partir de la factura y sus items,
     lo envía al endpoint externo y registra el request/response en DTERecord.
@@ -700,6 +706,11 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         receptor["descActividad"] = client_desc_act
     elif client_cod_act:
         receptor["descActividad"] = "Actividad no especificada"
+
+    receiver_doc_for_extension = (
+        client_nit or client_nrc or getattr(client, "dui", None) or None
+    )
+    emitter_doc_for_extension = EMITTER_INFO.get("nit")
 
     items: list[InvoiceItem] = list(invoice.items.select_related("service"))
     cuerpo_documento = []
@@ -793,6 +804,12 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
     if not observaciones:
         observaciones = "Crédito fiscal para deducción fiscal del cliente"
 
+    observaciones = (
+        observations_override
+        if observations_override is not None
+        else (invoice.observations or None)
+    )
+
     payload = {
         "dte": {
             "apendice": None,
@@ -804,7 +821,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
                 "tipoDte": "03",
                 "version": 3,
                 "tipoContingencia": None,
-                "ambiente": "00",
+                "ambiente": DTE_AMBIENTE,
                 "numeroControl": numero_control,
                 "horEmi": hor_emi,
                 "tipoOperacion": 1,
@@ -814,10 +831,10 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
             "extension": {
                 "observaciones": observaciones,
                 "placaVehiculo": None,
-                "docuRecibe": None,
-                "nombEntrega": None,
-                "nombRecibe": None,
-                "docuEntrega": None,
+                "docuRecibe": receiver_doc_for_extension,
+                "nombEntrega": EMITTER_INFO.get("nombre"),
+                "nombRecibe": client_name,
+                "docuEntrega": emitter_doc_for_extension,
             },
             "cuerpoDocumento": cuerpo_documento,
             "emisor": {**EMITTER_INFO},
@@ -830,13 +847,12 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
 
     url = _build_dte_endpoint("/dte/credito-fiscal")
 
-    print(f'\nENDPOINT DTE: "{url}"\n')
-    print("\nJSON DTE ENVIO:\n")
+    print(f"=== {print_label} REQUEST ===")
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
     record = DTERecord.objects.create(
         invoice=invoice,
-        dte_type="CCF",
+        dte_type=record_type,
         status="ENVIANDO",
         control_number=numero_control,
         issuer_nit=EMITTER_INFO["nit"],
@@ -880,7 +896,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         except ValueError:
             response_data = {"raw_text": response.text}
 
-        print("\nJSON API RESPUESTA:\n")
+        print(f"=== {print_label} RESPONSE ===")
         print(json.dumps(response_data, indent=2, ensure_ascii=False))
 
         record.response_payload = response_data
@@ -907,6 +923,22 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         invoice._dte_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
         invoice.save(update_fields=["dte_status"])
         return record
+
+
+def send_ccf_credit_note_for_invoice(invoice) -> DTERecord:
+    """Envía un DTE de crédito fiscal (03) como nota de crédito para una factura CCF."""
+
+    observation = (
+        invoice.observations
+        or "Crédito fiscal generado por Nota de Crédito"
+    )
+
+    return send_ccf_dte_for_invoice(
+        invoice,
+        record_type="03",
+        print_label="DTE CREDITO FISCAL (NOTA DE CRÉDITO)",
+        observations_override=observation,
+    )
 
 
 def send_se_dte_for_invoice(invoice) -> DTERecord:
