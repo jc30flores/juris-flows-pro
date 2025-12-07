@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Download, Filter, Pencil, Trash2 } from "lucide-react";
+import { Plus, Download, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -159,22 +159,94 @@ export default function POS() {
     }
   };
 
-  const handleDeleteInvoice = async (invoiceId: number) => {
-    try {
-      await api.delete(`/invoices/${invoiceId}/`);
-      setInvoices((prev) => prev.filter((invoice) => invoice.id !== invoiceId));
+  const getGenerationCode = (invoice: Invoice): string => {
+    const possibleRecords = (invoice as Invoice & { dte_records?: unknown }).dte_records;
+    const recordList = Array.isArray(possibleRecords) ? possibleRecords : [];
+
+    const fallbacks = [
+      (invoice as Invoice & { dte_generation_code?: string }).dte_generation_code,
+      (invoice as Invoice & { hacienda_uuid?: string }).hacienda_uuid,
+      (invoice as Invoice & { dte_uuid?: string }).dte_uuid,
+      (invoice as Invoice & { dte?: { codigoGeneracion?: string } }).dte?.
+        codigoGeneracion,
+      (invoice as Invoice & { dte?: { codigo_generacion?: string } }).dte?.
+        codigo_generacion,
+      (invoice as Invoice & { dte?: { uuid?: string } }).dte?.uuid,
+    ];
+
+    for (const candidate of fallbacks) {
+      if (candidate) return String(candidate).toUpperCase();
+    }
+
+    for (const record of recordList) {
+      const code =
+        (record as { codigoGeneracion?: string }).codigoGeneracion ||
+        (record as { codigo_generacion?: string }).codigo_generacion ||
+        (record as { hacienda_uuid?: string }).hacienda_uuid ||
+        (record as { uuid?: string }).uuid ||
+        (record as { response_payload?: Record<string, unknown> }).response_payload?.
+          codigoGeneracion ||
+        (record as { response_payload?: Record<string, unknown> }).response_payload?.uuid;
+      if (code) return String(code).toUpperCase();
+    }
+
+    return "";
+  };
+
+  const handleCopyGenerationCode = async (invoice: Invoice) => {
+    const code = getGenerationCode(invoice);
+    if (!code) {
       toast({
-        title: "Factura eliminada",
-        description: "La factura se ha eliminado correctamente",
+        title: "No existe código de generación para esta factura.",
+        variant: "destructive",
       });
-    } catch (err) {
-      console.error("Error al eliminar factura", err);
+      return;
+    }
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(code);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = code;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      toast({ title: "Código copiado al portapapeles" });
+    } catch (error) {
+      console.error("Error al copiar código de generación", error);
       toast({
-        title: "No se pudo eliminar la factura",
-        description: "Intenta nuevamente.",
+        title: "No se pudo copiar el código de generación.",
         variant: "destructive",
       });
     }
+  };
+
+  const getInvoiceActions = (invoice: Invoice) => {
+    const isCCF = invoice.doc_type === "CCF";
+    if (isCCF) {
+      return [
+        { label: "NOTA DE CRÉDITO", key: "nota-credito" },
+        { label: "ENVIAR", key: "enviar" },
+        {
+          label: "COPIAR",
+          key: "copiar",
+          onClick: () => handleCopyGenerationCode(invoice),
+        },
+      ];
+    }
+
+    return [
+      { label: "INVALIDAR", key: "invalidar" },
+      { label: "ENVIAR", key: "enviar" },
+      {
+        label: "COPIAR",
+        key: "copiar",
+        onClick: () => handleCopyGenerationCode(invoice),
+      },
+    ];
   };
 
   const clientLookup = useMemo(() => {
@@ -229,28 +301,6 @@ export default function POS() {
     setSelectedServices([]);
     setShowServiceSelectorModal(true);
     setShowNuevaFacturaModal(false);
-  };
-
-  const handleOpenEdit = (invoice: Invoice) => {
-    setMode("edit");
-    setSelectedInvoice(invoice);
-    const items = invoice.items || [];
-    const mappedServices = items.map((item) => {
-      const service = services.find((s) => s.id === item.service);
-      const price = Number(item.unit_price || service?.base_price || 0);
-      const quantity = item.quantity || 1;
-      return {
-        service_id: item.service,
-        name: service?.name || `Servicio ${item.service}`,
-        price,
-        quantity,
-        subtotal: Number((price * quantity).toFixed(2)),
-      } as SelectedServicePayload;
-    });
-
-    setSelectedServices(mappedServices);
-    setShowServiceSelectorModal(false);
-    setShowNuevaFacturaModal(true);
   };
 
   const handleConfirmServices = (servicesSelected: SelectedServicePayload[]) => {
@@ -392,25 +442,18 @@ export default function POS() {
                   </span>
                 </div>
               </div>
-              <div className="flex gap-2 mt-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => handleOpenEdit(venta)}
-                >
-                  <Pencil className="h-3 w-3 mr-2" />
-                  Editar
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => handleDeleteInvoice(venta.id)}
-                >
-                  <Trash2 className="h-3 w-3 mr-2 text-destructive" />
-                  Eliminar
-                </Button>
+              <div className="flex gap-2 mt-3 flex-wrap">
+                {getInvoiceActions(venta).map((action) => (
+                  <Button
+                    key={action.key}
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={action.onClick}
+                  >
+                    {action.label}
+                  </Button>
+                ))}
               </div>
             </div>
           ))}
@@ -471,23 +514,19 @@ export default function POS() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-semibold">${Number(venta.total).toFixed(2)}</td>
-                    <td className="px-4 py-3 text-right flex items-center justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleOpenEdit(venta)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                        <span className="sr-only">Editar</span>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteInvoice(venta.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                        <span className="sr-only">Eliminar</span>
-                      </Button>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {getInvoiceActions(venta).map((action) => (
+                          <Button
+                            key={action.key}
+                            variant="outline"
+                            size="sm"
+                            onClick={action.onClick}
+                          >
+                            {action.label}
+                          </Button>
+                        ))}
+                      </div>
                     </td>
                   </tr>
                 ))}
