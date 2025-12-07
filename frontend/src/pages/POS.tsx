@@ -20,9 +20,14 @@ import { Label } from "@/components/ui/label";
 import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
 import { ServiceSelectorModal } from "@/components/modals/ServiceSelectorModal";
 import { API_BASE_URL, api } from "@/lib/api";
-import { getLocalDateISO, parseLocalDate } from "@/lib/utils";
+import { formatDateTime } from "@/lib/utils";
 import { Client } from "@/types/client";
-import { Invoice, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
+import {
+  Invoice,
+  InvoicePayload,
+  PaginatedResponse,
+  SelectedServicePayload,
+} from "@/types/invoice";
 import { Service } from "@/types/service";
 import { toast } from "@/hooks/use-toast";
 
@@ -53,21 +58,9 @@ const getDteDisplayStatus = (status: string | undefined) => {
   return status || "";
 };
 
-const isInvoiceInCurrentMonth = (dateValue: string | Date): boolean => {
-  if (!dateValue) return false;
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth();
-
-  const d = parseLocalDate(dateValue);
-  if (Number.isNaN(d.getTime())) return false;
-
-  return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
-};
-
 export default function POS() {
   const now = new Date();
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState("today");
   const [search, setSearch] = useState("");
   const [showNuevaFacturaModal, setShowNuevaFacturaModal] = useState(false);
   const [showServiceSelectorModal, setShowServiceSelectorModal] = useState(false);
@@ -80,7 +73,7 @@ export default function POS() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [services, setServices] = useState<Service[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [error, setError] = useState("");
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [mode, setMode] = useState<"create" | "edit">("create");
@@ -88,31 +81,82 @@ export default function POS() {
   const [invalidatingId, setInvalidatingId] = useState<number | null>(null);
   const [creditNotingId, setCreditNotingId] = useState<number | null>(null);
 
-  const fetchInitialData = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const [invoiceResponse, clientResponse, serviceResponse] =
-        await Promise.all([
-          api.get<Invoice[]>("/invoices/"),
-          api.get<Client[]>("/clients/"),
-          api.get<Service[]>("/services/"),
-        ]);
+  const PAGE_SIZE = 50;
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
 
-      setInvoices(invoiceResponse.data);
+  const fetchStaticData = async () => {
+    try {
+      const [clientResponse, serviceResponse] = await Promise.all([
+        api.get<Client[]>("/clients/"),
+        api.get<Service[]>("/services/"),
+      ]);
+
       setClients(clientResponse.data);
       setServices(serviceResponse.data);
+    } catch (err) {
+      console.error("Error al cargar catálogos", err);
+    }
+  };
+
+  const fetchInvoices = async (
+    pageToLoad = currentPage,
+    filterValue = filter,
+    searchValue = search,
+  ) => {
+    setLoadingInvoices(true);
+    setError("");
+
+    try {
+      let nextCount = 0;
+      const params: Record<string, string | number | undefined> = {
+        page: pageToLoad,
+        page_size: PAGE_SIZE,
+      };
+
+      if (filterValue && filterValue !== "all") {
+        params.filter = filterValue;
+      }
+
+      if (searchValue.trim()) {
+        params.search = searchValue.trim();
+      }
+
+      const response = await api.get<PaginatedResponse<Invoice> | Invoice[]>(
+        "/invoices/",
+        { params },
+      );
+
+      if (Array.isArray(response.data)) {
+        setInvoices(response.data);
+        nextCount = response.data.length;
+        setTotalCount(nextCount);
+      } else {
+        const data = response.data as PaginatedResponse<Invoice>;
+        setInvoices(data.results || []);
+        nextCount = data.count || 0;
+        setTotalCount(nextCount);
+      }
+
+      const nextTotalPages = Math.max(1, Math.ceil(nextCount / PAGE_SIZE));
+      if (pageToLoad > nextTotalPages) {
+        setCurrentPage(nextTotalPages);
+      }
     } catch (err) {
       console.error("Error al cargar facturas", err);
       setError("No se pudieron cargar las facturas");
     } finally {
-      setLoading(false);
+      setLoadingInvoices(false);
     }
   };
 
   useEffect(() => {
-    fetchInitialData();
+    fetchStaticData();
   }, []);
+
+  useEffect(() => {
+    fetchInvoices(currentPage);
+  }, [filter, search, currentPage]);
 
   const handleSaveInvoice = async (payload: InvoicePayload) => {
     try {
@@ -153,7 +197,8 @@ export default function POS() {
         }
       }
 
-      await fetchInitialData();
+      setCurrentPage(1);
+      await fetchInvoices(1);
       setSelectedInvoice(null);
       setMode("create");
       setSelectedServices([]);
@@ -389,44 +434,17 @@ export default function POS() {
     }, {});
   }, [clients]);
 
-  const filteredInvoices = useMemo(() => {
-    const today = getLocalDateISO();
-    const now = new Date();
-    const startOfWeek = new Date(now);
-    startOfWeek.setHours(0, 0, 0, 0);
-    startOfWeek.setDate(now.getDate() - now.getDay());
-
-    return invoices.filter((invoice) => {
-      const matchesSearch = `${invoice.number} ${clientLookup[invoice.client] || ""}`
-        .toLowerCase()
-        .includes(search.toLowerCase());
-
-      if (!matchesSearch) return false;
-
-      const invoiceDate = parseLocalDate(invoice.date);
-
-      if (filter === "today") {
-        return invoice.date === today;
-      }
-
-      if (filter === "week" || filter === "this-week") {
-        return invoiceDate >= startOfWeek;
-      }
-
-      if (filter === "month" || filter === "this-month") {
-        return isInvoiceInCurrentMonth(invoiceDate);
-      }
-
-      return true;
-    });
-  }, [clientLookup, filter, invoices, search]);
-
   const totalInvoicesAmount = useMemo(() => {
-    return filteredInvoices.reduce((sum, invoice) => {
+    return invoices.reduce((sum, invoice) => {
       const total = Number(invoice.total) || 0;
       return sum + total;
     }, 0);
-  }, [filteredInvoices]);
+  }, [invoices]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+
+  const formatInvoiceDateTime = (invoice: Invoice) =>
+    formatDateTime(invoice.issued_at || invoice.created_at || invoice.date);
 
   const handleOpenCreate = () => {
     setMode("create");
@@ -493,11 +511,20 @@ export default function POS() {
               placeholder="Buscar por número, cliente..."
               className="w-full"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setCurrentPage(1);
+              }}
             />
           </div>
           <div className="flex gap-2">
-            <Select value={filter} onValueChange={setFilter}>
+            <Select
+              value={filter}
+              onValueChange={(value) => {
+                setFilter(value);
+                setCurrentPage(1);
+              }}
+            >
               <SelectTrigger className="w-full sm:w-[180px]">
                 <Filter className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="Filtrar por..." />
@@ -528,14 +555,14 @@ export default function POS() {
 
       {/* Mobile view - Cards */}
       <div className="grid gap-4 md:hidden">
-        {loading && (
+        {loadingInvoices && (
           <div className="p-4 text-sm text-muted-foreground">Cargando facturas...</div>
         )}
-        {!loading && error && (
+        {!loadingInvoices && error && (
           <div className="p-4 text-sm text-destructive">{error}</div>
         )}
-        {!loading && !error &&
-          filteredInvoices.map((venta) => (
+        {!loadingInvoices && !error &&
+          invoices.map((venta) => (
             <div
               key={venta.id}
               className="rounded-lg border border-border bg-card p-4 shadow-elegant"
@@ -543,7 +570,9 @@ export default function POS() {
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <p className="font-semibold text-lg">{venta.number}</p>
-                  <p className="text-sm text-muted-foreground">{venta.date}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {formatInvoiceDateTime(venta)}
+                  </p>
                 </div>
                 <span
                   className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${getDteBadgeStyle(
@@ -590,8 +619,8 @@ export default function POS() {
                 ))}
               </div>
             </div>
-          ))}
-        {!loading && !error && filteredInvoices.length === 0 && (
+                ))}
+        {!loadingInvoices && !error && invoices.length === 0 && (
           <div className="p-4 text-sm text-muted-foreground">
             No hay facturas registradas.
           </div>
@@ -601,18 +630,18 @@ export default function POS() {
       {/* Desktop view - Table */}
       <div className="hidden md:block rounded-lg border border-border bg-card shadow-elegant overflow-hidden">
         <div className="overflow-x-auto">
-          {loading && (
+          {loadingInvoices && (
             <div className="p-4 text-sm text-muted-foreground">Cargando facturas...</div>
           )}
-          {!loading && error && (
+          {!loadingInvoices && error && (
             <div className="p-4 text-sm text-destructive">{error}</div>
           )}
-          {!loading && !error && (
+          {!loadingInvoices && !error && (
             <table className="w-full">
               <thead className="bg-muted/50">
                 <tr className="border-b border-border">
                   <th className="px-4 py-3 text-left text-sm font-medium">Nº Factura</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">Fecha</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Fecha y Hora</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Cliente</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Tipo</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Método Pago</th>
@@ -622,13 +651,15 @@ export default function POS() {
                 </tr>
               </thead>
               <tbody>
-                {filteredInvoices.map((venta) => (
+                {invoices.map((venta) => (
                   <tr
                     key={venta.id}
                     className="border-b border-border hover:bg-muted/30 transition-colors"
                   >
                     <td className="px-4 py-3 font-medium">{venta.number}</td>
-                    <td className="px-4 py-3 text-sm">{venta.date}</td>
+                    <td className="px-4 py-3 text-sm">
+                      {formatInvoiceDateTime(venta)}
+                    </td>
                     <td className="px-4 py-3 text-sm">
                       {clientLookup[venta.client] || "Sin cliente"}
                     </td>
@@ -665,7 +696,7 @@ export default function POS() {
                     </td>
                   </tr>
                 ))}
-                {filteredInvoices.length === 0 && (
+                {invoices.length === 0 && (
                   <tr>
                     <td
                       className="px-4 py-3 text-sm text-muted-foreground"
@@ -680,6 +711,43 @@ export default function POS() {
           )}
         </div>
       </div>
+
+      {!loadingInvoices && !error && (
+        <div className="flex justify-center">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+            >
+              ←
+            </Button>
+            {Array.from({ length: totalPages }, (_, index) => index + 1).map(
+              (pageNumber) => (
+                <Button
+                  key={pageNumber}
+                  variant={pageNumber === currentPage ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setCurrentPage(pageNumber)}
+                >
+                  {pageNumber}
+                </Button>
+              ),
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage === totalPages}
+              onClick={() =>
+                setCurrentPage((prev) => Math.min(totalPages, prev + 1))
+              }
+            >
+              →
+            </Button>
+          </div>
+        </div>
+      )}
 
       <ServiceSelectorModal
         open={showServiceSelectorModal}

@@ -25,6 +25,7 @@ export interface Invoice {
   id: number;
   number: string;
   date: string;
+  issued_at?: string;
   client: number;
   doc_type: InvoiceDocType;
   payment_method: PaymentMethod;
@@ -59,6 +60,13 @@ export interface Invoice {
   created_at: string;
   updated_at: string;
   items?: InvoiceItem[];
+}
+
+export interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
 }
 
 export interface InvoiceItemPayload {

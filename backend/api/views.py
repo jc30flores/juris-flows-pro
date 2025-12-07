@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.utils.timezone import localtime
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -58,6 +59,12 @@ from .serializers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class InvoicePagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = "page_size"
+    max_page_size = 100
 
 
 def filter_invoices_queryset(queryset, params):
@@ -208,14 +215,21 @@ class ClientViewSet(viewsets.ModelViewSet):
 
 
 class InvoiceViewSet(viewsets.ModelViewSet):
-    queryset = Invoice.objects.select_related("client").prefetch_related("items").all()
+    queryset = (
+        Invoice.objects.select_related("client")
+        .prefetch_related("items")
+        .all()
+        .order_by("-created_at", "-id")
+    )
     serializer_class = InvoiceSerializer
     permission_classes = [permissions.AllowAny]
+    pagination_class = InvoicePagination
 
     def get_queryset(self):
         queryset = super().get_queryset()
         if getattr(self, "action", None) in {"list"}:
-            return filter_invoices_queryset(queryset, self.request.query_params)
+            filtered = filter_invoices_queryset(queryset, self.request.query_params)
+            return filtered.order_by("-created_at", "-id")
         return queryset
 
     def create(self, request, *args, **kwargs):
