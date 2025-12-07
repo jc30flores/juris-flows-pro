@@ -8,7 +8,9 @@ export type DteStatus =
   | "Rechazado"
   | "ACEPTADO"
   | "RECHAZADO"
-  | "ERROR";
+  | "ERROR"
+  | "INVALIDADO"
+  | "Invalidado";
 
 export interface InvoiceItem {
   id: number;

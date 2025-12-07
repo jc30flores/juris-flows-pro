@@ -6,12 +6,18 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Tuple
 
 import requests
+from django.conf import settings
 from django.utils import timezone
 
 from .connectivity import get_connectivity_status as _connectivity_status_snapshot
 from .models import Activity, DTERecord, Invoice, InvoiceItem, Service
 
 logger = logging.getLogger(__name__)
+
+DTE_API_BASE_URL = getattr(
+    settings, "DTE_API_BASE_URL", "https://t12101304761012.cheros.dev/api/v1"
+)
+DTE_API_TOKEN = getattr(settings, "DTE_API_TOKEN", "api_k_12101304761012")
 
 
 IVA_RATE = Decimal("0.13")
@@ -42,6 +48,18 @@ def split_gross_amount_with_tax(gross) -> tuple[Decimal, Decimal]:
     iva = _round_2(iva_unrounded)
     base = gross_dec - iva
     return base, iva
+
+
+def _build_dte_headers():
+    return {
+        "Authorization": f"Bearer {DTE_API_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+
+def _build_dte_endpoint(path: str) -> str:
+    base = getattr(settings, "DTE_API_BASE_URL", DTE_API_BASE_URL)
+    return f"{base.rstrip('/')}/{path.lstrip('/')}"
 
 
 def get_connectivity_status():
@@ -222,6 +240,78 @@ def persist_invoice_dte_identifiers(
         Invoice.objects.filter(pk=invoice.pk).update(**updates)
         for key, value in updates.items():
             setattr(invoice, key, value)
+
+
+def _extract_generation_code(invoice: Invoice, record: DTERecord) -> str:
+    response_payload = record.response_payload if isinstance(record.response_payload, dict) else {}
+    hacienda_response = (
+        response_payload.get("respuesta_hacienda")
+        or response_payload.get("hacienda_response")
+        or {}
+    )
+
+    candidates = [
+        getattr(invoice, "dte_codigo_generacion", None),
+        response_payload.get("codigo_generacion"),
+        response_payload.get("codigoGeneracion"),
+        response_payload.get("uuid"),
+        hacienda_response.get("codigoGeneracion"),
+        hacienda_response.get("uuid"),
+        record.hacienda_uuid,
+    ]
+
+    for candidate in candidates:
+        if candidate:
+            return str(candidate)
+
+    return ""
+
+
+def _extract_control_number(invoice: Invoice, record: DTERecord) -> str:
+    candidates = [
+        record.control_number,
+        getattr(invoice, "dte_numero_control", None),
+    ]
+
+    for candidate in candidates:
+        if candidate:
+            return str(candidate)
+
+    response_payload = record.response_payload if isinstance(record.response_payload, dict) else {}
+    return str(response_payload.get("numero_control") or "")
+
+
+def _extract_sello_recibido(record: DTERecord) -> str:
+    response_payload = record.response_payload if isinstance(record.response_payload, dict) else {}
+    hacienda_response = (
+        response_payload.get("respuesta_hacienda")
+        or response_payload.get("hacienda_response")
+        or {}
+    )
+    return (
+        hacienda_response.get("selloRecibido")
+        or response_payload.get("selloRecibido")
+        or ""
+    )
+
+
+def _map_record_to_tipo_dte(record: DTERecord) -> str:
+    rtype = (record.dte_type or "").upper()
+    if rtype in {"CF", "01"}:
+        return "01"
+    if rtype in {"SE", "SX", "14"}:
+        return "14"
+    return rtype or "01"
+
+
+def _compute_vat_from_total(total_amount) -> float:
+    try:
+        total_dec = Decimal(str(total_amount))
+    except Exception:  # noqa: BLE001
+        total_dec = Decimal("0")
+
+    _, iva = split_gross_amount_with_tax(total_dec)
+    return float(_round_2(iva))
 
 
 EMITTER_INFO = {
@@ -434,7 +524,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/factura"
+    url = _build_dte_endpoint("/dte/factura")
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
@@ -452,10 +542,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         total_amount=invoice.total,
         request_payload=payload,
     )
-    headers = {
-        "Authorization": "Bearer api_k_12101304761012",
-        "Content-Type": "application/json",
-    }
+    headers = _build_dte_headers()
 
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=30)
@@ -707,7 +794,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/credito-fiscal"
+    url = _build_dte_endpoint("/dte/credito-fiscal")
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
@@ -725,10 +812,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         total_amount=_to_decimal(total_operacion),
         request_payload=payload,
     )
-    headers = {
-        "Authorization": "Bearer api_k_12101304761012",
-        "Content-Type": "application/json",
-    }
+    headers = _build_dte_headers()
 
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=30)
@@ -935,7 +1019,7 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/sujeto-excluido"
+    url = _build_dte_endpoint("/dte/sujeto-excluido")
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
@@ -953,10 +1037,7 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         total_amount=_to_decimal(total_pagar),
         request_payload=payload,
     )
-    headers = {
-        "Authorization": "Bearer api_k_12101304761012",
-        "Content-Type": "application/json",
-    }
+    headers = _build_dte_headers()
 
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=30)
@@ -1017,3 +1098,173 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         invoice._dte_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
         invoice.save(update_fields=["dte_status"])
         return record
+
+
+def _build_invalidation_payload(
+    invoice: Invoice, record: DTERecord
+) -> tuple[dict, str, str, str, str]:
+    generation_code = _extract_generation_code(invoice, record)
+    control_number = _extract_control_number(invoice, record)
+    sello_recibido = _extract_sello_recibido(record)
+    tipo_dte = _map_record_to_tipo_dte(record)
+
+    client = getattr(invoice, "client", None)
+    receiver_name = (
+        record.receiver_name
+        or (client.company_name if client else "")
+        or (client.full_name if client else "")
+        or "CONSUMIDOR FINAL"
+    )
+    receiver_document = (getattr(client, "nit", None) or getattr(client, "dui", None) or "00000000-0")
+    receiver_phone = getattr(client, "phone", None) or "00000000"
+    receiver_email = getattr(client, "email", None) or EMITTER_INFO.get("correo")
+
+    issue_date = record.issue_date or getattr(invoice, "date", None) or timezone.localdate()
+    if hasattr(issue_date, "isoformat"):
+        issue_date_str = issue_date.isoformat()
+    else:
+        issue_date_str = str(issue_date)
+
+    total_amount = record.total_amount or getattr(invoice, "total", 0)
+    iva_amount = _compute_vat_from_total(total_amount)
+
+    now_local = timezone.localtime()
+    identificacion_codigo = str(uuid.uuid4()).upper()
+
+    payload = {
+        "invalidacion": {
+            "documento": {
+                "codigoGeneracion": generation_code,
+                "tipoDocumento": "13",
+                "nombre": receiver_name,
+                "tipoDte": tipo_dte,
+                "fecEmi": issue_date_str,
+                "selloRecibido": sello_recibido,
+                "numeroControl": control_number,
+                "correo": receiver_email,
+                "numDocumento": receiver_document,
+                "telefono": receiver_phone,
+                "codigoGeneracionR": None,
+                "montoIva": iva_amount,
+            },
+            "emisor": {
+                "tipoEstablecimiento": EMITTER_INFO.get("tipoEstablecimiento", "02"),
+                "codPuntoVenta": EMITTER_INFO.get("codPuntoVenta"),
+                "nombre": EMITTER_INFO.get("nombre"),
+                "nomEstablecimiento": EMITTER_INFO.get("nombreComercial"),
+                "codEstableMH": EMITTER_INFO.get("codEstableMH"),
+                "codPuntoVentaMH": EMITTER_INFO.get("codPuntoVentaMH"),
+                "codEstable": EMITTER_INFO.get("codEstable"),
+                "nit": EMITTER_INFO.get("nit"),
+                "telefono": EMITTER_INFO.get("telefono"),
+                "correo": EMITTER_INFO.get("correo"),
+            },
+            "identificacion": {
+                "codigoGeneracion": identificacion_codigo,
+                "horAnula": now_local.strftime("%H:%M:%S"),
+                "ambiente": "00",
+                "version": 2,
+                "fecAnula": now_local.date().isoformat(),
+            },
+            "motivo": {
+                "nombreSolicita": EMITTER_INFO.get("nombre"),
+                "tipoAnulacion": 2,
+                "numDocResponsable": EMITTER_INFO.get("nit"),
+                "tipDocSolicita": "13",
+                "motivoAnulacion": None,
+                "nombreResponsable": EMITTER_INFO.get("nombre"),
+                "tipDocResponsable": "13",
+                "numDocSolicita": EMITTER_INFO.get("nit"),
+            },
+        }
+    }
+
+    return payload, generation_code, control_number, receiver_name, receiver_document
+
+
+def invalidate_dte_for_invoice(invoice: Invoice, record: DTERecord) -> tuple[str, dict]:
+    payload, generation_code, control_number, receiver_name, receiver_document = _build_invalidation_payload(
+        invoice, record
+    )
+
+    if not generation_code or not control_number:
+        raise ValueError("No se encontró información de DTE para invalidar.")
+
+    print("=== DTE INVALIDACION REQUEST ===")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+    invalidation_record = DTERecord.objects.create(
+        invoice=invoice,
+        dte_type=f"ANU_{record.dte_type}",
+        status="ENVIANDO",
+        control_number=control_number,
+        issuer_nit=EMITTER_INFO["nit"],
+        receiver_nit=record.receiver_nit or receiver_document,
+        receiver_name=record.receiver_name or receiver_name,
+        issue_date=timezone.localdate(),
+        total_amount=_to_decimal(record.total_amount or getattr(invoice, "total", 0)),
+        request_payload=payload,
+    )
+
+    url = _build_dte_endpoint("/dte/invalidacion")
+    headers = _build_dte_headers()
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+    except requests.exceptions.RequestException as exc:
+        invalidation_record.response_payload = {
+            "success": None,
+            "error": {"type": "network_error", "message": str(exc)},
+        }
+        invalidation_record.status = "PENDIENTE"
+        invalidation_record.hacienda_state = "SIN_RESPUESTA"
+        invalidation_record.save(
+            update_fields=["response_payload", "status", "hacienda_state"]
+        )
+        invoice._dte_message = "No se pudo contactar con la API de DTE para invalidar."
+        return invoice.dte_status, invalidation_record.response_payload
+
+    try:
+        try:
+            response_data = response.json()
+        except ValueError:
+            response_data = {"raw_text": response.text}
+
+        print("=== DTE INVALIDACION RESPONSE ===")
+        print(json.dumps(response_data, indent=2, ensure_ascii=False))
+
+        invalidation_record.response_payload = response_data
+        invalidation_record.hacienda_uuid = (
+            response_data.get("uuid", "") if isinstance(response_data, dict) else ""
+        )
+
+        success = isinstance(response_data, dict) and response_data.get("success") is True
+        estado_hacienda = ""
+        if isinstance(response_data, dict):
+            hacienda_response = response_data.get("respuesta_hacienda") or response_data.get("hacienda_response") or {}
+            estado_hacienda = hacienda_response.get("estado", "")
+
+        if success:
+            invalidation_record.status = "INVALIDADO"
+            invoice.dte_status = Invoice.INVALIDATED
+            invoice.save(update_fields=["dte_status"])
+        else:
+            invalidation_record.status = "RECHAZADO"
+            invoice._dte_message = "No se pudo invalidar el DTE en Hacienda."
+
+        invalidation_record.hacienda_state = estado_hacienda or invalidation_record.hacienda_state
+        invalidation_record.save(
+            update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"]
+        )
+
+        return invoice.dte_status, response_data
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Error invalidating DTE", exc_info=exc)
+        invalidation_record.response_payload = {"error": str(exc)}
+        invalidation_record.status = "RECHAZADO"
+        invalidation_record.hacienda_state = "SIN_RESPUESTA"
+        invalidation_record.save(
+            update_fields=["response_payload", "status", "hacienda_state"]
+        )
+        invoice._dte_message = "Ocurrió un error inesperado al invalidar el DTE."
+        return invoice.dte_status, invalidation_record.response_payload

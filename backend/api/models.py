@@ -76,10 +76,12 @@ class Invoice(models.Model):
     APPROVED = "Aprobado"
     PENDING = "Pendiente"
     REJECTED = "Rechazado"
+    INVALIDATED = "INVALIDADO"
     DTE_STATUS_CHOICES = [
         (APPROVED, "Aprobado"),
         (PENDING, "Pendiente"),
         (REJECTED, "Rechazado"),
+        (INVALIDATED, "Invalidado"),
     ]
 
     number = models.CharField(max_length=50, unique=True)

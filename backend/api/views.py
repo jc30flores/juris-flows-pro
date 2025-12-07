@@ -1,4 +1,5 @@
 import csv
+import logging
 from datetime import date, datetime, timedelta
 
 from django.conf import settings
@@ -9,6 +10,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.timezone import localtime
 from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -24,6 +26,7 @@ from .models import (
     ServiceCategory,
     StaffUser,
 )
+from .dte_cf_service import invalidate_dte_for_invoice
 
 
 def _parse_date_param(value):
@@ -50,6 +53,8 @@ from .serializers import (
     ServiceSerializer,
     StaffUserSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def filter_invoices_queryset(queryset, params):
@@ -224,6 +229,56 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             data["dte_message"] = dte_message
 
         return Response(data, status=status.HTTP_201_CREATED, headers=headers)
+
+    @action(detail=True, methods=["post"], url_path="invalidate")
+    def invalidate(self, request, pk=None):
+        invoice = self.get_object()
+
+        if invoice.doc_type not in {Invoice.CF, Invoice.SX}:
+            return Response(
+                {"detail": "Solo se pueden invalidar facturas CF o SX."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        record = (
+            invoice.dte_records.filter(dte_type__in=["CF", "SE"])
+            .order_by("-created_at")
+            .first()
+        )
+
+        if not record:
+            return Response(
+                {"detail": "No existe DTE para invalidar esta factura."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            dte_status, response_data = invalidate_dte_for_invoice(invoice, record)
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Error invalidando DTE", exc_info=exc)
+            return Response(
+                {"detail": "Error al invalidar DTE en Hacienda."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        success = dte_status == Invoice.INVALIDATED
+        message = (
+            "DTE invalidado correctamente" if success else "No se pudo invalidar el DTE"
+        )
+        return Response(
+            {
+                "success": success,
+                "message": message,
+                "detail": message,
+                "dte_status": dte_status,
+                "response": response_data,
+            },
+            status=status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST,
+        )
 
 
 class InvoiceItemViewSet(viewsets.ModelViewSet):

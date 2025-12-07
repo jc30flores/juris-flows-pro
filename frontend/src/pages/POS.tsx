@@ -31,7 +31,14 @@ const getDteBadgeStyle = (status: string | undefined) => {
   if (normalized === "ACEPTADO" || status === "Aprobado") {
     return "bg-success/10 text-success";
   }
-  if (normalized === "RECHAZADO" || status === "Rechazado" || normalized === "ERROR") {
+  if (
+    normalized === "RECHAZADO" ||
+    status === "Rechazado" ||
+    normalized === "ERROR"
+  ) {
+    return "bg-destructive/10 text-destructive";
+  }
+  if (normalized === "INVALIDADO") {
     return "bg-destructive/10 text-destructive";
   }
   return "bg-warning/10 text-warning";
@@ -42,6 +49,7 @@ const getDteDisplayStatus = (status: string | undefined) => {
   if (normalized === "ACEPTADO") return "ACEPTADO";
   if (normalized === "RECHAZADO") return "RECHAZADO";
   if (normalized === "PENDIENTE") return "Pendiente";
+  if (normalized === "INVALIDADO") return "INVALIDADO";
   return status || "";
 };
 
@@ -77,6 +85,7 @@ export default function POS() {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [selectedServices, setSelectedServices] = useState<SelectedServicePayload[]>([]);
+  const [invalidatingId, setInvalidatingId] = useState<number | null>(null);
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -224,6 +233,37 @@ export default function POS() {
     }
   };
 
+  const handleInvalidateInvoice = async (invoice: Invoice) => {
+    const confirmed = window.confirm(
+      "¿Seguro que deseas invalidar este DTE? Esta acción no se puede deshacer."
+    );
+
+    if (!confirmed) return;
+
+    setInvalidatingId(invoice.id);
+    try {
+      const response = await api.post<{ dte_status?: string; message?: string }>(
+        `/invoices/${invoice.id}/invalidate/`
+      );
+
+      const message = response.data?.message || "DTE invalidado correctamente";
+      toast({ title: message });
+
+      setInvoices((prev) =>
+        prev.map((item) =>
+          item.id === invoice.id
+            ? { ...item, dte_status: response.data?.dte_status || item.dte_status }
+            : item
+        )
+      );
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || "Error al invalidar DTE.";
+      toast({ title: detail, variant: "destructive" });
+    } finally {
+      setInvalidatingId(null);
+    }
+  };
+
   const getInvoiceActions = (invoice: Invoice) => {
     const isCCF = invoice.doc_type === "CCF";
     if (isCCF) {
@@ -239,7 +279,12 @@ export default function POS() {
     }
 
     return [
-      { label: "INVALIDAR", key: "invalidar" },
+      {
+        label: invalidatingId === invoice.id ? "Invalidando..." : "INVALIDAR",
+        key: "invalidar",
+        onClick: () => handleInvalidateInvoice(invoice),
+        disabled: invalidatingId === invoice.id,
+      },
       { label: "ENVIAR", key: "enviar" },
       {
         label: "COPIAR",
@@ -450,6 +495,7 @@ export default function POS() {
                     size="sm"
                     className="flex-1"
                     onClick={action.onClick}
+                    disabled={action.disabled}
                   >
                     {action.label}
                   </Button>
@@ -518,15 +564,16 @@ export default function POS() {
                       <div className="flex items-center justify-end gap-2">
                         {getInvoiceActions(venta).map((action) => (
                           <Button
-                            key={action.key}
-                            variant="outline"
-                            size="sm"
-                            onClick={action.onClick}
-                          >
-                            {action.label}
-                          </Button>
-                        ))}
-                      </div>
+                        key={action.key}
+                        variant="outline"
+                        size="sm"
+                        onClick={action.onClick}
+                        disabled={action.disabled}
+                      >
+                        {action.label}
+                      </Button>
+                    ))}
+                  </div>
                     </td>
                   </tr>
                 ))}
