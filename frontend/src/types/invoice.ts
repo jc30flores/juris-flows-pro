@@ -43,6 +43,11 @@ export interface Invoice {
     uuid?: string;
   };
   dte_records?: Array<{
+    dte_type?: string;
+    status?: string;
+    hacienda_state?: string;
+    control_number?: string;
+    issue_date?: string;
     codigoGeneracion?: string;
     codigo_generacion?: string;
     hacienda_uuid?: string;

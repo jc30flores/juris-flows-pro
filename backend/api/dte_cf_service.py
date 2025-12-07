@@ -303,6 +303,8 @@ def _map_record_to_tipo_dte(record: DTERecord) -> str:
         return "01"
     if rtype in {"SE", "SX", "14"}:
         return "14"
+    if rtype in {"05", "NC"}:
+        return "05"
     return rtype or "01"
 
 
@@ -927,30 +929,317 @@ def send_ccf_dte_for_invoice(
 
 
 def send_ccf_credit_note_for_invoice(invoice) -> DTERecord:
-    """Envía un DTE de crédito fiscal (03) como nota de crédito para una factura CCF."""
+    """Envía un DTE de Nota de Crédito (05) referenciando un CCF previo."""
 
-    observation = (
-        invoice.observations
-        or "Crédito fiscal generado por Nota de Crédito"
+    accepted_states = {"ACEPTADO", "APROBADO", "PROCESADO", "RECIBIDO"}
+
+    base_record = (
+        invoice.dte_records.filter(
+            dte_type__in=["03", "CCF"], status__in=accepted_states
+        )
+        .order_by("-created_at")
+        .first()
     )
+
+    if not base_record:
+        base_record = (
+            invoice.dte_records.filter(
+                dte_type__in=["03", "CCF"],
+                hacienda_state__in=["PROCESADO", "RECIBIDO", "ACEPTADO", "APROBADO"],
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+    if not base_record:
+        raise ValueError(
+            "No existe DTE CCF aceptado para generar Nota de Crédito."
+        )
+
+    control_number_ccf = _extract_control_number(invoice, base_record)
+    if not control_number_ccf:
+        raise ValueError(
+            "No se encontró número de control del CCF para la Nota de Crédito."
+        )
+
+    issue_date_ccf = base_record.issue_date or invoice.date
+    issue_date_ccf_iso = issue_date_ccf.isoformat() if issue_date_ccf else None
+
+    codigo_generacion = str(uuid.uuid4()).upper()
+    random_suffix = "".join(str(random.randint(0, 9)) for _ in range(15))
+    numero_control = f"DTE-05-M002P001-{random_suffix}"
 
     now_local = timezone.localtime()
+    fec_emi = now_local.date().isoformat()
+    hor_emi = now_local.strftime("%H:%M:%S")
 
-    record = send_ccf_dte_for_invoice(
-        invoice,
-        record_type="NC",
-        print_label="DTE CREDITO FISCAL (NOTA DE CRÉDITO)",
-        observations_override=observation,
-        issue_date_override=now_local.date(),
+    client = getattr(invoice, "client", None)
+    emitter_address = EMITTER_INFO["direccion"]
+
+    client_name = (client.company_name if client else "") or (client.full_name if client else "") or "CLIENTE"
+    client_trade_name = client.company_name if client and client.company_name else client_name
+    client_nit = (client.nit if client else "") or ""
+    raw_nrc = getattr(client, "nrc", "") or ""
+    client_nrc_digits = "".join(ch for ch in raw_nrc if str(ch).isdigit())
+    client_nrc = (
+        client_nrc_digits if 6 <= len(client_nrc_digits) <= 8 else None
     )
+    client_phone = (client.phone if client else "") or "00000000"
+    client_email = (client.email if client else "") or None
+    client_cod_act = getattr(client, "activity_code", None) or None
+    client_desc_act = getattr(client, "activity_description", None) or None
+
+    if not client_desc_act and client_cod_act:
+        act = Activity.objects.filter(code=client_cod_act).first()
+        if act:
+            client_desc_act = act.description
+
+    client_address = {
+        "municipio": (client.municipality_code if client else None)
+        or emitter_address.get("municipio", "22"),
+        "complemento": (getattr(client, "direccion", None) or "")
+        or emitter_address.get("complemento", ""),
+        "departamento": (client.department_code if client else None)
+        or emitter_address.get("departamento", "12"),
+    }
+
+    receptor = {
+        "nombre": client_name,
+        "nombreComercial": client_trade_name,
+        "direccion": client_address,
+        "correo": client_email,
+        "nit": client_nit,
+        "telefono": client_phone,
+    }
+
+    if client_nrc:
+        receptor["nrc"] = client_nrc
+    if client_cod_act:
+        receptor["codActividad"] = client_cod_act
+    if client_desc_act:
+        receptor["descActividad"] = client_desc_act
+    elif client_cod_act:
+        receptor["descActividad"] = "Actividad no especificada"
+
+    receiver_doc_for_extension = (
+        client_nit or client_nrc or getattr(client, "dui", None) or None
+    )
+    emitter_doc_for_extension = EMITTER_INFO.get("nit")
+
+    items: list[InvoiceItem] = list(invoice.items.select_related("service"))
+    cuerpo_documento = []
+    total_base = Decimal("0.00")
+    total_iva = Decimal("0.00")
+
+    for index, item in enumerate(items, start=1):
+        gross_unit = Decimal(str(item.unit_price))
+        qty_dec = Decimal(str(item.quantity))
+        gross_line = gross_unit * qty_dec
+        line_base, iva_line = split_gross_amount_with_tax(gross_line)
+
+        total_base += line_base
+        total_iva += iva_line
+
+        service: Service | None = getattr(item, "service", None)
+        descripcion = service.name if service else "Servicio"
+        codigo = service.code if service and service.code else "SERVICIO"
+
+        precio_base_unitario = _round_2(line_base / qty_dec) if qty_dec else _round_2(Decimal("0"))
+
+        cuerpo_documento.append(
+            {
+                "ventaExenta": 0,
+                "numItem": index,
+                "tipoItem": 1,
+                "codigo": codigo,
+                "cantidad": float(qty_dec),
+                "tributos": ["20"],
+                "uniMedida": 59,
+                "noGravado": 0,
+                "codTributo": None,
+                "montoDescu": 0,
+                "ventaNoSuj": 0,
+                "psv": 0,
+                "precioUni": float(precio_base_unitario),
+                "descripcion": descripcion,
+                "ventaGravada": float(_round_2(line_base)),
+                "numeroDocumento": control_number_ccf,
+            }
+        )
+
+    total_base = _round_2(total_base)
+    total_iva = _round_2(total_iva)
+    total_operacion = _round_2(total_base + total_iva)
+    total_letras = amount_to_spanish_words(total_operacion)
+
+    resumen = {
+        "totalDescu": 0,
+        "ivaRete1": 0,
+        "pagos": [
+            {
+                "plazo": None,
+                "periodo": None,
+                "codigo": "01",
+                "referencia": None,
+                "montoPago": float(total_operacion),
+            }
+        ],
+        "porcentajeDescuento": 0,
+        "saldoFavor": 0,
+        "totalNoGravado": 0,
+        "totalGravada": float(total_base),
+        "descuExenta": 0,
+        "subTotal": float(total_base),
+        "totalLetras": total_letras,
+        "descuNoSuj": 0,
+        "subTotalVentas": float(total_base),
+        "reteRenta": 0,
+        "tributos": [
+            {
+                "valor": float(total_iva),
+                "descripcion": "Impuesto al Valor Agregado 13%",
+                "codigo": "20",
+            }
+        ],
+        "totalNoSuj": 0,
+        "montoTotalOperacion": float(total_operacion),
+        "descuGravada": 0,
+        "totalExenta": 0,
+        "condicionOperacion": 1,
+        "totalPagar": float(total_operacion),
+        "ivaPerci1": 0,
+        "numPagoElectronico": None,
+    }
+
+    reference_observation = (
+        f"Nota de Crédito por devolución parcial. Referencia Crédito Fiscal {control_number_ccf}"
+    )
+    override_observation = invoice.observations.strip() if invoice.observations else ""
+    observaciones = override_observation or reference_observation
+
+    payload = {
+        "dte": {
+            "apendice": None,
+            "identificacion": {
+                "codigoGeneracion": codigo_generacion,
+                "motivoContin": None,
+                "fecEmi": fec_emi,
+                "tipoModelo": 1,
+                "tipoDte": "05",
+                "version": 3,
+                "tipoContingencia": None,
+                "ambiente": DTE_AMBIENTE,
+                "numeroControl": numero_control,
+                "horEmi": hor_emi,
+                "tipoOperacion": 1,
+                "tipoMoneda": "USD",
+            },
+            "documentoRelacionado": [
+                {
+                    "numeroDocumento": control_number_ccf,
+                    "tipoDocumento": "03",
+                    "tipoGeneracion": 1,
+                    "fechaEmision": issue_date_ccf_iso,
+                }
+            ],
+            "emisor": {**EMITTER_INFO},
+            "receptor": receptor,
+            "cuerpoDocumento": cuerpo_documento,
+            "resumen": resumen,
+            "extension": {
+                "observaciones": observaciones,
+                "placaVehiculo": None,
+                "docuRecibe": receiver_doc_for_extension,
+                "nombEntrega": EMITTER_INFO.get("nombre"),
+                "nombRecibe": client_name,
+                "docuEntrega": emitter_doc_for_extension,
+            },
+            "ventaTercero": None,
+            "otrosDocumentos": None,
+        }
+    }
+
+    url = _build_dte_endpoint("/dte/nota-credito")
+
+    print("=== DTE NOTA CREDITO REQUEST ===")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+    record = DTERecord.objects.create(
+        invoice=invoice,
+        dte_type="05",
+        status="ENVIANDO",
+        control_number=numero_control,
+        issuer_nit=EMITTER_INFO["nit"],
+        receiver_nit=client_nit,
+        receiver_name=client_name,
+        issue_date=now_local.date(),
+        total_amount=_to_decimal(total_operacion),
+        request_payload=payload,
+    )
+    headers = _build_dte_headers()
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+    except requests.exceptions.RequestException as exc:
+        print("Error sending DTE:", exc)
+
+        record.response_payload = {
+            "success": None,
+            "error": {
+                "type": "network_error",
+                "message": str(exc),
+            },
+        }
+        record.hacienda_state = "SIN_RESPUESTA"
+        record.status = "PENDIENTE"
+        record.save(update_fields=["response_payload", "hacienda_state", "status"])
+
+        invoice.dte_status = "PENDIENTE"
+        invoice.save(update_fields=["dte_status"])
+
+        invoice._dte_message = (
+            "No se pudo contactar con la API de DTE (problema de red o indisponibilidad). "
+            "El DTE se ha dejado en estado PENDIENTE para reenviarlo más tarde."
+        )
+
+        return record
+
+    try:
+        try:
+            response_data = response.json()
+        except ValueError:
+            response_data = {"raw_text": response.text}
+
+        print("=== DTE NOTA CREDITO RESPONSE ===")
+        print(json.dumps(response_data, indent=2, ensure_ascii=False))
+
+        record.response_payload = response_data
+        record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
+        persist_invoice_dte_identifiers(
+            invoice, response_data, numero_control, codigo_generacion
+        )
+        estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
+        record.hacienda_state = estado_hacienda
+        record.status = estado_interno
+        record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
+
+        invoice.dte_status = estado_interno
+        invoice.save(update_fields=["dte_status"])
+        invoice._dte_message = user_message
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Error sending credit note DTE", exc_info=exc)
+        record.response_payload = {"error": str(exc)}
+        record.status = "PENDIENTE"
+        record.hacienda_state = "SIN_RESPUESTA"
+        record.save(update_fields=["response_payload", "status", "hacienda_state"])
+        invoice.dte_status = "PENDIENTE"
+        invoice._dte_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
+        invoice.save(update_fields=["dte_status"])
 
     status_upper = (record.status or "").upper()
     hacienda_upper = (record.hacienda_state or "").upper()
 
-    accepted = status_upper in {"ACEPTADO", "APROBADO"} or hacienda_upper in {
-        "PROCESADO",
-        "RECIBIDO",
-    }
+    accepted = status_upper in accepted_states or hacienda_upper in accepted_states
 
     invoice.has_credit_note = accepted
     invoice.credit_note_status = record.status or record.hacienda_state or None

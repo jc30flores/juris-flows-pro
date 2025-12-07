@@ -329,11 +329,11 @@ export default function POS() {
     const recordList = Array.isArray(possibleRecords) ? possibleRecords : [];
 
     return recordList.some((record) => {
-      const recordType = (record as { dte_type?: string }).dte_type;
+      const recordType = ((record as { dte_type?: string }).dte_type || "").toUpperCase();
       const recordStatus = ((record as { status?: string }).status || "").toUpperCase();
       const recordHacienda = ((record as { hacienda_state?: string }).hacienda_state || "").toUpperCase();
 
-      if (!recordType || recordType !== "NC") return false;
+      if (!recordType || (recordType !== "05" && recordType !== "NC")) return false;
 
       return acceptedStates.has(recordStatus) || acceptedStates.has(recordHacienda);
     });
@@ -342,13 +342,20 @@ export default function POS() {
   const getInvoiceActions = (invoice: Invoice) => {
     const isCCF = invoice.doc_type === "CCF";
     if (isCCF) {
+      const creditNoteDisabled =
+        creditNotingId === invoice.id || hasAcceptedCreditNote(invoice);
+      const creditNoteTitle = hasAcceptedCreditNote(invoice)
+        ? "Esta factura ya tiene una Nota de Crédito aceptada."
+        : undefined;
+
       return [
         {
           label:
             creditNotingId === invoice.id ? "Enviando..." : "NOTA DE CRÉDITO",
           key: "nota-credito",
           onClick: () => handleSendCreditNote(invoice),
-          disabled: creditNotingId === invoice.id || hasAcceptedCreditNote(invoice),
+          disabled: creditNoteDisabled,
+          title: creditNoteTitle,
         },
         { label: "ENVIAR", key: "enviar" },
         {

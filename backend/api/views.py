@@ -311,13 +311,13 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             )
 
         existing_nc = invoice.dte_records.filter(
-            dte_type__in=["NC", "03"],
+            dte_type__in=["05", "NC"],
             status__in=accepted_states,
         ).exists()
 
         existing_nc_hacienda = invoice.dte_records.filter(
-            dte_type__in=["NC", "03"],
-            hacienda_state__in=["PROCESADO", "RECIBIDO"],
+            dte_type__in=["05", "NC"],
+            hacienda_state__in=["PROCESADO", "RECIBIDO", "ACEPTADO", "APROBADO"],
         ).exists()
 
         if existing_nc or existing_nc_hacienda:
@@ -330,6 +330,11 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
         try:
             record = send_ccf_credit_note_for_invoice(invoice)
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Error enviando nota de crédito", exc_info=exc)
             return Response(
