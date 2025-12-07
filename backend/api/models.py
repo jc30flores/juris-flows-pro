@@ -96,6 +96,8 @@ class Invoice(models.Model):
     dte_numero_control = models.CharField(
         max_length=100, blank=True, null=True, default=""
     )
+    has_credit_note = models.BooleanField(default=False)
+    credit_note_status = models.CharField(max_length=30, blank=True, null=True)
     observations = models.TextField(blank=True, default="")
     total = models.DecimalField(max_digits=12, decimal_places=2)
     created_at = models.DateTimeField(auto_now_add=True)

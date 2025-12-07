@@ -35,6 +35,8 @@ export interface Invoice {
   dte_generation_code?: string;
   hacienda_uuid?: string;
   dte_uuid?: string;
+  has_credit_note?: boolean;
+  credit_note_status?: string | null;
   dte?: {
     codigoGeneracion?: string;
     codigo_generacion?: string;

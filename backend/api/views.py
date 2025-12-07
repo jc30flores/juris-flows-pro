@@ -299,6 +299,35 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        accepted_states = {"ACEPTADO", "APROBADO", "PROCESADO", "RECIBIDO"}
+        if invoice.has_credit_note and (
+            (invoice.credit_note_status or "").upper() in accepted_states
+        ):
+            return Response(
+                {
+                    "detail": "Esta factura ya tiene una Nota de Crédito aceptada. No se puede emitir otra.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        existing_nc = invoice.dte_records.filter(
+            dte_type__in=["NC", "03"],
+            status__in=accepted_states,
+        ).exists()
+
+        existing_nc_hacienda = invoice.dte_records.filter(
+            dte_type__in=["NC", "03"],
+            hacienda_state__in=["PROCESADO", "RECIBIDO"],
+        ).exists()
+
+        if existing_nc or existing_nc_hacienda:
+            return Response(
+                {
+                    "detail": "Esta factura ya tiene una Nota de Crédito aceptada. No se puede emitir otra.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
             record = send_ccf_credit_note_for_invoice(invoice)
         except Exception as exc:  # noqa: BLE001
@@ -308,10 +337,10 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        success = str(getattr(invoice, "dte_status", "")).upper() in {
-            "ACEPTADO",
-            "APROBADO",
-        }
+        invoice.refresh_from_db(fields=["dte_status", "has_credit_note", "credit_note_status"])
+
+        credit_note_state_upper = (getattr(invoice, "credit_note_status", "") or "").upper()
+        success = bool(invoice.has_credit_note and credit_note_state_upper in accepted_states)
         message = (
             getattr(invoice, "_dte_message", None)
             or ("Nota de crédito (CCF) enviada correctamente" if success else None)
@@ -324,6 +353,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 "message": message,
                 "detail": message,
                 "dte_status": getattr(invoice, "dte_status", None),
+                "has_credit_note": getattr(invoice, "has_credit_note", False),
+                "credit_note_status": getattr(invoice, "credit_note_status", None),
                 "response": getattr(record, "response_payload", None),
             },
             status=status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST,

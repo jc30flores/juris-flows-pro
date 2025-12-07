@@ -645,6 +645,7 @@ def send_ccf_dte_for_invoice(
     record_type: str = "CCF",
     print_label: str = "DTE CREDITO FISCAL",
     observations_override: str | None = None,
+    issue_date_override=None,
 ) -> DTERecord:
     """
     Construye el JSON DTE para tipo CCF (03) a partir de la factura y sus items,
@@ -858,7 +859,7 @@ def send_ccf_dte_for_invoice(
         issuer_nit=EMITTER_INFO["nit"],
         receiver_nit=client_nit,
         receiver_name=client_name,
-        issue_date=invoice.date,
+        issue_date=issue_date_override or invoice.date,
         total_amount=_to_decimal(total_operacion),
         request_payload=payload,
     )
@@ -933,12 +934,29 @@ def send_ccf_credit_note_for_invoice(invoice) -> DTERecord:
         or "Crédito fiscal generado por Nota de Crédito"
     )
 
-    return send_ccf_dte_for_invoice(
+    now_local = timezone.localtime()
+
+    record = send_ccf_dte_for_invoice(
         invoice,
-        record_type="03",
+        record_type="NC",
         print_label="DTE CREDITO FISCAL (NOTA DE CRÉDITO)",
         observations_override=observation,
+        issue_date_override=now_local.date(),
     )
+
+    status_upper = (record.status or "").upper()
+    hacienda_upper = (record.hacienda_state or "").upper()
+
+    accepted = status_upper in {"ACEPTADO", "APROBADO"} or hacienda_upper in {
+        "PROCESADO",
+        "RECIBIDO",
+    }
+
+    invoice.has_credit_note = accepted
+    invoice.credit_note_status = record.status or record.hacienda_state or None
+    invoice.save(update_fields=["has_credit_note", "credit_note_status"])
+
+    return record
 
 
 def send_se_dte_for_invoice(invoice) -> DTERecord:
