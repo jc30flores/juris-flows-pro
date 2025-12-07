@@ -18,6 +18,8 @@ DTE_API_BASE_URL = getattr(
     settings, "DTE_API_BASE_URL", "https://t12101304761012.cheros.dev/api/v1"
 )
 DTE_API_TOKEN = getattr(settings, "DTE_API_TOKEN", "api_k_12101304761012")
+DTE_AMBIENTE = getattr(settings, "DTE_AMBIENTE", "00")
+DTE_CLIENT_DOC_TYPE = getattr(settings, "DTE_CLIENT_DOC_TYPE", "13")
 
 
 IVA_RATE = Decimal("0.13")
@@ -335,6 +337,14 @@ EMITTER_INFO = {
     "tipoEstablecimiento": "02",
 }
 
+DTE_RESP_DOC_TYPE = getattr(settings, "DTE_RESP_DOC_TYPE", "36")
+DTE_RESP_DOC_NUMBER = getattr(
+    settings, "DTE_RESP_DOC_NUMBER", EMITTER_INFO.get("nit", "")
+)
+DTE_INVALIDATION_REASON = getattr(
+    settings, "DTE_INVALIDATION_REASON", "Rescindir de la operación realizada"
+)
+
 
 def _to_decimal(value: Decimal | float | int | str) -> Decimal:
     return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -344,36 +354,60 @@ def _format_currency(value: Decimal) -> float:
     return float(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
-def _build_receptor(invoice):
+def _resolve_receiver_identity(invoice, record: DTERecord | None = None):
     client = getattr(invoice, "client", None)
-    emitter_address = EMITTER_INFO["direccion"]
-    if not client:
-        return {
-            "correo": None,
-            "nombre": "VENTA AL PUBLICO",
-            "tipoDocumento": "13",
-            "direccion": emitter_address,
-            "numDocumento": "00000000-0",
-            "nrc": None,
-            "telefono": "00000000",
-            "codActividad": None,
-            "descActividad": None,
-        }, "00000000-0", "VENTA AL PUBLICO"
 
-    receiver_name = client.company_name or client.full_name or "VENTA AL PUBLICO"
-    receiver_document = client.nit or client.dui or "00000000-0"
-    receiver_phone = client.phone or "00000000"
-    receiver_email = client.email or None
+    receiver_name = (
+        (record.receiver_name if record else None)
+        or (client.company_name if client else "")
+        or (client.full_name if client else "")
+        or "VENTA AL PUBLICO"
+    )
+
+    receiver_document = (
+        (record.receiver_nit if record else None)
+        or (client.nit if client else None)
+        or (client.dui if client else None)
+        or "00000000-0"
+    )
+
+    receiver_doc_type = DTE_CLIENT_DOC_TYPE
+    if client:
+        if client.nit:
+            receiver_doc_type = "36"
+        elif client.dui:
+            receiver_doc_type = "13"
+
+    receiver_phone = getattr(client, "phone", None) or "00000000"
+    receiver_email = getattr(client, "email", None) or EMITTER_INFO.get("correo")
+
+    return receiver_name, receiver_document, receiver_doc_type, receiver_phone, receiver_email
+
+
+def _build_receptor(invoice):
+    emitter_address = EMITTER_INFO["direccion"]
+    (
+        receiver_name,
+        receiver_document,
+        receiver_doc_type,
+        receiver_phone,
+        receiver_email,
+    ) = _resolve_receiver_identity(invoice)
+
+    client = getattr(invoice, "client", None)
+
     receiver_address = {
-        "municipio": client.municipality_code or emitter_address.get("municipio", "22"),
+        "municipio": (client.municipality_code if client else None)
+        or emitter_address.get("municipio", "22"),
         "complemento": emitter_address.get("complemento", ""),
-        "departamento": client.department_code or emitter_address.get("departamento", "12"),
+        "departamento": (client.department_code if client else None)
+        or emitter_address.get("departamento", "12"),
     }
 
     receptor_payload = {
         "correo": receiver_email,
         "nombre": receiver_name,
-        "tipoDocumento": "13",
+        "tipoDocumento": receiver_doc_type,
         "direccion": receiver_address,
         "numDocumento": receiver_document,
         "nrc": None,
@@ -1108,16 +1142,13 @@ def _build_invalidation_payload(
     sello_recibido = _extract_sello_recibido(record)
     tipo_dte = _map_record_to_tipo_dte(record)
 
-    client = getattr(invoice, "client", None)
-    receiver_name = (
-        record.receiver_name
-        or (client.company_name if client else "")
-        or (client.full_name if client else "")
-        or "CONSUMIDOR FINAL"
-    )
-    receiver_document = (getattr(client, "nit", None) or getattr(client, "dui", None) or "00000000-0")
-    receiver_phone = getattr(client, "phone", None) or "00000000"
-    receiver_email = getattr(client, "email", None) or EMITTER_INFO.get("correo")
+    (
+        receiver_name,
+        receiver_document,
+        receiver_doc_type,
+        receiver_phone,
+        receiver_email,
+    ) = _resolve_receiver_identity(invoice, record)
 
     issue_date = record.issue_date or getattr(invoice, "date", None) or timezone.localdate()
     if hasattr(issue_date, "isoformat"):
@@ -1133,48 +1164,48 @@ def _build_invalidation_payload(
 
     payload = {
         "invalidacion": {
-            "documento": {
-                "codigoGeneracion": generation_code,
-                "tipoDocumento": "13",
-                "nombre": receiver_name,
-                "tipoDte": tipo_dte,
-                "fecEmi": issue_date_str,
-                "selloRecibido": sello_recibido,
-                "numeroControl": control_number,
-                "correo": receiver_email,
-                "numDocumento": receiver_document,
-                "telefono": receiver_phone,
-                "codigoGeneracionR": None,
-                "montoIva": iva_amount,
+            "identificacion": {
+                "version": 2,
+                "ambiente": DTE_AMBIENTE,
+                "codigoGeneracion": identificacion_codigo,
+                "fecAnula": now_local.date().isoformat(),
+                "horAnula": now_local.strftime("%H:%M:%S"),
             },
             "emisor": {
-                "tipoEstablecimiento": EMITTER_INFO.get("tipoEstablecimiento", "02"),
-                "codPuntoVenta": EMITTER_INFO.get("codPuntoVenta"),
+                "nit": EMITTER_INFO.get("nit"),
                 "nombre": EMITTER_INFO.get("nombre"),
+                "tipoEstablecimiento": EMITTER_INFO.get("tipoEstablecimiento", "02"),
                 "nomEstablecimiento": EMITTER_INFO.get("nombreComercial"),
                 "codEstableMH": EMITTER_INFO.get("codEstableMH"),
-                "codPuntoVentaMH": EMITTER_INFO.get("codPuntoVentaMH"),
                 "codEstable": EMITTER_INFO.get("codEstable"),
-                "nit": EMITTER_INFO.get("nit"),
+                "codPuntoVentaMH": EMITTER_INFO.get("codPuntoVentaMH"),
+                "codPuntoVenta": EMITTER_INFO.get("codPuntoVenta"),
                 "telefono": EMITTER_INFO.get("telefono"),
                 "correo": EMITTER_INFO.get("correo"),
             },
-            "identificacion": {
-                "codigoGeneracion": identificacion_codigo,
-                "horAnula": now_local.strftime("%H:%M:%S"),
-                "ambiente": "00",
-                "version": 2,
-                "fecAnula": now_local.date().isoformat(),
+            "documento": {
+                "tipoDte": tipo_dte,
+                "codigoGeneracion": generation_code,
+                "selloRecibido": sello_recibido,
+                "numeroControl": control_number,
+                "fecEmi": issue_date_str,
+                "montoIva": iva_amount,
+                "codigoGeneracionR": None,
+                "tipoDocumento": receiver_doc_type,
+                "numDocumento": receiver_document,
+                "nombre": receiver_name,
+                "telefono": receiver_phone,
+                "correo": receiver_email,
             },
             "motivo": {
-                "nombreSolicita": EMITTER_INFO.get("nombre"),
                 "tipoAnulacion": 2,
-                "numDocResponsable": EMITTER_INFO.get("nit"),
-                "tipDocSolicita": "13",
-                "motivoAnulacion": None,
+                "motivoAnulacion": DTE_INVALIDATION_REASON,
                 "nombreResponsable": EMITTER_INFO.get("nombre"),
-                "tipDocResponsable": "13",
-                "numDocSolicita": EMITTER_INFO.get("nit"),
+                "tipDocResponsable": DTE_RESP_DOC_TYPE,
+                "numDocResponsable": DTE_RESP_DOC_NUMBER,
+                "nombreSolicita": EMITTER_INFO.get("nombre"),
+                "tipDocSolicita": DTE_RESP_DOC_TYPE,
+                "numDocSolicita": DTE_RESP_DOC_NUMBER,
             },
         }
     }
