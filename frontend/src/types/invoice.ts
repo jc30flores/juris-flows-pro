@@ -23,6 +23,7 @@ export interface Invoice {
   id: number;
   number: string;
   date: string;
+  date_display?: string;
   client: number;
   doc_type: InvoiceDocType;
   payment_method: PaymentMethod;

@@ -258,6 +258,34 @@ def _build_receptor(invoice):
     return receptor_payload, receiver_document, receiver_name
 
 
+def _resolve_receiver_doc_for_extension(client, context_label: str) -> str:
+    default_doc = "00000000-0"
+
+    if client is None:
+        logger.warning(
+            "No receiver client for %s. Using fallback docuRecibe=%s.",
+            context_label,
+            default_doc,
+        )
+        return default_doc
+
+    receiver_nit = (getattr(client, "nit", "") or "").strip()
+    if receiver_nit:
+        return receiver_nit
+
+    receiver_dui = (getattr(client, "dui", "") or "").strip()
+    if receiver_dui:
+        return receiver_dui
+
+    logger.warning(
+        "No valid receiver document for %s (client_id=%s). Using fallback docuRecibe=%s.",
+        context_label,
+        client.id,
+        default_doc,
+    )
+    return default_doc
+
+
 def send_cf_dte_for_invoice(invoice) -> DTERecord:
     """
     Construye el JSON DTE para tipo CF a partir de la factura y sus items,
@@ -273,6 +301,10 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
     hor_emi = now_local.strftime("%H:%M:%S")
 
     receptor, receiver_nit, receiver_name = _build_receptor(invoice)
+    receiver_doc_for_extension = _resolve_receiver_doc_for_extension(
+        getattr(invoice, "client", None),
+        f"CF invoice {invoice.id}",
+    )
     items: list[InvoiceItem] = list(invoice.items.select_related("service"))
 
     cuerpo_documento = []
@@ -381,7 +413,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
             "extension": {
                 "observaciones": observaciones,
                 "placaVehiculo": None,
-                "docuRecibe": None,
+                "docuRecibe": receiver_doc_for_extension,
                 "nombEntrega": None,
                 "nombRecibe": None,
                 "docuEntrega": None,
@@ -540,6 +572,11 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
     elif client_cod_act:
         receptor["descActividad"] = "Actividad no especificada"
 
+    receiver_doc_for_extension = _resolve_receiver_doc_for_extension(
+        client,
+        f"CCF invoice {invoice.id}",
+    )
+
     items: list[InvoiceItem] = list(invoice.items.select_related("service"))
     cuerpo_documento = []
     total_gross = Decimal("0.00")
@@ -653,7 +690,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
             "extension": {
                 "observaciones": observaciones,
                 "placaVehiculo": None,
-                "docuRecibe": None,
+                "docuRecibe": receiver_doc_for_extension,
                 "nombEntrega": None,
                 "nombRecibe": None,
                 "docuEntrega": None,
