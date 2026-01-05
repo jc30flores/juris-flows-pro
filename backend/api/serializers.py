@@ -91,6 +91,7 @@ class InvoiceServiceInputSerializer(serializers.Serializer):
 class InvoiceSerializer(serializers.ModelSerializer):
     items = InvoiceItemSerializer(many=True, required=False)
     services = InvoiceServiceInputSerializer(many=True, write_only=True, required=False)
+    date_display = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
@@ -106,6 +107,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
         if not validated_data.get("dte_status"):
             validated_data["dte_status"] = Invoice.PENDING
+
+        validated_data.setdefault("has_credit_note", False)
 
         if not validated_data.get("number"):
             validated_data["number"] = self._generate_number()
@@ -131,6 +134,12 @@ class InvoiceSerializer(serializers.ModelSerializer):
                 "Error sending DTE for invoice %s", invoice.id, exc_info=exc
             )
         return invoice
+
+    def get_date_display(self, obj):
+        invoice_date = getattr(obj, "date", None)
+        if not invoice_date:
+            return None
+        return invoice_date.strftime("%d/%m/%Y")
 
     def update(self, instance, validated_data):
         items_data = validated_data.pop("items", None)

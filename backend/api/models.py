@@ -89,6 +89,7 @@ class Invoice(models.Model):
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
     dte_status = models.CharField(max_length=20, choices=DTE_STATUS_CHOICES)
     observations = models.TextField(blank=True, default="")
+    has_credit_note = models.BooleanField(default=False)
     total = models.DecimalField(max_digits=12, decimal_places=2)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

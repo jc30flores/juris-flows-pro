@@ -358,7 +358,9 @@ export default function POS() {
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <p className="font-semibold text-lg">{venta.number}</p>
-                  <p className="text-sm text-muted-foreground">{venta.date}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {venta.date_display || venta.date}
+                  </p>
                 </div>
                 <span
                   className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${getDteBadgeStyle(
@@ -449,7 +451,9 @@ export default function POS() {
                     className="border-b border-border hover:bg-muted/30 transition-colors"
                   >
                     <td className="px-4 py-3 font-medium">{venta.number}</td>
-                    <td className="px-4 py-3 text-sm">{venta.date}</td>
+                    <td className="px-4 py-3 text-sm">
+                      {venta.date_display || venta.date}
+                    </td>
                     <td className="px-4 py-3 text-sm">
                       {clientLookup[venta.client] || "Sin cliente"}
                     </td>
