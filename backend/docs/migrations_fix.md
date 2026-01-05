@@ -1,15 +1,15 @@
 # Migraciones de API: corrección de grafo
 
 ## Qué faltaba
-En el historial de migraciones del app `api` faltaba una migración intermedia que introdujera
-campos nuevos y el modelo `DTERecord`. Esto provocaba errores al construir el grafo de
-migraciones cuando el entorno tenía referencias a migraciones posteriores.
+El grafo de migraciones del app `api` referenciaba migraciones base ausentes
+(`0004_invoice_dte_fields` y `0005_invoice_credit_note_fields`). Esto causaba
+`NodeNotFoundError` al construir el grafo.
 
 ## Qué se cambió
-- Se añadió `api/migrations/0004_invoice_dte_fields.py` para:
-  - incorporar campos faltantes en `Client` e `Invoice`.
-  - crear el modelo `DTERecord` con sus índices.
-  - alinear el modelo `StaffUser` con sus campos actuales, migrando `email` a `username`.
+- Se añadieron migraciones *stub*:
+  - `api/migrations/0004_invoice_dte_fields.py`
+  - `api/migrations/0005_invoice_credit_note_fields.py`
+- Ambas están vacías (`operations = []`) y solo restauran el grafo.
 
 ## Cómo migrar
 1. Revisar el plan:
@@ -21,3 +21,8 @@ migraciones cuando el entorno tenía referencias a migraciones posteriores.
 ## Verificación
 - Iniciar el servidor: `python manage.py runserver 127.0.0.1:8007`
 - Confirmar que no aparece `NodeNotFoundError` al iniciar.
+
+## Nota
+Si faltan campos reales en la base de datos, crear una migración nueva
+(por ejemplo `0010_add_missing_invoice_fields.py`) con `AddField`, pero
+no incluir cambios destructivos en los stubs.
