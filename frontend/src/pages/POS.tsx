@@ -21,7 +21,7 @@ import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
 import { ServiceSelectorModal } from "@/components/modals/ServiceSelectorModal";
 import { API_BASE_URL, api } from "@/lib/api";
 import { Client } from "@/types/client";
-import { Invoice, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
+import { Invoice, InvoiceItem, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
 import { Service } from "@/types/service";
 import { toast } from "@/hooks/use-toast";
 
@@ -54,6 +54,24 @@ const isInvoiceInCurrentMonth = (dateValue: string | Date): boolean => {
   if (Number.isNaN(d.getTime())) return false;
 
   return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+};
+
+const resolveClientId = (client: Invoice["client"]): number | undefined => {
+  if (typeof client === "object" && client !== null) {
+    return client.id;
+  }
+  return client;
+};
+
+const resolveServiceFromItem = (
+  item: InvoiceItem,
+  services: Service[],
+): { serviceId?: number; serviceDetails?: Service } => {
+  if (typeof item.service === "object" && item.service !== null) {
+    return { serviceId: item.service.id, serviceDetails: item.service };
+  }
+  const serviceDetails = services.find((service) => service.id === item.service);
+  return { serviceId: item.service, serviceDetails };
 };
 
 export default function POS() {
@@ -190,7 +208,8 @@ export default function POS() {
     startOfWeek.setDate(now.getDate() - now.getDay());
 
     return invoices.filter((invoice) => {
-      const matchesSearch = `${invoice.number} ${clientLookup[invoice.client] || ""}`
+      const clientId = resolveClientId(invoice.client);
+      const matchesSearch = `${invoice.number} ${clientLookup[clientId ?? -1] || ""}`
         .toLowerCase()
         .includes(search.toLowerCase());
 
@@ -234,12 +253,12 @@ export default function POS() {
     setSelectedInvoice(invoice);
     const items = invoice.items || [];
     const mappedServices = items.map((item) => {
-      const service = services.find((s) => s.id === item.service);
-      const price = Number(item.unit_price || service?.base_price || 0);
+      const { serviceId, serviceDetails } = resolveServiceFromItem(item, services);
+      const price = Number(item.unit_price || serviceDetails?.base_price || 0);
       const quantity = item.quantity || 1;
       return {
-        service_id: item.service,
-        name: service?.name || `Servicio ${item.service}`,
+        service_id: serviceId ?? 0,
+        name: serviceDetails?.name || `Servicio ${serviceId ?? ""}`,
         price,
         quantity,
         subtotal: Number((price * quantity).toFixed(2)),
@@ -374,7 +393,7 @@ export default function POS() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Cliente:</span>
                   <span className="font-medium">
-                    {clientLookup[venta.client] || "Sin cliente"}
+                    {clientLookup[resolveClientId(venta.client) ?? -1] || "Sin cliente"}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -455,7 +474,7 @@ export default function POS() {
                       {venta.date_display || venta.date}
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      {clientLookup[venta.client] || "Sin cliente"}
+                      {clientLookup[resolveClientId(venta.client) ?? -1] || "Sin cliente"}
                     </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-primary/10 text-primary font-medium">

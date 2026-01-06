@@ -29,6 +29,7 @@ import {
   SelectedServicePayload,
 } from "@/types/invoice";
 import { Textarea } from "@/components/ui/textarea";
+import { renderCellValue } from "@/lib/render";
 
 const IVA_RATE = 0.13;
 
@@ -84,6 +85,13 @@ export function NuevaFacturaModal({
   onCancel,
 }: NuevaFacturaModalProps) {
   const [submitting, setSubmitting] = useState(false);
+
+  const resolveClientId = (client: Invoice["client"]): string => {
+    if (typeof client === "object" && client !== null) {
+      return client.id.toString();
+    }
+    return client.toString();
+  };
 
   const form = useForm<z.infer<typeof facturaSchema>>({
     resolver: zodResolver(facturaSchema),
@@ -182,7 +190,7 @@ export function NuevaFacturaModal({
     if (mode === "edit" && invoice) {
       form.reset({
         date: invoice.date,
-        clienteId: invoice.client.toString(),
+        clienteId: resolveClientId(invoice.client),
         tipoDTE: invoice.doc_type,
         metodoPago: invoice.payment_method as PaymentMethod,
         observations: invoice.observations || "",
@@ -326,7 +334,9 @@ export function NuevaFacturaModal({
                           <tr key={servicio.service_id} className="border-t border-border">
                             <td className="px-4 py-3">
                               <p className="font-medium leading-tight">{servicio.name}</p>
-                              <p className="text-xs text-muted-foreground">ID: {servicio.service_id}</p>
+                              <p className="text-xs text-muted-foreground">
+                                ID: {renderCellValue(servicio.service_id)}
+                              </p>
                             </td>
                             <td className="px-4 py-3 text-center">{servicio.quantity}</td>
                             <td className="px-4 py-3 text-right font-semibold">
@@ -345,7 +355,9 @@ export function NuevaFacturaModal({
                       className="rounded-lg border border-border p-3 space-y-1"
                     >
                       <p className="text-sm font-medium leading-tight">{servicio.name}</p>
-                      <p className="text-xs text-muted-foreground">ID: {servicio.service_id}</p>
+                      <p className="text-xs text-muted-foreground">
+                        ID: {renderCellValue(servicio.service_id)}
+                      </p>
                         <div className="flex items-center justify-between text-sm">
                           <span>Cantidad:</span>
                           <span className="font-medium">{servicio.quantity}</span>

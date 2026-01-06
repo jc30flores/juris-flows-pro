@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Service } from "@/types/service";
 import { SelectedServicePayload } from "@/types/invoice";
+import { renderCellValue } from "@/lib/render";
 
 interface ServiceSelectorModalProps {
   open: boolean;
@@ -179,7 +180,9 @@ export function ServiceSelectorModal({
                         <tr key={item.service_id} className="border-t border-border">
                           <td className="px-4 py-3">
                             <p className="font-medium leading-tight">{item.name}</p>
-                            <p className="text-xs text-muted-foreground">ID: {item.service_id}</p>
+                            <p className="text-xs text-muted-foreground">
+                              ID: {renderCellValue(item.service_id)}
+                            </p>
                           </td>
                           <td className="px-4 py-3 text-center">{item.quantity}</td>
                           <td className="px-4 py-3 text-right font-semibold">
@@ -198,7 +201,9 @@ export function ServiceSelectorModal({
                       className="rounded-lg border border-border p-3 space-y-1"
                     >
                       <p className="text-sm font-medium leading-tight">{item.name}</p>
-                      <p className="text-xs text-muted-foreground">ID: {item.service_id}</p>
+                      <p className="text-xs text-muted-foreground">
+                        ID: {renderCellValue(item.service_id)}
+                      </p>
                       <div className="flex items-center justify-between text-sm">
                         <span>Cantidad:</span>
                         <span className="font-medium">{item.quantity}</span>
