@@ -1,4 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  endOfDay,
+  endOfMonth,
+  endOfWeek,
+  format,
+  isWithinInterval,
+  startOfDay,
+  startOfMonth,
+  startOfWeek,
+} from "date-fns";
 import { Plus, Download, Filter, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +30,7 @@ import { Label } from "@/components/ui/label";
 import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
 import { ServiceSelectorModal } from "@/components/modals/ServiceSelectorModal";
 import { API_BASE_URL, api } from "@/lib/api";
+import { parseInvoiceDate } from "@/lib/dates";
 import { Client } from "@/types/client";
 import { Invoice, InvoiceItem, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
 import { Service } from "@/types/service";
@@ -42,18 +53,6 @@ const getDteDisplayStatus = (status: string | undefined) => {
   if (normalized === "RECHAZADO") return "RECHAZADO";
   if (normalized === "PENDIENTE") return "Pendiente";
   return status || "";
-};
-
-const isInvoiceInCurrentMonth = (dateValue: string | Date): boolean => {
-  if (!dateValue) return false;
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth();
-
-  const d = typeof dateValue === "string" ? new Date(dateValue) : dateValue;
-  if (Number.isNaN(d.getTime())) return false;
-
-  return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
 };
 
 const resolveClientId = (client: Invoice["client"]): number | undefined => {
@@ -201,11 +200,34 @@ export default function POS() {
     }, {});
   }, [clients]);
 
+  const resolveInvoiceDate = (invoice: Invoice): Date | null => {
+    return (
+      parseInvoiceDate(invoice.issue_date) ??
+      parseInvoiceDate(invoice.created_at) ??
+      parseInvoiceDate(invoice.date) ??
+      parseInvoiceDate(invoice.date_display)
+    );
+  };
+
+  const getInvoiceDateLabel = (invoice: Invoice): string => {
+    const parsed = resolveInvoiceDate(invoice);
+    return parsed ? format(parsed, "dd/MM/yyyy") : invoice.date_display || invoice.date;
+  };
+
   const filteredInvoices = useMemo(() => {
-    const today = new Date().toISOString().split("T")[0];
     const now = new Date();
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - now.getDay());
+    const todayRange = {
+      start: startOfDay(now),
+      end: endOfDay(now),
+    };
+    const weekRange = {
+      start: startOfWeek(now, { weekStartsOn: 1 }),
+      end: endOfWeek(now, { weekStartsOn: 1 }),
+    };
+    const monthRange = {
+      start: startOfMonth(now),
+      end: endOfMonth(now),
+    };
 
     return invoices.filter((invoice) => {
       const clientId = resolveClientId(invoice.client);
@@ -215,18 +237,19 @@ export default function POS() {
 
       if (!matchesSearch) return false;
 
-      const invoiceDate = new Date(invoice.date);
+      const invoiceDate = resolveInvoiceDate(invoice);
+      if (!invoiceDate) return false;
 
       if (filter === "today") {
-        return invoice.date === today;
+        return isWithinInterval(invoiceDate, todayRange);
       }
 
       if (filter === "week" || filter === "this-week") {
-        return invoiceDate >= startOfWeek;
+        return isWithinInterval(invoiceDate, weekRange);
       }
 
       if (filter === "month" || filter === "this-month") {
-        return isInvoiceInCurrentMonth(invoice.date);
+        return isWithinInterval(invoiceDate, monthRange);
       }
 
       return true;
@@ -378,7 +401,7 @@ export default function POS() {
                 <div>
                   <p className="font-semibold text-lg">{venta.number}</p>
                   <p className="text-sm text-muted-foreground">
-                    {venta.date_display || venta.date}
+                    {getInvoiceDateLabel(venta)}
                   </p>
                 </div>
                 <span
@@ -471,7 +494,7 @@ export default function POS() {
                   >
                     <td className="px-4 py-3 font-medium">{venta.number}</td>
                     <td className="px-4 py-3 text-sm">
-                      {venta.date_display || venta.date}
+                      {getInvoiceDateLabel(venta)}
                     </td>
                     <td className="px-4 py-3 text-sm">
                       {clientLookup[resolveClientId(venta.client) ?? -1] || "Sin cliente"}

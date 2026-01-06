@@ -92,6 +92,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     items = InvoiceItemSerializer(many=True, required=False)
     services = InvoiceServiceInputSerializer(many=True, write_only=True, required=False)
     date_display = serializers.SerializerMethodField()
+    issue_date = serializers.DateField(source="date", read_only=True, format="%Y-%m-%d")
 
     class Meta:
         model = Invoice

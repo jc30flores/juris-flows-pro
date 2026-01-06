@@ -27,6 +27,7 @@ export interface Invoice {
   number: string;
   date: string;
   date_display?: string;
+  issue_date?: string;
   client: number | Client;
   doc_type: InvoiceDocType;
   payment_method: PaymentMethod;
