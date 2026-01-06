@@ -8,6 +8,7 @@ import { NuevoServicioModal } from "@/components/modals/NuevoServicioModal";
 import { EditarServicioModal } from "@/components/modals/EditarServicioModal";
 import { NuevaCategoriaModal } from "@/components/modals/NuevaCategoriaModal";
 import { api } from "@/lib/api";
+import { renderCellValue } from "@/lib/render";
 import {
   Service,
   ServiceCategory,
@@ -70,6 +71,13 @@ export default function Servicios() {
       return acc;
     }, {});
   }, [categories]);
+
+  const resolveCategoryName = (category: Service["category"]) => {
+    if (typeof category === "object" && category !== null) {
+      return renderCellValue(category);
+    }
+    return categoryLookup[category] || "Sin categoría";
+  };
 
   return (
     <div className="space-y-4 md:space-y-6 overflow-x-hidden">
@@ -146,7 +154,7 @@ export default function Servicios() {
                     <td className="px-4 py-3 font-mono text-sm">{servicio.code}</td>
                     <td className="px-4 py-3 font-medium">{servicio.name}</td>
                     <td className="px-4 py-3 text-sm text-muted-foreground">
-                      {categoryLookup[servicio.category] || "Sin categoría"}
+                      {resolveCategoryName(servicio.category)}
                     </td>
                     <td className="px-4 py-3 text-right font-semibold text-accent">
                       ${Number(servicio.base_price).toFixed(2)}

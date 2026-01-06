@@ -14,7 +14,7 @@ DEFAULT_INTERNET_URL = getattr(
     settings, "INTERNET_HEALTH_URL", "https://www.google.com/generate_204"
 )
 DEFAULT_API_URL = getattr(
-    settings, "API_HEALTH_URL", "https://t12101304761012.cheros.dev/health"
+    settings, "API_HEALTH_URL", "http://localhost:8000/api/health/"
 )
 DEFAULT_INTERVAL = getattr(settings, "CONNECTIVITY_CHECK_INTERVAL", 15)
 DEFAULT_TIMEOUT = getattr(settings, "CONNECTIVITY_CHECK_TIMEOUT", 5)
@@ -82,12 +82,6 @@ class ConnectivitySentinel:
     def run_once(self) -> None:
         internet_ok, internet_reason = self._check_target("internet", self.internet_url)
         self._mark_status("internet", internet_ok, internet_reason if not internet_ok else "none")
-
-        if not internet_ok:
-            # Without internet, API state is unknown/dependent
-            self._mark_status("api", False, "internet_down")
-            return
-
         api_ok, api_reason = self._check_target("api", self.api_url)
         self._mark_status("api", api_ok, api_reason if not api_ok else "none")
 

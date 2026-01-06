@@ -9,7 +9,7 @@ export interface Service {
   id: number;
   code: string;
   name: string;
-  category: number;
+  category: number | ServiceCategory;
   base_price: number | string;
   active: boolean;
 }

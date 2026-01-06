@@ -92,6 +92,9 @@ class InvoiceSerializer(serializers.ModelSerializer):
     items = InvoiceItemSerializer(many=True, required=False)
     services = InvoiceServiceInputSerializer(many=True, write_only=True, required=False)
     date_display = serializers.SerializerMethodField()
+    issue_date = serializers.DateField(source="date", read_only=True, format="%Y-%m-%d")
+    numero_control = serializers.SerializerMethodField()
+    codigo_generacion = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
@@ -140,6 +143,50 @@ class InvoiceSerializer(serializers.ModelSerializer):
         if not invoice_date:
             return None
         return invoice_date.strftime("%d/%m/%Y")
+
+    def _extract_ident(self, payload):
+        if not isinstance(payload, dict):
+            return {}
+        if "identificacion" in payload:
+            return payload.get("identificacion") or {}
+        dte_payload = payload.get("dte")
+        if isinstance(dte_payload, dict) and "identificacion" in dte_payload:
+            return dte_payload.get("identificacion") or {}
+        documento = payload.get("documento")
+        if isinstance(documento, dict) and "identificacion" in documento:
+            return documento.get("identificacion") or {}
+        return {}
+
+    def _get_latest_ident(self, obj):
+        record = obj.dte_records.order_by("-created_at").first()
+        if not record:
+            return {}
+        payload = record.response_payload or record.request_payload or {}
+        ident = self._extract_ident(payload)
+        if not ident:
+            return {}
+        return ident
+
+    def _get_latest_record(self, obj):
+        return obj.dte_records.order_by("-created_at").first()
+
+    def get_numero_control(self, obj):
+        record = self._get_latest_record(obj)
+        if record:
+            if record.control_number:
+                return record.control_number
+            ident = self._extract_ident(record.request_payload or {})
+            return ident.get("numeroControl") or ident.get("numero_control")
+        return None
+
+    def get_codigo_generacion(self, obj):
+        record = self._get_latest_record(obj)
+        if record:
+            if record.hacienda_uuid:
+                return record.hacienda_uuid
+            ident = self._extract_ident(record.request_payload or {})
+            return ident.get("codigoGeneracion") or ident.get("codigo_generacion")
+        return None
 
     def update(self, instance, validated_data):
         items_data = validated_data.pop("items", None)

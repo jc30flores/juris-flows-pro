@@ -75,6 +75,13 @@ export function EditarServicioModal({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  const resolveCategoryId = (category: Service["category"]): string => {
+    if (typeof category === "object" && category !== null) {
+      return category.id.toString();
+    }
+    return category?.toString() ?? "";
+  };
+
   const form = useForm<z.infer<typeof servicioSchema>>({
     resolver: zodResolver(servicioSchema),
   });
@@ -84,7 +91,7 @@ export function EditarServicioModal({
       form.reset({
         code: servicio.code,
         name: servicio.name,
-        category: servicio.category?.toString() ?? "",
+        category: resolveCategoryId(servicio.category),
         base_price: servicio.base_price.toString(),
         activo: servicio.active,
       });

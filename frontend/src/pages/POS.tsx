@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Download, Filter, Pencil, Trash2 } from "lucide-react";
+import {
+  endOfDay,
+  endOfMonth,
+  endOfWeek,
+  isWithinInterval,
+  startOfDay,
+  startOfMonth,
+  startOfWeek,
+} from "date-fns";
+import { Ban, Copy, Download, FilePlus2, Filter, Mail, MessageCircle, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -17,11 +26,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
 import { ServiceSelectorModal } from "@/components/modals/ServiceSelectorModal";
 import { API_BASE_URL, api } from "@/lib/api";
+import {
+  formatDateInElSalvador,
+  parseInvoiceDate,
+  toElSalvadorMidnightUtc,
+} from "@/lib/dates";
 import { Client } from "@/types/client";
-import { Invoice, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
+import { Invoice, InvoiceItem, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
 import { Service } from "@/types/service";
 import { toast } from "@/hooks/use-toast";
 
@@ -44,16 +59,79 @@ const getDteDisplayStatus = (status: string | undefined) => {
   return status || "";
 };
 
-const isInvoiceInCurrentMonth = (dateValue: string | Date): boolean => {
-  if (!dateValue) return false;
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth();
+const getInvoiceTipo = (invoice: Invoice): string => {
+  const tipo =
+    invoice.tipo ??
+    invoice.type ??
+    invoice.dte_tipo ??
+    invoice.dte?.tipoDte ??
+    invoice.dte?.tipo ??
+    invoice.doc_type;
+  return String(tipo ?? "").toUpperCase();
+};
 
-  const d = typeof dateValue === "string" ? new Date(dateValue) : dateValue;
-  if (Number.isNaN(d.getTime())) return false;
+const getNumeroControlUpper = (invoice: Invoice): string => {
+  const value = invoice.numero_control || invoice.numeroControl;
+  return value ? String(value).toUpperCase() : "—";
+};
 
-  return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+const getCodigoGeneracionRaw = (invoice: Invoice): string | null => {
+  const value = invoice.codigo_generacion || invoice.codigoGeneracion;
+  return value ? String(value) : null;
+};
+
+const getCodigoGeneracionUpper = (invoice: Invoice): string => {
+  const value = getCodigoGeneracionRaw(invoice);
+  return value ? value.toUpperCase() : "—";
+};
+
+const isCFInvoice = (invoice: Invoice): boolean => {
+  const tipo = getInvoiceTipo(invoice);
+  return tipo === "CF" || tipo === "01";
+};
+
+const isCCFInvoice = (invoice: Invoice): boolean => {
+  const tipo = getInvoiceTipo(invoice);
+  return tipo === "CCF" || tipo === "03";
+};
+
+const copyText = async (text: string, onSuccess: () => void, onError: () => void) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    onSuccess();
+  } catch (error) {
+    console.error("Error al copiar al portapapeles", error);
+    try {
+      const el = document.createElement("textarea");
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+      onSuccess();
+    } catch (fallbackError) {
+      console.error("Error al copiar en fallback", fallbackError);
+      onError();
+    }
+  }
+};
+
+const resolveClientId = (client: Invoice["client"]): number | undefined => {
+  if (typeof client === "object" && client !== null) {
+    return client.id;
+  }
+  return client;
+};
+
+const resolveServiceFromItem = (
+  item: InvoiceItem,
+  services: Service[],
+): { serviceId?: number; serviceDetails?: Service } => {
+  if (typeof item.service === "object" && item.service !== null) {
+    return { serviceId: item.service.id, serviceDetails: item.service };
+  }
+  const serviceDetails = services.find((service) => service.id === item.service);
+  return { serviceId: item.service, serviceDetails };
 };
 
 export default function POS() {
@@ -183,31 +261,60 @@ export default function POS() {
     }, {});
   }, [clients]);
 
+  const resolveInvoiceDate = (invoice: Invoice): Date | null => {
+    return (
+      parseInvoiceDate(invoice.issue_date) ??
+      parseInvoiceDate(invoice.created_at) ??
+      parseInvoiceDate(invoice.date) ??
+      parseInvoiceDate(invoice.date_display)
+    );
+  };
+
+  const getInvoiceDateLabel = (invoice: Invoice): string => {
+    const parsed = resolveInvoiceDate(invoice);
+    return parsed
+      ? formatDateInElSalvador(parsed)
+      : invoice.date_display || invoice.date;
+  };
+
   const filteredInvoices = useMemo(() => {
-    const today = new Date().toISOString().split("T")[0];
     const now = new Date();
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - now.getDay());
+    const nowEs = toElSalvadorMidnightUtc(now);
+    const todayRange = {
+      start: startOfDay(nowEs),
+      end: endOfDay(nowEs),
+    };
+    const weekRange = {
+      start: startOfWeek(nowEs, { weekStartsOn: 1 }),
+      end: endOfWeek(nowEs, { weekStartsOn: 1 }),
+    };
+    const monthRange = {
+      start: startOfMonth(nowEs),
+      end: endOfMonth(nowEs),
+    };
 
     return invoices.filter((invoice) => {
-      const matchesSearch = `${invoice.number} ${clientLookup[invoice.client] || ""}`
+      const clientId = resolveClientId(invoice.client);
+      const matchesSearch = `${invoice.number} ${clientLookup[clientId ?? -1] || ""}`
         .toLowerCase()
         .includes(search.toLowerCase());
 
       if (!matchesSearch) return false;
 
-      const invoiceDate = new Date(invoice.date);
+      const invoiceDate = resolveInvoiceDate(invoice);
+      if (!invoiceDate) return false;
+      const invoiceEs = toElSalvadorMidnightUtc(invoiceDate);
 
       if (filter === "today") {
-        return invoice.date === today;
+        return isWithinInterval(invoiceEs, todayRange);
       }
 
       if (filter === "week" || filter === "this-week") {
-        return invoiceDate >= startOfWeek;
+        return isWithinInterval(invoiceEs, weekRange);
       }
 
       if (filter === "month" || filter === "this-month") {
-        return isInvoiceInCurrentMonth(invoice.date);
+        return isWithinInterval(invoiceEs, monthRange);
       }
 
       return true;
@@ -234,12 +341,12 @@ export default function POS() {
     setSelectedInvoice(invoice);
     const items = invoice.items || [];
     const mappedServices = items.map((item) => {
-      const service = services.find((s) => s.id === item.service);
-      const price = Number(item.unit_price || service?.base_price || 0);
+      const { serviceId, serviceDetails } = resolveServiceFromItem(item, services);
+      const price = Number(item.unit_price || serviceDetails?.base_price || 0);
       const quantity = item.quantity || 1;
       return {
-        service_id: item.service,
-        name: service?.name || `Servicio ${item.service}`,
+        service_id: serviceId ?? 0,
+        name: serviceDetails?.name || `Servicio ${serviceId ?? ""}`,
         price,
         quantity,
         subtotal: Number((price * quantity).toFixed(2)),
@@ -266,6 +373,147 @@ export default function POS() {
   };
 
   const handleOpenExportModal = () => setShowExportModal(true);
+
+  const handlePlaceholderAction = (title: string, description: string) => {
+    toast({ title, description });
+  };
+
+  const handleCopyCodigo = (codigo: string) => {
+    const safeToast = typeof toast === "function";
+    copyText(
+      codigo.toUpperCase(),
+      () => {
+        if (safeToast) {
+          toast({
+            title: "Copiado",
+            description: "Código de generación copiado al portapapeles.",
+          });
+        } else {
+          console.log("Código de generación copiado al portapapeles.");
+        }
+      },
+      () => {
+        if (safeToast) {
+          toast({
+            title: "Error",
+            description: "No se pudo copiar el código de generación.",
+            variant: "destructive",
+          });
+        } else {
+          console.log("No se pudo copiar el código de generación.");
+        }
+      },
+    );
+  };
+
+  const renderInvoiceActions = (invoice: Invoice) => {
+    const codigo = getCodigoGeneracionRaw(invoice);
+    const showInvalidar = isCFInvoice(invoice);
+    const showNotaCredito = isCCFInvoice(invoice);
+
+    return (
+      <div className="flex items-center justify-end gap-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Enviar por WhatsApp"
+              onClick={() =>
+                handlePlaceholderAction(
+                  "Próximamente",
+                  "Enviar DTE por WhatsApp (pendiente).",
+                )
+              }
+            >
+              <MessageCircle className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Enviar por WhatsApp</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Enviar por correo"
+              onClick={() =>
+                handlePlaceholderAction(
+                  "Próximamente",
+                  "Enviar DTE por correo (pendiente).",
+                )
+              }
+            >
+              <Mail className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Enviar por correo</TooltipContent>
+        </Tooltip>
+
+        {showInvalidar && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Invalidar (solo CF)"
+                onClick={() =>
+                  handlePlaceholderAction(
+                    "Próximamente",
+                    "Invalidar CF (pendiente).",
+                  )
+                }
+              >
+                <Ban className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Invalidar (solo CF)</TooltipContent>
+          </Tooltip>
+        )}
+
+        {showNotaCredito && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Nota de crédito (solo CCF)"
+                onClick={() =>
+                  handlePlaceholderAction(
+                    "Próximamente",
+                    "Nota de crédito CCF (pendiente).",
+                  )
+                }
+              >
+                <FilePlus2 className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Nota de crédito (solo CCF)</TooltipContent>
+          </Tooltip>
+        )}
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Copiar código de generación"
+                disabled={!codigo}
+                onClick={() => codigo && handleCopyCodigo(codigo)}
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            {codigo ? "Copiar código de generación" : "Sin código de generación"}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    );
+  };
 
   const handleDownload = () => {
     const params = new URLSearchParams({
@@ -359,7 +607,7 @@ export default function POS() {
                 <div>
                   <p className="font-semibold text-lg">{venta.number}</p>
                   <p className="text-sm text-muted-foreground">
-                    {venta.date_display || venta.date}
+                    {getInvoiceDateLabel(venta)}
                   </p>
                 </div>
                 <span
@@ -374,7 +622,7 @@ export default function POS() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Cliente:</span>
                   <span className="font-medium">
-                    {clientLookup[venta.client] || "Sin cliente"}
+                    {clientLookup[resolveClientId(venta.client) ?? -1] || "Sin cliente"}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -392,25 +640,8 @@ export default function POS() {
                   </span>
                 </div>
               </div>
-              <div className="flex gap-2 mt-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => handleOpenEdit(venta)}
-                >
-                  <Pencil className="h-3 w-3 mr-2" />
-                  Editar
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => handleDeleteInvoice(venta.id)}
-                >
-                  <Trash2 className="h-3 w-3 mr-2 text-destructive" />
-                  Eliminar
-                </Button>
+              <div className="flex justify-end mt-3">
+                {renderInvoiceActions(venta)}
               </div>
             </div>
           ))}
@@ -434,9 +665,14 @@ export default function POS() {
             <table className="w-full">
               <thead className="bg-muted/50">
                 <tr className="border-b border-border">
-                  <th className="px-4 py-3 text-left text-sm font-medium">Nº Factura</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">
+                    Número de Control
+                  </th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Fecha</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Cliente</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">
+                    Código de Generación
+                  </th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Tipo</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Método Pago</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Estado DTE</th>
@@ -450,12 +686,24 @@ export default function POS() {
                     key={venta.id}
                     className="border-b border-border hover:bg-muted/30 transition-colors"
                   >
-                    <td className="px-4 py-3 font-medium">{venta.number}</td>
-                    <td className="px-4 py-3 text-sm">
-                      {venta.date_display || venta.date}
+                    <td className="px-4 py-3 font-medium">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="block max-w-[180px] truncate whitespace-nowrap">
+                            {getNumeroControlUpper(venta)}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>{getNumeroControlUpper(venta)}</TooltipContent>
+                      </Tooltip>
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      {clientLookup[venta.client] || "Sin cliente"}
+                      {getInvoiceDateLabel(venta)}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {clientLookup[resolveClientId(venta.client) ?? -1] || "Sin cliente"}
+                    </td>
+                    <td className="px-4 py-3 text-sm font-mono">
+                      {getCodigoGeneracionUpper(venta)}
                     </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-primary/10 text-primary font-medium">
@@ -473,23 +721,8 @@ export default function POS() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-semibold">${Number(venta.total).toFixed(2)}</td>
-                    <td className="px-4 py-3 text-right flex items-center justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleOpenEdit(venta)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                        <span className="sr-only">Editar</span>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteInvoice(venta.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                        <span className="sr-only">Eliminar</span>
-                      </Button>
+                    <td className="px-4 py-3 text-right">
+                      {renderInvoiceActions(venta)}
                     </td>
                   </tr>
                 ))}
@@ -497,7 +730,7 @@ export default function POS() {
                   <tr>
                     <td
                       className="px-4 py-3 text-sm text-muted-foreground"
-                      colSpan={8}
+                      colSpan={9}
                     >
                       No hay facturas registradas.
                     </td>

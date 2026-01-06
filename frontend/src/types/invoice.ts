@@ -1,3 +1,6 @@
+import { Client } from "./client";
+import { Service } from "./service";
+
 export type InvoiceDocType = "CF" | "CCF" | "SX";
 
 export type PaymentMethod = "Efectivo" | "Tarjeta" | "Transferencia" | "Cheque";
@@ -13,7 +16,7 @@ export type DteStatus =
 export interface InvoiceItem {
   id: number;
   invoice: number;
-  service: number;
+  service: number | Service;
   quantity: number;
   unit_price: number | string;
   subtotal: number | string;
@@ -24,8 +27,27 @@ export interface Invoice {
   number: string;
   date: string;
   date_display?: string;
-  client: number;
+  issue_date?: string;
+  client: number | Client;
   doc_type: InvoiceDocType;
+  tipo?: string;
+  type?: string;
+  dte_tipo?: string;
+  dte?: {
+    tipoDte?: string;
+    tipo?: string;
+    codigoGeneracion?: string;
+    identificacion?: {
+      codigoGeneracion?: string;
+      codigo_generacion?: string;
+      numeroControl?: string;
+      numero_control?: string;
+    };
+  };
+  codigo_generacion?: string;
+  codigoGeneracion?: string;
+  numero_control?: string;
+  numeroControl?: string;
   payment_method: PaymentMethod;
   dte_status: DteStatus;
   dte_message?: string;
