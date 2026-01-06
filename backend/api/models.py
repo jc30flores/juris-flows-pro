@@ -173,8 +173,10 @@ class InvoiceItem(models.Model):
     )
     service = models.ForeignKey(Service, on_delete=models.PROTECT)
     quantity = models.IntegerField()
+    original_unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     subtotal = models.DecimalField(max_digits=12, decimal_places=2)
+    price_overridden = models.BooleanField(default=False)
 
     def __str__(self) -> str:
         return f"{self.invoice.number} - {self.service.name}"

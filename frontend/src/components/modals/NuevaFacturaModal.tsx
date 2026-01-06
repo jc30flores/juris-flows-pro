@@ -35,6 +35,7 @@ import { renderCellValue } from "@/lib/render";
 import { getElSalvadorDateString } from "@/lib/dates";
 
 const IVA_RATE = 0.13;
+const PRICE_OVERRIDE_ACCESS_CODE = "123";
 
 const round2 = (value: number): number => {
   if (!isFinite(value)) return 0;
@@ -90,6 +91,16 @@ export function NuevaFacturaModal({
   const [submitting, setSubmitting] = useState(false);
   const [clientSearch, setClientSearch] = useState("");
   const [clientOpen, setClientOpen] = useState(false);
+  const [serviceLines, setServiceLines] = useState<
+    (SelectedServicePayload & {
+      unit_price: number;
+      original_unit_price: number;
+      price_overridden: boolean;
+      override_authorized: boolean;
+      access_code: string;
+      show_access_code: boolean;
+    })[]
+  >([]);
 
   const resolveClientId = (client: Invoice["client"]): string => {
     if (typeof client === "object" && client !== null) {
@@ -111,12 +122,12 @@ export function NuevaFacturaModal({
 
   const grossTotal = useMemo(
     () =>
-      selectedServices.reduce((sum, item) => {
+      serviceLines.reduce((sum, item) => {
         const qty = Number(item.quantity) || 0;
-        const priceWithVat = Number(item.price) || 0;
+        const priceWithVat = Number(item.unit_price) || 0;
         return sum + qty * priceWithVat;
       }, 0),
-    [selectedServices],
+    [serviceLines],
   );
 
   const { subtotal, iva, total } = useMemo(
@@ -125,7 +136,7 @@ export function NuevaFacturaModal({
   );
 
   const onSubmitForm = async (data: z.infer<typeof facturaSchema>) => {
-    if (selectedServices.length === 0) {
+    if (serviceLines.length === 0) {
       toast({
         title: "Error",
         description: "Debe agregar al menos un servicio",
@@ -134,15 +145,20 @@ export function NuevaFacturaModal({
       return;
     }
 
-    const servicesPayload: SelectedServicePayload[] = selectedServices.map(
-      (item) => ({
+    const servicesPayload: SelectedServicePayload[] = serviceLines.map((item) => {
+      const price = Number(item.unit_price);
+      return {
         service_id: item.service_id,
         name: item.name,
-        price: item.price,
+        price,
+        original_unit_price: item.original_unit_price,
+        unit_price: price,
+        price_overridden: item.price_overridden,
         quantity: item.quantity,
-        subtotal: Number((item.price * item.quantity).toFixed(2)),
-      }),
-    );
+        subtotal: Number((price * item.quantity).toFixed(2)),
+        ...(item.price_overridden ? { override_code: item.access_code } : {}),
+      };
+    });
 
     const payload: InvoicePayload = {
       date: data.date,
@@ -226,6 +242,28 @@ export function NuevaFacturaModal({
   }, [clientSearch, clientesOptions]);
 
   useEffect(() => {
+    if (open) {
+      setServiceLines(
+        selectedServices.map((item) => {
+          const originalPrice = Number(
+            item.original_unit_price ?? item.unit_price ?? item.price ?? 0,
+          );
+          const appliedPrice = Number(item.unit_price ?? item.price ?? originalPrice);
+          const priceOverridden = item.price_overridden ?? appliedPrice !== originalPrice;
+          return {
+            ...item,
+            original_unit_price: originalPrice,
+            unit_price: appliedPrice,
+            price_overridden: priceOverridden,
+            override_authorized: false,
+            access_code: "",
+            show_access_code: priceOverridden,
+            subtotal: Number((appliedPrice * item.quantity).toFixed(2)),
+          };
+        }),
+      );
+    }
+
     if (mode === "edit" && invoice) {
       form.reset({
         date: invoice.date,
@@ -247,7 +285,98 @@ export function NuevaFacturaModal({
       setClientSearch("");
       setClientOpen(false);
     }
-  }, [invoice, mode, open, form]);
+  }, [invoice, mode, open, form, selectedServices]);
+
+  const updateServiceLine = (
+    serviceId: number,
+    updater: (
+      item: (SelectedServicePayload & {
+        unit_price: number;
+        original_unit_price: number;
+        price_overridden: boolean;
+        override_authorized: boolean;
+        access_code: string;
+        show_access_code: boolean;
+      }),
+    ) => SelectedServicePayload & {
+      unit_price: number;
+      original_unit_price: number;
+      price_overridden: boolean;
+      override_authorized: boolean;
+      access_code: string;
+      show_access_code: boolean;
+    },
+  ) => {
+    setServiceLines((prev) =>
+      prev.map((item) => (item.service_id === serviceId ? updater(item) : item)),
+    );
+  };
+
+  const handleAuthorizeOverride = (serviceId: number) => {
+    const target = serviceLines.find((item) => item.service_id === serviceId);
+    if (!target) return;
+
+    if (target.access_code !== PRICE_OVERRIDE_ACCESS_CODE) {
+      toast({
+        title: "Código incorrecto",
+        description: "El código de acceso no es válido para modificar el precio.",
+        variant: "destructive",
+      });
+      updateServiceLine(serviceId, (item) => ({
+        ...item,
+        access_code: "",
+        show_access_code: true,
+        override_authorized: false,
+      }));
+      return;
+    }
+
+    updateServiceLine(serviceId, (item) => ({
+      ...item,
+      override_authorized: true,
+      show_access_code: false,
+    }));
+  };
+
+  const handlePriceChange = (serviceId: number, value: string) => {
+    const parsed = Number(value);
+    if (!isFinite(parsed)) return;
+
+    updateServiceLine(serviceId, (item) => {
+      if (!item.override_authorized) {
+        return { ...item, show_access_code: true };
+      }
+
+      if (parsed <= 0) {
+        toast({
+          title: "Precio inválido",
+          description: "El precio debe ser mayor a 0.",
+          variant: "destructive",
+        });
+        return { ...item, unit_price: item.original_unit_price, price_overridden: false };
+      }
+
+      const priceOverridden = parsed !== item.original_unit_price;
+      return {
+        ...item,
+        unit_price: parsed,
+        price_overridden: priceOverridden,
+        subtotal: Number((parsed * item.quantity).toFixed(2)),
+      };
+    });
+  };
+
+  const handleResetPrice = (serviceId: number) => {
+    updateServiceLine(serviceId, (item) => ({
+      ...item,
+      unit_price: item.original_unit_price,
+      price_overridden: false,
+      override_authorized: false,
+      access_code: "",
+      show_access_code: false,
+      subtotal: Number((item.original_unit_price * item.quantity).toFixed(2)),
+    }));
+  };
 
   const handleDialogChange = (value: boolean) => {
     if (!value) {
@@ -397,7 +526,7 @@ export function NuevaFacturaModal({
                 </span>
               </div>
 
-              {selectedServices.length > 0 ? (
+              {serviceLines.length > 0 ? (
                 <div className="space-y-3">
                   <div className="hidden sm:block overflow-x-auto rounded-lg border border-border">
                     <table className="w-full text-sm">
@@ -405,11 +534,12 @@ export function NuevaFacturaModal({
                         <tr>
                           <th className="px-4 py-3 text-left font-medium">Servicio</th>
                           <th className="px-4 py-3 text-center font-medium">Cantidad</th>
+                          <th className="px-4 py-3 text-left font-medium">Precio</th>
                           <th className="px-4 py-3 text-right font-medium">Subtotal</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {selectedServices.map((servicio) => (
+                        {serviceLines.map((servicio) => (
                           <tr key={servicio.service_id} className="border-t border-border">
                             <td className="px-4 py-3">
                               <p className="font-medium leading-tight">{servicio.name}</p>
@@ -418,6 +548,92 @@ export function NuevaFacturaModal({
                               </p>
                             </td>
                             <td className="px-4 py-3 text-center">{servicio.quantity}</td>
+                            <td className="px-4 py-3">
+                              <div className="space-y-2">
+                                <div className="text-xs text-muted-foreground">
+                                  <span
+                                    className={
+                                      servicio.price_overridden ? "line-through" : ""
+                                    }
+                                  >
+                                    Original: ${Number(servicio.original_unit_price).toFixed(2)}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    min="0.01"
+                                    className="w-32"
+                                    value={servicio.unit_price}
+                                    disabled={!servicio.override_authorized}
+                                    onChange={(event) =>
+                                      handlePriceChange(
+                                        servicio.service_id,
+                                        event.target.value,
+                                      )
+                                    }
+                                    onFocus={() =>
+                                      updateServiceLine(servicio.service_id, (item) => ({
+                                        ...item,
+                                        show_access_code: true,
+                                      }))
+                                    }
+                                  />
+                                  {servicio.price_overridden && (
+                                    <span className="rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
+                                      Modificado
+                                    </span>
+                                  )}
+                                  {!servicio.override_authorized && !servicio.price_overridden && (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() =>
+                                        updateServiceLine(servicio.service_id, (item) => ({
+                                          ...item,
+                                          show_access_code: true,
+                                        }))
+                                      }
+                                    >
+                                      Modificar
+                                    </Button>
+                                  )}
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleResetPrice(servicio.service_id)}
+                                  >
+                                    Restablecer
+                                  </Button>
+                                </div>
+                                {(servicio.show_access_code || servicio.price_overridden) && (
+                                  <div className="flex items-center gap-2">
+                                    <Input
+                                      type="password"
+                                      placeholder="Código de acceso"
+                                      className="w-40"
+                                      value={servicio.access_code}
+                                      onChange={(event) =>
+                                        updateServiceLine(servicio.service_id, (item) => ({
+                                          ...item,
+                                          access_code: event.target.value,
+                                        }))
+                                      }
+                                    />
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={() => handleAuthorizeOverride(servicio.service_id)}
+                                    >
+                                      Validar
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
                             <td className="px-4 py-3 text-right font-semibold">
                               ${Number(servicio.subtotal).toFixed(2)}
                             </td>
@@ -428,18 +644,89 @@ export function NuevaFacturaModal({
                   </div>
 
                   <div className="grid gap-3 sm:hidden">
-                  {selectedServices.map((servicio) => (
-                    <div
-                      key={servicio.service_id}
-                      className="rounded-lg border border-border p-3 space-y-1"
-                    >
-                      <p className="text-sm font-medium leading-tight">{servicio.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        ID: {renderCellValue(servicio.service_id)}
-                      </p>
+                    {serviceLines.map((servicio) => (
+                      <div
+                        key={servicio.service_id}
+                        className="rounded-lg border border-border p-3 space-y-2"
+                      >
+                        <p className="text-sm font-medium leading-tight">{servicio.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          ID: {renderCellValue(servicio.service_id)}
+                        </p>
                         <div className="flex items-center justify-between text-sm">
                           <span>Cantidad:</span>
                           <span className="font-medium">{servicio.quantity}</span>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="text-xs text-muted-foreground">
+                            <span
+                              className={
+                                servicio.price_overridden ? "line-through" : ""
+                              }
+                            >
+                              Original: ${Number(servicio.original_unit_price).toFixed(2)}
+                            </span>
+                          </div>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            value={servicio.unit_price}
+                            disabled={!servicio.override_authorized}
+                            onChange={(event) =>
+                              handlePriceChange(servicio.service_id, event.target.value)
+                            }
+                          />
+                          {servicio.price_overridden && (
+                            <span className="inline-flex w-fit rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
+                              Modificado
+                            </span>
+                          )}
+                          {!servicio.override_authorized && !servicio.price_overridden && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                updateServiceLine(servicio.service_id, (item) => ({
+                                  ...item,
+                                  show_access_code: true,
+                                }))
+                              }
+                            >
+                              Modificar
+                            </Button>
+                          )}
+                          {(servicio.show_access_code || servicio.price_overridden) && (
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="password"
+                                placeholder="Código de acceso"
+                                value={servicio.access_code}
+                                onChange={(event) =>
+                                  updateServiceLine(servicio.service_id, (item) => ({
+                                    ...item,
+                                    access_code: event.target.value,
+                                  }))
+                                }
+                              />
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => handleAuthorizeOverride(servicio.service_id)}
+                              >
+                                Validar
+                              </Button>
+                            </div>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleResetPrice(servicio.service_id)}
+                          >
+                            Restablecer
+                          </Button>
                         </div>
                         <div className="flex items-center justify-between text-sm">
                           <span>Subtotal:</span>
@@ -467,7 +754,7 @@ export function NuevaFacturaModal({
             />
           </div>
 
-          {selectedServices.length > 0 && (
+          {serviceLines.length > 0 && (
             <div className="space-y-2 bg-muted/50 p-4 rounded-lg">
               <div className="flex justify-between text-sm">
                 <span>Subtotal:</span>
@@ -492,7 +779,7 @@ export function NuevaFacturaModal({
             >
               Cancelar
             </Button>
-            <Button type="submit" disabled={submitting || selectedServices.length === 0}>
+            <Button type="submit" disabled={submitting || serviceLines.length === 0}>
               {mode === "edit" ? "Guardar Cambios" : "Crear Factura"}
             </Button>
           </DialogFooter>

@@ -290,12 +290,18 @@ export default function POS() {
     const items = invoice.items || [];
     const mappedServices = items.map((item) => {
       const { serviceId, serviceDetails } = resolveServiceFromItem(item, services);
-      const price = Number(item.unit_price || serviceDetails?.base_price || 0);
+      const originalPrice = Number(
+        item.original_unit_price ?? item.unit_price ?? serviceDetails?.base_price ?? 0,
+      );
+      const price = Number(item.unit_price || originalPrice);
       const quantity = item.quantity || 1;
       return {
         service_id: serviceId ?? 0,
         name: serviceDetails?.name || `Servicio ${serviceId ?? ""}`,
         price,
+        original_unit_price: originalPrice,
+        unit_price: price,
+        price_overridden: price !== originalPrice,
         quantity,
         subtotal: Number((price * quantity).toFixed(2)),
       } as SelectedServicePayload;

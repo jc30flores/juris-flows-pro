@@ -51,7 +51,7 @@ export function ServiceSelectorModal({
         if (quantity <= 0) {
           return updated.filter((_, idx) => idx !== existingIndex);
         }
-        const price = Number(current.price || service.base_price || 0);
+        const price = Number(current.unit_price ?? current.price ?? service.base_price ?? 0);
         updated[existingIndex] = {
           ...current,
           quantity,
@@ -69,6 +69,9 @@ export function ServiceSelectorModal({
           service_id: service.id,
           name: service.name,
           price,
+          original_unit_price: price,
+          unit_price: price,
+          price_overridden: false,
           quantity: 1,
           subtotal: Number(price.toFixed(2)),
         },
