@@ -67,38 +67,33 @@ const getInvoiceTipo = (invoice: Invoice): string => {
   return String(tipo ?? "").toUpperCase();
 };
 
-const getCodigoGeneracion = (invoice: Invoice): string | null => {
-  return (
-    invoice.codigo_generacion ??
-    invoice.codigoGeneracion ??
-    invoice.dte?.codigoGeneracion ??
-    invoice.dte?.identificacion?.codigoGeneracion ??
-    invoice.dte?.identificacion?.codigo_generacion ??
-    null
-  );
-};
-
-const getNumeroControl = (invoice: Invoice): string | null => {
-  return (
+const getNumeroControlUpper = (invoice: Invoice): string => {
+  const value =
     invoice.numero_control ??
     invoice.numeroControl ??
     invoice.dte?.numeroControl ??
     invoice.dte?.identificacion?.numeroControl ??
     invoice.dte?.identificacion?.numero_control ??
-    null
-  );
+    null;
+
+  return value ? String(value).toUpperCase() : "—";
 };
 
-const getCodigoGeneracionUpper = (invoice: Invoice): string => {
-  const codigo =
+const getCodigoGeneracionRaw = (invoice: Invoice): string | null => {
+  const value =
     invoice.codigo_generacion ??
     invoice.codigoGeneracion ??
     invoice.dte?.codigoGeneracion ??
     invoice.dte?.identificacion?.codigoGeneracion ??
     invoice.dte?.identificacion?.codigo_generacion ??
-    null
-  );
-  return codigo ? codigo.toUpperCase() : "—";
+    null;
+
+  return value ? String(value) : null;
+};
+
+const getCodigoGeneracionUpper = (invoice: Invoice): string => {
+  const value = getCodigoGeneracionRaw(invoice);
+  return value ? value.toUpperCase() : "—";
 };
 
 const isCFInvoice = (invoice: Invoice): boolean => {
@@ -419,7 +414,7 @@ export default function POS() {
   };
 
   const renderInvoiceActions = (invoice: Invoice) => {
-    const codigo = getCodigoGeneracion(invoice);
+    const codigo = getCodigoGeneracionRaw(invoice);
     const showInvalidar = isCFInvoice(invoice);
     const showNotaCredito = isCCFInvoice(invoice);
 
@@ -699,7 +694,7 @@ export default function POS() {
                     className="border-b border-border hover:bg-muted/30 transition-colors"
                   >
                     <td className="px-4 py-3 font-medium">
-                      {getNumeroControl(venta) ?? "—"}
+                      {getNumeroControlUpper(venta)}
                     </td>
                     <td className="px-4 py-3 text-sm">
                       {getInvoiceDateLabel(venta)}
