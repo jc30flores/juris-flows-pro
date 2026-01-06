@@ -3,7 +3,6 @@ import {
   endOfDay,
   endOfMonth,
   endOfWeek,
-  format,
   isWithinInterval,
   startOfDay,
   startOfMonth,
@@ -31,7 +30,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
 import { ServiceSelectorModal } from "@/components/modals/ServiceSelectorModal";
 import { API_BASE_URL, api } from "@/lib/api";
-import { parseInvoiceDate } from "@/lib/dates";
+import {
+  formatDateInElSalvador,
+  parseInvoiceDate,
+  toElSalvadorMidnightUtc,
+} from "@/lib/dates";
 import { Client } from "@/types/client";
 import { Invoice, InvoiceItem, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
 import { Service } from "@/types/service";
@@ -269,22 +272,25 @@ export default function POS() {
 
   const getInvoiceDateLabel = (invoice: Invoice): string => {
     const parsed = resolveInvoiceDate(invoice);
-    return parsed ? format(parsed, "dd/MM/yyyy") : invoice.date_display || invoice.date;
+    return parsed
+      ? formatDateInElSalvador(parsed)
+      : invoice.date_display || invoice.date;
   };
 
   const filteredInvoices = useMemo(() => {
     const now = new Date();
+    const nowEs = toElSalvadorMidnightUtc(now);
     const todayRange = {
-      start: startOfDay(now),
-      end: endOfDay(now),
+      start: startOfDay(nowEs),
+      end: endOfDay(nowEs),
     };
     const weekRange = {
-      start: startOfWeek(now, { weekStartsOn: 1 }),
-      end: endOfWeek(now, { weekStartsOn: 1 }),
+      start: startOfWeek(nowEs, { weekStartsOn: 1 }),
+      end: endOfWeek(nowEs, { weekStartsOn: 1 }),
     };
     const monthRange = {
-      start: startOfMonth(now),
-      end: endOfMonth(now),
+      start: startOfMonth(nowEs),
+      end: endOfMonth(nowEs),
     };
 
     return invoices.filter((invoice) => {
@@ -297,17 +303,18 @@ export default function POS() {
 
       const invoiceDate = resolveInvoiceDate(invoice);
       if (!invoiceDate) return false;
+      const invoiceEs = toElSalvadorMidnightUtc(invoiceDate);
 
       if (filter === "today") {
-        return isWithinInterval(invoiceDate, todayRange);
+        return isWithinInterval(invoiceEs, todayRange);
       }
 
       if (filter === "week" || filter === "this-week") {
-        return isWithinInterval(invoiceDate, weekRange);
+        return isWithinInterval(invoiceEs, weekRange);
       }
 
       if (filter === "month" || filter === "this-month") {
-        return isWithinInterval(invoiceDate, monthRange);
+        return isWithinInterval(invoiceEs, monthRange);
       }
 
       return true;
