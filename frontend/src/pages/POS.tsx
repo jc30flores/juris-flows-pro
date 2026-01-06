@@ -9,7 +9,7 @@ import {
   startOfMonth,
   startOfWeek,
 } from "date-fns";
-import { Plus, Download, Filter, Pencil, Trash2 } from "lucide-react";
+import { Ban, Copy, Download, FilePlus2, Filter, Mail, MessageCircle, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
 import { ServiceSelectorModal } from "@/components/modals/ServiceSelectorModal";
 import { API_BASE_URL, api } from "@/lib/api";
@@ -53,6 +54,58 @@ const getDteDisplayStatus = (status: string | undefined) => {
   if (normalized === "RECHAZADO") return "RECHAZADO";
   if (normalized === "PENDIENTE") return "Pendiente";
   return status || "";
+};
+
+const getInvoiceTipo = (invoice: Invoice): string => {
+  const tipo =
+    invoice.tipo ??
+    invoice.type ??
+    invoice.dte_tipo ??
+    invoice.dte?.tipoDte ??
+    invoice.dte?.tipo ??
+    invoice.doc_type;
+  return String(tipo ?? "").toUpperCase();
+};
+
+const getCodigoGeneracion = (invoice: Invoice): string | null => {
+  return (
+    invoice.codigo_generacion ??
+    invoice.codigoGeneracion ??
+    invoice.dte?.codigoGeneracion ??
+    invoice.dte?.identificacion?.codigoGeneracion ??
+    null
+  );
+};
+
+const isCFInvoice = (invoice: Invoice): boolean => {
+  const tipo = getInvoiceTipo(invoice);
+  return tipo === "CF" || tipo === "01";
+};
+
+const isCCFInvoice = (invoice: Invoice): boolean => {
+  const tipo = getInvoiceTipo(invoice);
+  return tipo === "CCF" || tipo === "03";
+};
+
+const copyText = async (text: string, onSuccess: () => void, onError: () => void) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    onSuccess();
+  } catch (error) {
+    console.error("Error al copiar al portapapeles", error);
+    try {
+      const el = document.createElement("textarea");
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+      onSuccess();
+    } catch (fallbackError) {
+      console.error("Error al copiar en fallback", fallbackError);
+      onError();
+    }
+  }
 };
 
 const resolveClientId = (client: Invoice["client"]): number | undefined => {
@@ -309,6 +362,136 @@ export default function POS() {
 
   const handleOpenExportModal = () => setShowExportModal(true);
 
+  const handlePlaceholderAction = (title: string, description: string) => {
+    toast({ title, description });
+  };
+
+  const handleCopyCodigo = (codigo: string) => {
+    copyText(
+      codigo.toUpperCase(),
+      () =>
+        toast({
+          title: "Copiado",
+          description: "Código de generación copiado al portapapeles.",
+        }),
+      () =>
+        toast({
+          title: "Error",
+          description: "No se pudo copiar el código de generación.",
+          variant: "destructive",
+        }),
+    );
+  };
+
+  const renderInvoiceActions = (invoice: Invoice) => {
+    const codigo = getCodigoGeneracion(invoice);
+    const showInvalidar = isCFInvoice(invoice);
+    const showNotaCredito = isCCFInvoice(invoice);
+
+    return (
+      <div className="flex items-center justify-end gap-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Enviar por WhatsApp"
+              onClick={() =>
+                handlePlaceholderAction(
+                  "Próximamente",
+                  "Enviar DTE por WhatsApp (pendiente).",
+                )
+              }
+            >
+              <MessageCircle className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Enviar por WhatsApp</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Enviar por correo"
+              onClick={() =>
+                handlePlaceholderAction(
+                  "Próximamente",
+                  "Enviar DTE por correo (pendiente).",
+                )
+              }
+            >
+              <Mail className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Enviar por correo</TooltipContent>
+        </Tooltip>
+
+        {showInvalidar && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Invalidar (solo CF)"
+                onClick={() =>
+                  handlePlaceholderAction(
+                    "Próximamente",
+                    "Invalidar CF (pendiente).",
+                  )
+                }
+              >
+                <Ban className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Invalidar (solo CF)</TooltipContent>
+          </Tooltip>
+        )}
+
+        {showNotaCredito && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Nota de crédito (solo CCF)"
+                onClick={() =>
+                  handlePlaceholderAction(
+                    "Próximamente",
+                    "Nota de crédito CCF (pendiente).",
+                  )
+                }
+              >
+                <FilePlus2 className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Nota de crédito (solo CCF)</TooltipContent>
+          </Tooltip>
+        )}
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Copiar código de generación"
+                disabled={!codigo}
+                onClick={() => codigo && handleCopyCodigo(codigo)}
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            {codigo ? "Copiar código de generación" : "Sin código de generación"}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    );
+  };
+
   const handleDownload = () => {
     const params = new URLSearchParams({
       dte_type: exportDteType,
@@ -434,25 +617,8 @@ export default function POS() {
                   </span>
                 </div>
               </div>
-              <div className="flex gap-2 mt-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => handleOpenEdit(venta)}
-                >
-                  <Pencil className="h-3 w-3 mr-2" />
-                  Editar
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => handleDeleteInvoice(venta.id)}
-                >
-                  <Trash2 className="h-3 w-3 mr-2 text-destructive" />
-                  Eliminar
-                </Button>
+              <div className="flex justify-end mt-3">
+                {renderInvoiceActions(venta)}
               </div>
             </div>
           ))}
@@ -515,23 +681,8 @@ export default function POS() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-semibold">${Number(venta.total).toFixed(2)}</td>
-                    <td className="px-4 py-3 text-right flex items-center justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleOpenEdit(venta)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                        <span className="sr-only">Editar</span>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteInvoice(venta.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                        <span className="sr-only">Eliminar</span>
-                      </Button>
+                    <td className="px-4 py-3 text-right">
+                      {renderInvoiceActions(venta)}
                     </td>
                   </tr>
                 ))}

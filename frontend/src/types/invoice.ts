@@ -30,6 +30,19 @@ export interface Invoice {
   issue_date?: string;
   client: number | Client;
   doc_type: InvoiceDocType;
+  tipo?: string;
+  type?: string;
+  dte_tipo?: string;
+  dte?: {
+    tipoDte?: string;
+    tipo?: string;
+    codigoGeneracion?: string;
+    identificacion?: {
+      codigoGeneracion?: string;
+    };
+  };
+  codigo_generacion?: string;
+  codigoGeneracion?: string;
   payment_method: PaymentMethod;
   dte_status: DteStatus;
   dte_message?: string;
