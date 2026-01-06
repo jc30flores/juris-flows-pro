@@ -32,7 +32,6 @@ import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
 import { ServiceSelectorModal } from "@/components/modals/ServiceSelectorModal";
 import { API_BASE_URL, api } from "@/lib/api";
 import { parseInvoiceDate } from "@/lib/dates";
-import { getCodigoGeneracion, getNumeroControl, upperOrDash } from "@/lib/dte";
 import { Client } from "@/types/client";
 import { Invoice, InvoiceItem, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
 import { Service } from "@/types/service";
@@ -68,8 +67,19 @@ const getInvoiceTipo = (invoice: Invoice): string => {
   return String(tipo ?? "").toUpperCase();
 };
 
+const getNumeroControlUpper = (invoice: Invoice): string => {
+  const value = invoice.numero_control || invoice.numeroControl;
+  return value ? String(value).toUpperCase() : "—";
+};
+
+const getCodigoGeneracionRaw = (invoice: Invoice): string | null => {
+  const value = invoice.codigo_generacion || invoice.codigoGeneracion;
+  return value ? String(value) : null;
+};
+
 const getCodigoGeneracionUpper = (invoice: Invoice): string => {
-  return upperOrDash(getCodigoGeneracion(invoice));
+  const value = getCodigoGeneracionRaw(invoice);
+  return value ? value.toUpperCase() : "—";
 };
 
 const isCFInvoice = (invoice: Invoice): boolean => {
@@ -390,7 +400,7 @@ export default function POS() {
   };
 
   const renderInvoiceActions = (invoice: Invoice) => {
-    const codigo = getCodigoGeneracion(invoice);
+    const codigo = getCodigoGeneracionRaw(invoice);
     const showInvalidar = isCFInvoice(invoice);
     const showNotaCredito = isCCFInvoice(invoice);
 
@@ -670,7 +680,7 @@ export default function POS() {
                     className="border-b border-border hover:bg-muted/30 transition-colors"
                   >
                     <td className="px-4 py-3 font-medium">
-                      {upperOrDash(getNumeroControl(venta))}
+                      {getNumeroControlUpper(venta)}
                     </td>
                     <td className="px-4 py-3 text-sm">
                       {getInvoiceDateLabel(venta)}

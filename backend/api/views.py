@@ -183,7 +183,11 @@ class ClientViewSet(viewsets.ModelViewSet):
 
 
 class InvoiceViewSet(viewsets.ModelViewSet):
-    queryset = Invoice.objects.select_related("client").prefetch_related("items").all()
+    queryset = (
+        Invoice.objects.select_related("client")
+        .prefetch_related("items", "dte_records")
+        .all()
+    )
     serializer_class = InvoiceSerializer
     permission_classes = [permissions.AllowAny]
 

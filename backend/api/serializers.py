@@ -162,15 +162,31 @@ class InvoiceSerializer(serializers.ModelSerializer):
         if not record:
             return {}
         payload = record.response_payload or record.request_payload or {}
-        return self._extract_ident(payload)
+        ident = self._extract_ident(payload)
+        if not ident:
+            return {}
+        return ident
+
+    def _get_latest_record(self, obj):
+        return obj.dte_records.order_by("-created_at").first()
 
     def get_numero_control(self, obj):
-        ident = self._get_latest_ident(obj)
-        return ident.get("numeroControl") or ident.get("numero_control")
+        record = self._get_latest_record(obj)
+        if record:
+            if record.control_number:
+                return record.control_number
+            ident = self._extract_ident(record.response_payload or record.request_payload or {})
+            return ident.get("numeroControl") or ident.get("numero_control")
+        return None
 
     def get_codigo_generacion(self, obj):
-        ident = self._get_latest_ident(obj)
-        return ident.get("codigoGeneracion") or ident.get("codigo_generacion")
+        record = self._get_latest_record(obj)
+        if record:
+            if record.hacienda_uuid:
+                return record.hacienda_uuid
+            ident = self._extract_ident(record.response_payload or record.request_payload or {})
+            return ident.get("codigoGeneracion") or ident.get("codigo_generacion")
+        return None
 
     def update(self, instance, validated_data):
         items_data = validated_data.pop("items", None)
