@@ -175,7 +175,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
         if record:
             if record.control_number:
                 return record.control_number
-            ident = self._extract_ident(record.response_payload or record.request_payload or {})
+            ident = self._extract_ident(record.request_payload or {})
             return ident.get("numeroControl") or ident.get("numero_control")
         return None
 
@@ -184,7 +184,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
         if record:
             if record.hacienda_uuid:
                 return record.hacienda_uuid
-            ident = self._extract_ident(record.response_payload or record.request_payload or {})
+            ident = self._extract_ident(record.request_payload or {})
             return ident.get("codigoGeneracion") or ident.get("codigo_generacion")
         return None
 

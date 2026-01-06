@@ -680,7 +680,14 @@ export default function POS() {
                     className="border-b border-border hover:bg-muted/30 transition-colors"
                   >
                     <td className="px-4 py-3 font-medium">
-                      {getNumeroControlUpper(venta)}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="block max-w-[180px] truncate whitespace-nowrap">
+                            {getNumeroControlUpper(venta)}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>{getNumeroControlUpper(venta)}</TooltipContent>
+                      </Tooltip>
                     </td>
                     <td className="px-4 py-3 text-sm">
                       {getInvoiceDateLabel(venta)}
