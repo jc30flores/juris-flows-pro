@@ -39,10 +39,15 @@ export interface Invoice {
     codigoGeneracion?: string;
     identificacion?: {
       codigoGeneracion?: string;
+      codigo_generacion?: string;
+      numeroControl?: string;
+      numero_control?: string;
     };
   };
   codigo_generacion?: string;
   codigoGeneracion?: string;
+  numero_control?: string;
+  numeroControl?: string;
   payment_method: PaymentMethod;
   dte_status: DteStatus;
   dte_message?: string;

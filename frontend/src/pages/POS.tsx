@@ -73,8 +73,32 @@ const getCodigoGeneracion = (invoice: Invoice): string | null => {
     invoice.codigoGeneracion ??
     invoice.dte?.codigoGeneracion ??
     invoice.dte?.identificacion?.codigoGeneracion ??
+    invoice.dte?.identificacion?.codigo_generacion ??
     null
   );
+};
+
+const getNumeroControl = (invoice: Invoice): string | null => {
+  return (
+    invoice.numero_control ??
+    invoice.numeroControl ??
+    invoice.dte?.numeroControl ??
+    invoice.dte?.identificacion?.numeroControl ??
+    invoice.dte?.identificacion?.numero_control ??
+    null
+  );
+};
+
+const getCodigoGeneracionUpper = (invoice: Invoice): string => {
+  const codigo =
+    invoice.codigo_generacion ??
+    invoice.codigoGeneracion ??
+    invoice.dte?.codigoGeneracion ??
+    invoice.dte?.identificacion?.codigoGeneracion ??
+    invoice.dte?.identificacion?.codigo_generacion ??
+    null
+  );
+  return codigo ? codigo.toUpperCase() : "—";
 };
 
 const isCFInvoice = (invoice: Invoice): boolean => {
@@ -367,19 +391,30 @@ export default function POS() {
   };
 
   const handleCopyCodigo = (codigo: string) => {
+    const safeToast = typeof toast === "function";
     copyText(
       codigo.toUpperCase(),
-      () =>
-        toast({
-          title: "Copiado",
-          description: "Código de generación copiado al portapapeles.",
-        }),
-      () =>
-        toast({
-          title: "Error",
-          description: "No se pudo copiar el código de generación.",
-          variant: "destructive",
-        }),
+      () => {
+        if (safeToast) {
+          toast({
+            title: "Copiado",
+            description: "Código de generación copiado al portapapeles.",
+          });
+        } else {
+          console.log("Código de generación copiado al portapapeles.");
+        }
+      },
+      () => {
+        if (safeToast) {
+          toast({
+            title: "Error",
+            description: "No se pudo copiar el código de generación.",
+            variant: "destructive",
+          });
+        } else {
+          console.log("No se pudo copiar el código de generación.");
+        }
+      },
     );
   };
 
@@ -642,9 +677,14 @@ export default function POS() {
             <table className="w-full">
               <thead className="bg-muted/50">
                 <tr className="border-b border-border">
-                  <th className="px-4 py-3 text-left text-sm font-medium">Nº Factura</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">
+                    Número de Control
+                  </th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Fecha</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Cliente</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">
+                    Código de Generación
+                  </th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Tipo</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Método Pago</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Estado DTE</th>
@@ -658,12 +698,17 @@ export default function POS() {
                     key={venta.id}
                     className="border-b border-border hover:bg-muted/30 transition-colors"
                   >
-                    <td className="px-4 py-3 font-medium">{venta.number}</td>
+                    <td className="px-4 py-3 font-medium">
+                      {getNumeroControl(venta) ?? "—"}
+                    </td>
                     <td className="px-4 py-3 text-sm">
                       {getInvoiceDateLabel(venta)}
                     </td>
                     <td className="px-4 py-3 text-sm">
                       {clientLookup[resolveClientId(venta.client) ?? -1] || "Sin cliente"}
+                    </td>
+                    <td className="px-4 py-3 text-sm font-mono">
+                      {getCodigoGeneracionUpper(venta)}
                     </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-primary/10 text-primary font-medium">
@@ -690,7 +735,7 @@ export default function POS() {
                   <tr>
                     <td
                       className="px-4 py-3 text-sm text-muted-foreground"
-                      colSpan={8}
+                      colSpan={9}
                     >
                       No hay facturas registradas.
                     </td>
