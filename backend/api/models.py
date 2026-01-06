@@ -144,6 +144,29 @@ class DTERecord(models.Model):
         return f"DTE {self.id} - {self.dte_type} - {self.status}"
 
 
+class DTEControlCounter(models.Model):
+    ambiente = models.CharField(max_length=2)
+    tipo_dte = models.CharField(max_length=2)
+    anio_emision = models.IntegerField()
+    est_code = models.CharField(max_length=4)
+    pv_code = models.CharField(max_length=4)
+    last_number = models.IntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "dte_control_counters"
+        unique_together = ("ambiente", "tipo_dte", "anio_emision", "est_code", "pv_code")
+        indexes = [
+            models.Index(fields=["ambiente", "tipo_dte", "anio_emision"]),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.ambiente}-{self.tipo_dte}-{self.anio_emision}-"
+            f"{self.est_code}{self.pv_code}"
+        )
+
+
 class InvoiceItem(models.Model):
     invoice = models.ForeignKey(
         Invoice, related_name="items", on_delete=models.CASCADE
