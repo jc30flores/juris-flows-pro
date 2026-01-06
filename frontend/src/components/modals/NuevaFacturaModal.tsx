@@ -19,6 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "@/hooks/use-toast";
 import { Client } from "@/types/client";
 import {
@@ -86,6 +88,8 @@ export function NuevaFacturaModal({
   onCancel,
 }: NuevaFacturaModalProps) {
   const [submitting, setSubmitting] = useState(false);
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientOpen, setClientOpen] = useState(false);
 
   const resolveClientId = (client: Invoice["client"]): string => {
     if (typeof client === "object" && client !== null) {
@@ -183,9 +187,43 @@ export function NuevaFacturaModal({
         id: cliente.id.toString(),
         nombre: cliente.company_name || cliente.full_name,
         tipo: cliente.client_type,
+        nit: cliente.nit || "",
+        nrc: cliente.nrc || "",
+        dui: cliente.dui || "",
       })),
     [clients],
   );
+
+  const selectedClientId = form.watch("clienteId");
+  const selectedClient = useMemo(() => {
+    return clientesOptions.find((cliente) => cliente.id === selectedClientId) || null;
+  }, [clientesOptions, selectedClientId]);
+
+  const normalizeText = (value: string): string =>
+    value
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+
+  const filteredClients = useMemo(() => {
+    const query = normalizeText(clientSearch);
+    if (!query) return clientesOptions.slice(0, 20);
+    return clientesOptions
+      .filter((cliente) => {
+        const haystack = [
+          cliente.nombre,
+          cliente.nit,
+          cliente.nrc,
+          cliente.dui,
+          cliente.tipo,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        return normalizeText(haystack).includes(query);
+      })
+      .slice(0, 20);
+  }, [clientSearch, clientesOptions]);
 
   useEffect(() => {
     if (mode === "edit" && invoice) {
@@ -206,6 +244,8 @@ export function NuevaFacturaModal({
         metodoPago: "Efectivo",
         observations: "",
       });
+      setClientSearch("");
+      setClientOpen(false);
     }
   }, [invoice, mode, open, form]);
 
@@ -264,21 +304,59 @@ export function NuevaFacturaModal({
 
             <div className="space-y-2">
               <Label htmlFor="clienteId">Cliente</Label>
-              <Select
-                value={form.watch("clienteId")}
-                onValueChange={(value) => form.setValue("clienteId", value)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar cliente" />
-                </SelectTrigger>
-                <SelectContent>
-                  {clientesOptions.map((cliente) => (
-                    <SelectItem key={cliente.id} value={cliente.id}>
-                      {cliente.nombre} ({cliente.tipo})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover open={clientOpen} onOpenChange={setClientOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between"
+                  >
+                    {selectedClient
+                      ? `${selectedClient.nombre} (${selectedClient.tipo})`
+                      : "Buscar cliente…"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-full p-0" align="start">
+                  <Command className="max-h-72">
+                    <CommandInput
+                      placeholder="Buscar cliente…"
+                      value={clientSearch}
+                      onValueChange={setClientSearch}
+                    />
+                    <CommandEmpty>No se encontraron clientes</CommandEmpty>
+                    <CommandGroup className="max-h-60 overflow-y-auto">
+                      {filteredClients.map((cliente) => {
+                        const secondary = cliente.nrc || cliente.nit || cliente.dui;
+                        return (
+                          <CommandItem
+                            key={cliente.id}
+                            value={`${cliente.nombre}-${cliente.id}`}
+                            onSelect={() => {
+                              form.setValue("clienteId", cliente.id, {
+                                shouldValidate: true,
+                              });
+                              setClientOpen(false);
+                              setClientSearch("");
+                            }}
+                          >
+                            <div className="flex flex-col">
+                              <span className="font-medium">
+                                {cliente.nombre} ({cliente.tipo})
+                              </span>
+                              {secondary && (
+                                <span className="text-xs text-muted-foreground">
+                                  {secondary}
+                                </span>
+                              )}
+                            </div>
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  </Command>
+                </PopoverContent>
+              </Popover>
               {form.formState.errors.clienteId && (
                 <p className="text-sm text-destructive">
                   {form.formState.errors.clienteId.message}
