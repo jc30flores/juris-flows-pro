@@ -30,6 +30,7 @@ import {
 } from "@/types/invoice";
 import { Textarea } from "@/components/ui/textarea";
 import { renderCellValue } from "@/lib/render";
+import { getElSalvadorDateString } from "@/lib/dates";
 
 const IVA_RATE = 0.13;
 
@@ -95,13 +96,13 @@ export function NuevaFacturaModal({
 
   const form = useForm<z.infer<typeof facturaSchema>>({
     resolver: zodResolver(facturaSchema),
-  defaultValues: {
-    date: new Date().toISOString().split("T")[0],
-    tipoDTE: "CF",
-    metodoPago: "Efectivo",
-    clienteId: "",
-    observations: "",
-  },
+    defaultValues: {
+      date: getElSalvadorDateString(),
+      tipoDTE: "CF",
+      metodoPago: "Efectivo",
+      clienteId: "",
+      observations: "",
+    },
   });
 
   const grossTotal = useMemo(
@@ -157,7 +158,7 @@ export function NuevaFacturaModal({
         description: "La factura se ha guardado correctamente",
       });
       form.reset({
-        date: new Date().toISOString().split("T")[0],
+        date: getElSalvadorDateString(),
         clienteId: "",
         tipoDTE: "CF",
         metodoPago: "Efectivo",
@@ -199,7 +200,7 @@ export function NuevaFacturaModal({
 
     if (mode === "create" && open) {
       form.reset({
-        date: new Date().toISOString().split("T")[0],
+        date: getElSalvadorDateString(),
         clienteId: "",
         tipoDTE: "CF",
         metodoPago: "Efectivo",
