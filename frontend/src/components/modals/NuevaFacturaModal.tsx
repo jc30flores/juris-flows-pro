@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -44,6 +44,8 @@ type ServiceLine = SelectedServicePayload & {
   original_unit_price: number;
   price_overridden: boolean;
   price_error?: string | null;
+  price_locked: boolean;
+  unlocked_until?: number | null;
 };
 
 const round2 = (value: number): number => {
@@ -146,12 +148,13 @@ export function NuevaFacturaModal({
   const [clientSearch, setClientSearch] = useState("");
   const [clientOpen, setClientOpen] = useState(false);
   const [serviceLines, setServiceLines] = useState<ServiceLine[]>([]);
-  const [priceUnlocked, setPriceUnlocked] = useState(false);
   const [authorizedUntil, setAuthorizedUntil] = useState<number | null>(null);
-  const [unlockTimerId, setUnlockTimerId] = useState<number | null>(null);
   const [accessModalOpen, setAccessModalOpen] = useState(false);
   const [accessCodeInput, setAccessCodeInput] = useState("");
   const [accessError, setAccessError] = useState<string | null>(null);
+  const [selectedLineId, setSelectedLineId] = useState<number | null>(null);
+  const unlockTimersRef = useRef<Record<number, number>>({});
+  const priceInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const resolveClientId = (client: Invoice["client"]): string => {
     if (typeof client === "object" && client !== null) {
@@ -265,12 +268,12 @@ export function NuevaFacturaModal({
         metodoPago: "Efectivo",
         observations: "",
       });
-      setPriceUnlocked(false);
       setAuthorizedUntil(null);
-      if (unlockTimerId) {
-        window.clearTimeout(unlockTimerId);
-        setUnlockTimerId(null);
-      }
+      Object.values(unlockTimersRef.current).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      unlockTimersRef.current = {};
+      setSelectedLineId(null);
       onOpenChange(false);
     } catch (error) {
       console.error("Error al guardar factura", error);
@@ -345,18 +348,20 @@ export function NuevaFacturaModal({
             price_overridden: priceOverridden,
             price_error: null,
             subtotal: Number((appliedPrice * item.quantity).toFixed(2)),
+            price_locked: true,
+            unlocked_until: null,
           };
         }),
       );
-      setPriceUnlocked(false);
       setAuthorizedUntil(null);
-      if (unlockTimerId) {
-        window.clearTimeout(unlockTimerId);
-        setUnlockTimerId(null);
-      }
+      Object.values(unlockTimersRef.current).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      unlockTimersRef.current = {};
       setAccessModalOpen(false);
       setAccessCodeInput("");
       setAccessError(null);
+      setSelectedLineId(null);
     }
 
     if (mode === "edit" && invoice) {
@@ -380,15 +385,16 @@ export function NuevaFacturaModal({
       setClientSearch("");
       setClientOpen(false);
     }
-  }, [invoice, mode, open, form, selectedServices, unlockTimerId]);
+  }, [invoice, mode, open, form, selectedServices]);
 
   useEffect(() => {
     return () => {
-      if (unlockTimerId) {
-        window.clearTimeout(unlockTimerId);
-      }
+      Object.values(unlockTimersRef.current).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      unlockTimersRef.current = {};
     };
-  }, [unlockTimerId]);
+  }, []);
 
   const updateServiceLine = (
     serviceId: number,
@@ -458,40 +464,68 @@ export function NuevaFacturaModal({
 
     const expiresAt = Date.now() + AUTHORIZATION_WINDOW_MS;
     setAuthorizedUntil(expiresAt);
-    setPriceUnlocked(true);
-    if (unlockTimerId) {
-      window.clearTimeout(unlockTimerId);
+    if (selectedLineId === null) {
+      setAccessError("Selecciona un servicio para desbloquear.");
+      return;
+    }
+
+    const prevTimer = unlockTimersRef.current[selectedLineId];
+    if (prevTimer) {
+      window.clearTimeout(prevTimer);
     }
     const timerId = window.setTimeout(() => {
-      setPriceUnlocked(false);
-      setAuthorizedUntil(null);
-      setUnlockTimerId(null);
+      setServiceLines((prev) =>
+        prev.map((item) =>
+          item.service_id === selectedLineId
+            ? { ...item, price_locked: true, unlocked_until: null }
+            : item,
+        ),
+      );
+      delete unlockTimersRef.current[selectedLineId];
     }, AUTHORIZATION_WINDOW_MS);
-    setUnlockTimerId(timerId);
+    unlockTimersRef.current[selectedLineId] = timerId;
+
+    updateServiceLine(selectedLineId, (item) => ({
+      ...item,
+      price_locked: false,
+      unlocked_until: expiresAt,
+    }));
     setAccessModalOpen(false);
     setAccessError(null);
     setAccessCodeInput("");
+    const input = priceInputRefs.current[selectedLineId];
+    if (input) {
+      window.setTimeout(() => {
+        input.focus();
+        input.select();
+      }, 0);
+    }
   };
 
   const handleAccessCancel = () => {
     setAccessModalOpen(false);
     setAccessError(null);
     setAccessCodeInput("");
+    setSelectedLineId(null);
   };
 
-  const handleUnlockRequest = () => {
+  const handleUnlockRequest = (serviceId: number) => {
+    setSelectedLineId(serviceId);
     setAccessModalOpen(true);
   };
 
   const handleDialogChange = (value: boolean) => {
     if (!value) {
-      if (unlockTimerId) {
-        window.clearTimeout(unlockTimerId);
-        setUnlockTimerId(null);
-      }
-      setPriceUnlocked(false);
+      Object.values(unlockTimersRef.current).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      unlockTimersRef.current = {};
+      setServiceLines((prev) =>
+        prev.map((item) => ({ ...item, price_locked: true, unlocked_until: null })),
+      );
       setAuthorizedUntil(null);
       setAccessModalOpen(false);
+      setSelectedLineId(null);
       onCancel();
     } else {
       onOpenChange(value);
@@ -679,7 +713,10 @@ export function NuevaFacturaModal({
                                     min="0"
                                     className="w-32"
                                     value={servicio.unit_price_draft}
-                                    disabled={!priceUnlocked}
+                                    disabled={servicio.price_locked}
+                                    ref={(node) => {
+                                      priceInputRefs.current[servicio.service_id] = node;
+                                    }}
                                     onChange={(event) =>
                                       handlePriceDraftChange(
                                         servicio.service_id,
@@ -693,17 +730,23 @@ export function NuevaFacturaModal({
                                       Modificado
                                     </span>
                                   )}
-                                  {priceUnlocked ? (
+                                  {!servicio.price_locked ? (
                                     <Button
                                       type="button"
                                       variant="ghost"
                                       size="sm"
                                       onClick={() => {
-                                        setPriceUnlocked(false);
+                                        updateServiceLine(servicio.service_id, (item) => ({
+                                          ...item,
+                                          price_locked: true,
+                                          unlocked_until: null,
+                                        }));
                                         setAuthorizedUntil(null);
-                                        if (unlockTimerId) {
-                                          window.clearTimeout(unlockTimerId);
-                                          setUnlockTimerId(null);
+                                        const timerId =
+                                          unlockTimersRef.current[servicio.service_id];
+                                        if (timerId) {
+                                          window.clearTimeout(timerId);
+                                          delete unlockTimersRef.current[servicio.service_id];
                                         }
                                       }}
                                     >
@@ -714,7 +757,7 @@ export function NuevaFacturaModal({
                                       type="button"
                                       variant="ghost"
                                       size="sm"
-                                      onClick={handleUnlockRequest}
+                                      onClick={() => handleUnlockRequest(servicio.service_id)}
                                     >
                                       Modificar
                                     </Button>
@@ -773,7 +816,10 @@ export function NuevaFacturaModal({
                             step="0.01"
                             min="0"
                             value={servicio.unit_price_draft}
-                            disabled={!priceUnlocked}
+                            disabled={servicio.price_locked}
+                            ref={(node) => {
+                              priceInputRefs.current[servicio.service_id] = node;
+                            }}
                             onChange={(event) =>
                               handlePriceDraftChange(servicio.service_id, event.target.value)
                             }
@@ -784,17 +830,23 @@ export function NuevaFacturaModal({
                               Modificado
                             </span>
                           )}
-                          {priceUnlocked ? (
+                          {!servicio.price_locked ? (
                             <Button
                               type="button"
                               variant="ghost"
                               size="sm"
                               onClick={() => {
-                                setPriceUnlocked(false);
+                                updateServiceLine(servicio.service_id, (item) => ({
+                                  ...item,
+                                  price_locked: true,
+                                  unlocked_until: null,
+                                }));
                                 setAuthorizedUntil(null);
-                                if (unlockTimerId) {
-                                  window.clearTimeout(unlockTimerId);
-                                  setUnlockTimerId(null);
+                                const timerId =
+                                  unlockTimersRef.current[servicio.service_id];
+                                if (timerId) {
+                                  window.clearTimeout(timerId);
+                                  delete unlockTimersRef.current[servicio.service_id];
                                 }
                               }}
                             >
@@ -805,7 +857,7 @@ export function NuevaFacturaModal({
                               type="button"
                               variant="ghost"
                               size="sm"
-                              onClick={handleUnlockRequest}
+                              onClick={() => handleUnlockRequest(servicio.service_id)}
                             >
                               Modificar
                             </Button>
