@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -19,6 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "@/hooks/use-toast";
 import { Client } from "@/types/client";
 import {
@@ -30,8 +32,21 @@ import {
 } from "@/types/invoice";
 import { Textarea } from "@/components/ui/textarea";
 import { renderCellValue } from "@/lib/render";
+import { getElSalvadorDateString } from "@/lib/dates";
 
 const IVA_RATE = 0.13;
+const PRICE_OVERRIDE_ACCESS_CODE = "123";
+const AUTHORIZATION_WINDOW_MS = 5 * 60 * 1000;
+
+type ServiceLine = SelectedServicePayload & {
+  unit_price_applied: number;
+  unit_price_draft: string;
+  original_unit_price: number;
+  price_overridden: boolean;
+  price_error?: string | null;
+  price_locked: boolean;
+  unlocked_until?: number | null;
+};
 
 const round2 = (value: number): number => {
   if (!isFinite(value)) return 0;
@@ -63,6 +78,51 @@ const facturaSchema = z.object({
   observations: z.string().optional(),
 });
 
+interface AccessCodeModalProps {
+  open: boolean;
+  value: string;
+  error?: string | null;
+  onChange: (value: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+const AccessCodeModal = ({
+  open,
+  value,
+  error,
+  onChange,
+  onConfirm,
+  onCancel,
+}: AccessCodeModalProps) => (
+  <Dialog open={open} onOpenChange={(next) => !next && onCancel()}>
+    <DialogContent className="max-w-sm">
+      <DialogHeader>
+        <DialogTitle>Código de acceso requerido</DialogTitle>
+      </DialogHeader>
+      <div className="space-y-3">
+        <Label htmlFor="accessCode">Código de acceso</Label>
+        <Input
+          id="accessCode"
+          type="password"
+          placeholder="Ingresa el código"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        {error && <p className="text-sm text-destructive">{error}</p>}
+      </div>
+      <DialogFooter className="gap-2">
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Cancelar
+        </Button>
+        <Button type="button" onClick={onConfirm}>
+          Confirmar
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+);
+
 interface NuevaFacturaModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -85,6 +145,16 @@ export function NuevaFacturaModal({
   onCancel,
 }: NuevaFacturaModalProps) {
   const [submitting, setSubmitting] = useState(false);
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientOpen, setClientOpen] = useState(false);
+  const [serviceLines, setServiceLines] = useState<ServiceLine[]>([]);
+  const [authorizedUntil, setAuthorizedUntil] = useState<number | null>(null);
+  const [accessModalOpen, setAccessModalOpen] = useState(false);
+  const [accessCodeInput, setAccessCodeInput] = useState("");
+  const [accessError, setAccessError] = useState<string | null>(null);
+  const [selectedLineId, setSelectedLineId] = useState<number | null>(null);
+  const unlockTimersRef = useRef<Record<number, number>>({});
+  const priceInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const resolveClientId = (client: Invoice["client"]): string => {
     if (typeof client === "object" && client !== null) {
@@ -95,23 +165,23 @@ export function NuevaFacturaModal({
 
   const form = useForm<z.infer<typeof facturaSchema>>({
     resolver: zodResolver(facturaSchema),
-  defaultValues: {
-    date: new Date().toISOString().split("T")[0],
-    tipoDTE: "CF",
-    metodoPago: "Efectivo",
-    clienteId: "",
-    observations: "",
-  },
+    defaultValues: {
+      date: getElSalvadorDateString(),
+      tipoDTE: "CF",
+      metodoPago: "Efectivo",
+      clienteId: "",
+      observations: "",
+    },
   });
 
   const grossTotal = useMemo(
     () =>
-      selectedServices.reduce((sum, item) => {
+      serviceLines.reduce((sum, item) => {
         const qty = Number(item.quantity) || 0;
-        const priceWithVat = Number(item.price) || 0;
+        const priceWithVat = Number(item.unit_price_applied) || 0;
         return sum + qty * priceWithVat;
       }, 0),
-    [selectedServices],
+    [serviceLines],
   );
 
   const { subtotal, iva, total } = useMemo(
@@ -120,7 +190,7 @@ export function NuevaFacturaModal({
   );
 
   const onSubmitForm = async (data: z.infer<typeof facturaSchema>) => {
-    if (selectedServices.length === 0) {
+    if (serviceLines.length === 0) {
       toast({
         title: "Error",
         description: "Debe agregar al menos un servicio",
@@ -129,15 +199,50 @@ export function NuevaFacturaModal({
       return;
     }
 
-    const servicesPayload: SelectedServicePayload[] = selectedServices.map(
-      (item) => ({
+    const normalizedLines = serviceLines.map((item) => {
+      const draftValue = item.unit_price_draft.trim();
+      const fallbackValue = item.original_unit_price;
+      const parsed = draftValue === "" ? fallbackValue : Number(draftValue);
+
+      if (!isFinite(parsed) || parsed <= 0) {
+        return { ...item, price_error: "El precio debe ser mayor a 0." };
+      }
+
+      const priceOverridden = parsed !== item.original_unit_price;
+      return {
+        ...item,
+        unit_price_applied: parsed,
+        unit_price_draft: parsed.toFixed(2),
+        price_overridden: priceOverridden,
+        price_error: null,
+        subtotal: Number((parsed * item.quantity).toFixed(2)),
+      };
+    });
+
+    const invalidLines = normalizedLines.filter(
+      (item) => !isFinite(item.unit_price_applied) || item.unit_price_applied <= 0,
+    );
+    if (invalidLines.length > 0) {
+      setServiceLines(normalizedLines);
+      return;
+    }
+
+    setServiceLines(normalizedLines);
+
+    const servicesPayload: SelectedServicePayload[] = normalizedLines.map((item) => {
+      const price = Number(item.unit_price_applied);
+      return {
         service_id: item.service_id,
         name: item.name,
-        price: item.price,
+        price,
+        original_unit_price: item.original_unit_price,
+        unit_price: price,
+        price_overridden: item.price_overridden,
         quantity: item.quantity,
-        subtotal: Number((item.price * item.quantity).toFixed(2)),
-      }),
-    );
+        subtotal: Number((price * item.quantity).toFixed(2)),
+        ...(item.price_overridden ? { override_code: PRICE_OVERRIDE_ACCESS_CODE } : {}),
+      };
+    });
 
     const payload: InvoicePayload = {
       date: data.date,
@@ -157,12 +262,18 @@ export function NuevaFacturaModal({
         description: "La factura se ha guardado correctamente",
       });
       form.reset({
-        date: new Date().toISOString().split("T")[0],
+        date: getElSalvadorDateString(),
         clienteId: "",
         tipoDTE: "CF",
         metodoPago: "Efectivo",
         observations: "",
       });
+      setAuthorizedUntil(null);
+      Object.values(unlockTimersRef.current).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      unlockTimersRef.current = {};
+      setSelectedLineId(null);
       onOpenChange(false);
     } catch (error) {
       console.error("Error al guardar factura", error);
@@ -182,11 +293,77 @@ export function NuevaFacturaModal({
         id: cliente.id.toString(),
         nombre: cliente.company_name || cliente.full_name,
         tipo: cliente.client_type,
+        nit: cliente.nit || "",
+        nrc: cliente.nrc || "",
+        dui: cliente.dui || "",
       })),
     [clients],
   );
 
+  const selectedClientId = form.watch("clienteId");
+  const selectedClient = useMemo(() => {
+    return clientesOptions.find((cliente) => cliente.id === selectedClientId) || null;
+  }, [clientesOptions, selectedClientId]);
+
+  const normalizeText = (value: string): string =>
+    value
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+
+  const filteredClients = useMemo(() => {
+    const query = normalizeText(clientSearch);
+    if (!query) return clientesOptions.slice(0, 20);
+    return clientesOptions
+      .filter((cliente) => {
+        const haystack = [
+          cliente.nombre,
+          cliente.nit,
+          cliente.nrc,
+          cliente.dui,
+          cliente.tipo,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        return normalizeText(haystack).includes(query);
+      })
+      .slice(0, 20);
+  }, [clientSearch, clientesOptions]);
+
   useEffect(() => {
+    if (open) {
+      setServiceLines(
+        selectedServices.map((item) => {
+          const originalPrice = Number(
+            item.original_unit_price ?? item.unit_price ?? item.price ?? 0,
+          );
+          const appliedPrice = Number(item.unit_price ?? item.price ?? originalPrice);
+          const priceOverridden = item.price_overridden ?? appliedPrice !== originalPrice;
+          return {
+            ...item,
+            original_unit_price: originalPrice,
+            unit_price_applied: appliedPrice,
+            unit_price_draft: appliedPrice.toFixed(2),
+            price_overridden: priceOverridden,
+            price_error: null,
+            subtotal: Number((appliedPrice * item.quantity).toFixed(2)),
+            price_locked: true,
+            unlocked_until: null,
+          };
+        }),
+      );
+      setAuthorizedUntil(null);
+      Object.values(unlockTimersRef.current).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      unlockTimersRef.current = {};
+      setAccessModalOpen(false);
+      setAccessCodeInput("");
+      setAccessError(null);
+      setSelectedLineId(null);
+    }
+
     if (mode === "edit" && invoice) {
       form.reset({
         date: invoice.date,
@@ -199,17 +376,156 @@ export function NuevaFacturaModal({
 
     if (mode === "create" && open) {
       form.reset({
-        date: new Date().toISOString().split("T")[0],
+        date: getElSalvadorDateString(),
         clienteId: "",
         tipoDTE: "CF",
         metodoPago: "Efectivo",
         observations: "",
       });
+      setClientSearch("");
+      setClientOpen(false);
     }
-  }, [invoice, mode, open, form]);
+  }, [invoice, mode, open, form, selectedServices]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(unlockTimersRef.current).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      unlockTimersRef.current = {};
+    };
+  }, []);
+
+  const updateServiceLine = (
+    serviceId: number,
+    updater: (item: ServiceLine) => ServiceLine,
+  ) => {
+    setServiceLines((prev) =>
+      prev.map((item) => (item.service_id === serviceId ? updater(item) : item)),
+    );
+  };
+
+  const applyOverrideValue = (serviceId: number, value: number) => {
+    updateServiceLine(serviceId, (item) => {
+      const priceOverridden = value !== item.original_unit_price;
+      const nextValue = priceOverridden ? value : item.original_unit_price;
+      return {
+        ...item,
+        unit_price_applied: nextValue,
+        unit_price_draft: nextValue.toFixed(2),
+        price_overridden: priceOverridden,
+        price_error: null,
+        subtotal: Number((nextValue * item.quantity).toFixed(2)),
+      };
+    });
+  };
+
+  const handlePriceDraftChange = (serviceId: number, value: string) => {
+    updateServiceLine(serviceId, (item) => ({
+      ...item,
+      unit_price_draft: value,
+      price_error: null,
+    }));
+  };
+
+  const handlePriceBlur = (serviceId: number) => {
+    const target = serviceLines.find((item) => item.service_id === serviceId);
+    if (!target) return;
+
+    const draftValue = target.unit_price_draft.trim();
+    if (draftValue === "") {
+      applyOverrideValue(serviceId, target.original_unit_price);
+      return;
+    }
+
+    const parsed = Number(draftValue);
+    if (!isFinite(parsed) || parsed <= 0) {
+      updateServiceLine(serviceId, (item) => ({
+        ...item,
+        price_error: "El precio debe ser mayor a 0.",
+      }));
+      return;
+    }
+
+    applyOverrideValue(serviceId, parsed);
+  };
+
+  const handleResetPrice = (serviceId: number) => {
+    const target = serviceLines.find((item) => item.service_id === serviceId);
+    if (!target) return;
+    applyOverrideValue(serviceId, target.original_unit_price);
+  };
+
+  const handleAccessConfirm = () => {
+    if (accessCodeInput !== PRICE_OVERRIDE_ACCESS_CODE) {
+      setAccessError("Código incorrecto. Intenta nuevamente.");
+      return;
+    }
+
+    const expiresAt = Date.now() + AUTHORIZATION_WINDOW_MS;
+    setAuthorizedUntil(expiresAt);
+    if (selectedLineId === null) {
+      setAccessError("Selecciona un servicio para desbloquear.");
+      return;
+    }
+
+    const prevTimer = unlockTimersRef.current[selectedLineId];
+    if (prevTimer) {
+      window.clearTimeout(prevTimer);
+    }
+    const timerId = window.setTimeout(() => {
+      setServiceLines((prev) =>
+        prev.map((item) =>
+          item.service_id === selectedLineId
+            ? { ...item, price_locked: true, unlocked_until: null }
+            : item,
+        ),
+      );
+      delete unlockTimersRef.current[selectedLineId];
+    }, AUTHORIZATION_WINDOW_MS);
+    unlockTimersRef.current[selectedLineId] = timerId;
+
+    updateServiceLine(selectedLineId, (item) => ({
+      ...item,
+      price_locked: false,
+      unlocked_until: expiresAt,
+    }));
+    setAccessModalOpen(false);
+    setAccessError(null);
+    setAccessCodeInput("");
+    const input = priceInputRefs.current[selectedLineId];
+    if (input) {
+      window.setTimeout(() => {
+        input.focus();
+        input.select();
+      }, 0);
+    }
+  };
+
+  const handleAccessCancel = () => {
+    setAccessModalOpen(false);
+    setAccessError(null);
+    setAccessCodeInput("");
+    setSelectedLineId(null);
+  };
+
+  const handleUnlockRequest = (serviceId: number) => {
+    setSelectedLineId(serviceId);
+    setAccessModalOpen(true);
+  };
 
   const handleDialogChange = (value: boolean) => {
     if (!value) {
+      Object.values(unlockTimersRef.current).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      unlockTimersRef.current = {};
+      setServiceLines((prev) =>
+        prev.map((item) => ({ ...item, price_locked: true, unlocked_until: null })),
+      );
+      setAuthorizedUntil(null);
+      setAccessModalOpen(false);
+      setSelectedLineId(null);
       onCancel();
     } else {
       onOpenChange(value);
@@ -217,13 +533,14 @@ export function NuevaFacturaModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleDialogChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>
-            {mode === "edit" ? "Editar Factura" : "Nueva Factura"}
-          </DialogTitle>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={handleDialogChange}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {mode === "edit" ? "Editar Factura" : "Nueva Factura"}
+            </DialogTitle>
+          </DialogHeader>
 
         <form onSubmit={form.handleSubmit(onSubmitForm)} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -263,21 +580,59 @@ export function NuevaFacturaModal({
 
             <div className="space-y-2">
               <Label htmlFor="clienteId">Cliente</Label>
-              <Select
-                value={form.watch("clienteId")}
-                onValueChange={(value) => form.setValue("clienteId", value)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar cliente" />
-                </SelectTrigger>
-                <SelectContent>
-                  {clientesOptions.map((cliente) => (
-                    <SelectItem key={cliente.id} value={cliente.id}>
-                      {cliente.nombre} ({cliente.tipo})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover open={clientOpen} onOpenChange={setClientOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between"
+                  >
+                    {selectedClient
+                      ? `${selectedClient.nombre} (${selectedClient.tipo})`
+                      : "Buscar cliente…"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-full p-0" align="start">
+                  <Command className="max-h-72">
+                    <CommandInput
+                      placeholder="Buscar cliente…"
+                      value={clientSearch}
+                      onValueChange={setClientSearch}
+                    />
+                    <CommandEmpty>No se encontraron clientes</CommandEmpty>
+                    <CommandGroup className="max-h-60 overflow-y-auto">
+                      {filteredClients.map((cliente) => {
+                        const secondary = cliente.nrc || cliente.nit || cliente.dui;
+                        return (
+                          <CommandItem
+                            key={cliente.id}
+                            value={`${cliente.nombre}-${cliente.id}`}
+                            onSelect={() => {
+                              form.setValue("clienteId", cliente.id, {
+                                shouldValidate: true,
+                              });
+                              setClientOpen(false);
+                              setClientSearch("");
+                            }}
+                          >
+                            <div className="flex flex-col">
+                              <span className="font-medium">
+                                {cliente.nombre} ({cliente.tipo})
+                              </span>
+                              {secondary && (
+                                <span className="text-xs text-muted-foreground">
+                                  {secondary}
+                                </span>
+                              )}
+                            </div>
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  </Command>
+                </PopoverContent>
+              </Popover>
               {form.formState.errors.clienteId && (
                 <p className="text-sm text-destructive">
                   {form.formState.errors.clienteId.message}
@@ -318,7 +673,7 @@ export function NuevaFacturaModal({
                 </span>
               </div>
 
-              {selectedServices.length > 0 ? (
+              {serviceLines.length > 0 ? (
                 <div className="space-y-3">
                   <div className="hidden sm:block overflow-x-auto rounded-lg border border-border">
                     <table className="w-full text-sm">
@@ -326,11 +681,12 @@ export function NuevaFacturaModal({
                         <tr>
                           <th className="px-4 py-3 text-left font-medium">Servicio</th>
                           <th className="px-4 py-3 text-center font-medium">Cantidad</th>
+                          <th className="px-4 py-3 text-left font-medium">Precio</th>
                           <th className="px-4 py-3 text-right font-medium">Subtotal</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {selectedServices.map((servicio) => (
+                        {serviceLines.map((servicio) => (
                           <tr key={servicio.service_id} className="border-t border-border">
                             <td className="px-4 py-3">
                               <p className="font-medium leading-tight">{servicio.name}</p>
@@ -339,6 +695,89 @@ export function NuevaFacturaModal({
                               </p>
                             </td>
                             <td className="px-4 py-3 text-center">{servicio.quantity}</td>
+                            <td className="px-4 py-3">
+                              <div className="space-y-2">
+                                <div className="text-xs text-muted-foreground">
+                                  <span
+                                    className={
+                                      servicio.price_overridden ? "line-through" : ""
+                                    }
+                                  >
+                                    Original: ${Number(servicio.original_unit_price).toFixed(2)}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    className="w-32"
+                                    value={servicio.unit_price_draft}
+                                    disabled={servicio.price_locked}
+                                    ref={(node) => {
+                                      priceInputRefs.current[servicio.service_id] = node;
+                                    }}
+                                    onChange={(event) =>
+                                      handlePriceDraftChange(
+                                        servicio.service_id,
+                                        event.target.value,
+                                      )
+                                    }
+                                    onBlur={() => handlePriceBlur(servicio.service_id)}
+                                  />
+                                  {servicio.price_overridden && (
+                                    <span className="rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
+                                      Modificado
+                                    </span>
+                                  )}
+                                  {!servicio.price_locked ? (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => {
+                                        updateServiceLine(servicio.service_id, (item) => ({
+                                          ...item,
+                                          price_locked: true,
+                                          unlocked_until: null,
+                                        }));
+                                        setAuthorizedUntil(null);
+                                        const timerId =
+                                          unlockTimersRef.current[servicio.service_id];
+                                        if (timerId) {
+                                          window.clearTimeout(timerId);
+                                          delete unlockTimersRef.current[servicio.service_id];
+                                        }
+                                      }}
+                                    >
+                                      Bloquear
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => handleUnlockRequest(servicio.service_id)}
+                                    >
+                                      Modificar
+                                    </Button>
+                                  )}
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleResetPrice(servicio.service_id)}
+                                  >
+                                    Restablecer
+                                  </Button>
+                                </div>
+                                {servicio.price_error && (
+                                  <p className="text-xs text-destructive">
+                                    {servicio.price_error}
+                                  </p>
+                                )}
+                              </div>
+                            </td>
                             <td className="px-4 py-3 text-right font-semibold">
                               ${Number(servicio.subtotal).toFixed(2)}
                             </td>
@@ -349,18 +788,93 @@ export function NuevaFacturaModal({
                   </div>
 
                   <div className="grid gap-3 sm:hidden">
-                  {selectedServices.map((servicio) => (
-                    <div
-                      key={servicio.service_id}
-                      className="rounded-lg border border-border p-3 space-y-1"
-                    >
-                      <p className="text-sm font-medium leading-tight">{servicio.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        ID: {renderCellValue(servicio.service_id)}
-                      </p>
+                    {serviceLines.map((servicio) => (
+                      <div
+                        key={servicio.service_id}
+                        className="rounded-lg border border-border p-3 space-y-2"
+                      >
+                        <p className="text-sm font-medium leading-tight">{servicio.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          ID: {renderCellValue(servicio.service_id)}
+                        </p>
                         <div className="flex items-center justify-between text-sm">
                           <span>Cantidad:</span>
                           <span className="font-medium">{servicio.quantity}</span>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="text-xs text-muted-foreground">
+                            <span
+                              className={
+                                servicio.price_overridden ? "line-through" : ""
+                              }
+                            >
+                              Original: ${Number(servicio.original_unit_price).toFixed(2)}
+                            </span>
+                          </div>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={servicio.unit_price_draft}
+                            disabled={servicio.price_locked}
+                            ref={(node) => {
+                              priceInputRefs.current[servicio.service_id] = node;
+                            }}
+                            onChange={(event) =>
+                              handlePriceDraftChange(servicio.service_id, event.target.value)
+                            }
+                            onBlur={() => handlePriceBlur(servicio.service_id)}
+                          />
+                          {servicio.price_overridden && (
+                            <span className="inline-flex w-fit rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
+                              Modificado
+                            </span>
+                          )}
+                          {!servicio.price_locked ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                updateServiceLine(servicio.service_id, (item) => ({
+                                  ...item,
+                                  price_locked: true,
+                                  unlocked_until: null,
+                                }));
+                                setAuthorizedUntil(null);
+                                const timerId =
+                                  unlockTimersRef.current[servicio.service_id];
+                                if (timerId) {
+                                  window.clearTimeout(timerId);
+                                  delete unlockTimersRef.current[servicio.service_id];
+                                }
+                              }}
+                            >
+                              Bloquear
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleUnlockRequest(servicio.service_id)}
+                            >
+                              Modificar
+                            </Button>
+                          )}
+                          {servicio.price_error && (
+                            <p className="text-xs text-destructive">
+                              {servicio.price_error}
+                            </p>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleResetPrice(servicio.service_id)}
+                          >
+                            Restablecer
+                          </Button>
                         </div>
                         <div className="flex items-center justify-between text-sm">
                           <span>Subtotal:</span>
@@ -388,7 +902,7 @@ export function NuevaFacturaModal({
             />
           </div>
 
-          {selectedServices.length > 0 && (
+          {serviceLines.length > 0 && (
             <div className="space-y-2 bg-muted/50 p-4 rounded-lg">
               <div className="flex justify-between text-sm">
                 <span>Subtotal:</span>
@@ -413,12 +927,21 @@ export function NuevaFacturaModal({
             >
               Cancelar
             </Button>
-            <Button type="submit" disabled={submitting || selectedServices.length === 0}>
+            <Button type="submit" disabled={submitting || serviceLines.length === 0}>
               {mode === "edit" ? "Guardar Cambios" : "Crear Factura"}
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+      <AccessCodeModal
+        open={accessModalOpen}
+        value={accessCodeInput}
+        error={accessError}
+        onChange={setAccessCodeInput}
+        onConfirm={handleAccessConfirm}
+        onCancel={handleAccessCancel}
+      />
+    </>
   );
 }

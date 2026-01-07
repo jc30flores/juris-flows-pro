@@ -2,9 +2,11 @@ import logging
 from decimal import Decimal
 import logging
 
+from django.conf import settings
 from django.contrib.auth.hashers import make_password
 from django.utils import timezone
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 
 from .dte_cf_service import (
     send_ccf_dte_for_invoice,
@@ -25,6 +27,7 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+PRICE_OVERRIDE_ACCESS_CODE = getattr(settings, "PRICE_OVERRIDE_ACCESS_CODE", "123")
 
 
 class ServiceCategorySerializer(serializers.ModelSerializer):
@@ -222,13 +225,40 @@ class InvoiceSerializer(serializers.ModelSerializer):
             quantity = service_data.get("quantity", 1)
             unit_price = service_data.get("price") or service_data.get("unit_price")
             subtotal = service_data.get("subtotal")
+            override_code = service_data.get("override_code") or service_data.get(
+                "overrideCode"
+            )
 
-            if unit_price is None and service_id:
-                service_instance = Service.objects.filter(pk=service_id).first()
-                if service_instance:
-                    unit_price = service_instance.base_price
+            service_instance = Service.objects.filter(pk=service_id).first()
+            original_unit_price = service_instance.base_price if service_instance else None
 
-            if subtotal is None and unit_price is not None:
+            if unit_price is None:
+                unit_price = original_unit_price
+
+            if unit_price is None:
+                raise serializers.ValidationError(
+                    {"services": f"Servicio {service_id} no tiene precio base."}
+                )
+
+            unit_price = Decimal(str(unit_price))
+            original_unit_price = (
+                Decimal(str(original_unit_price)) if original_unit_price is not None else unit_price
+            )
+
+            if unit_price <= 0:
+                raise serializers.ValidationError(
+                    {"services": f"El precio debe ser mayor a 0 para servicio {service_id}."}
+                )
+
+            price_overridden = unit_price != original_unit_price
+            if price_overridden:
+                if not override_code or override_code != PRICE_OVERRIDE_ACCESS_CODE:
+                    raise PermissionDenied(
+                        "Código de acceso inválido para modificar el precio "
+                        f"del servicio {service_id}."
+                    )
+
+            if subtotal is None:
                 subtotal = Decimal(unit_price) * int(quantity)
 
             normalized_items.append(
@@ -236,7 +266,9 @@ class InvoiceSerializer(serializers.ModelSerializer):
                     "service_id": service_id,
                     "quantity": quantity,
                     "unit_price": unit_price,
+                    "original_unit_price": original_unit_price,
                     "subtotal": subtotal,
+                    "price_overridden": price_overridden,
                 }
             )
 
@@ -259,6 +291,10 @@ class InvoiceSerializer(serializers.ModelSerializer):
                 item_data["service"] = service_value
             elif service_value is not None:
                 item_data["service_id"] = service_value
+
+            if "original_unit_price" not in item_data and "unit_price" in item_data:
+                item_data["original_unit_price"] = item_data["unit_price"]
+            item_data.setdefault("price_overridden", False)
 
             InvoiceItem.objects.create(invoice=invoice, **item_data)
 

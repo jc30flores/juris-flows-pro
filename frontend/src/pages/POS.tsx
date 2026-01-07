@@ -1,13 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  endOfDay,
-  endOfMonth,
-  endOfWeek,
-  isWithinInterval,
-  startOfDay,
-  startOfMonth,
-  startOfWeek,
-} from "date-fns";
 import { Ban, Copy, Download, FilePlus2, Filter, Mail, MessageCircle, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,11 +21,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
 import { ServiceSelectorModal } from "@/components/modals/ServiceSelectorModal";
 import { API_BASE_URL, api } from "@/lib/api";
-import {
-  formatDateInElSalvador,
-  parseInvoiceDate,
-  toElSalvadorMidnightUtc,
-} from "@/lib/dates";
+import { getInvoiceDateInfo, InvoiceDateFilter } from "@/lib/dates";
 import { Client } from "@/types/client";
 import { Invoice, InvoiceItem, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
 import { Service } from "@/types/service";
@@ -261,38 +248,13 @@ export default function POS() {
     }, {});
   }, [clients]);
 
-  const resolveInvoiceDate = (invoice: Invoice): Date | null => {
-    return (
-      parseInvoiceDate(invoice.issue_date) ??
-      parseInvoiceDate(invoice.created_at) ??
-      parseInvoiceDate(invoice.date) ??
-      parseInvoiceDate(invoice.date_display)
-    );
-  };
-
   const getInvoiceDateLabel = (invoice: Invoice): string => {
-    const parsed = resolveInvoiceDate(invoice);
-    return parsed
-      ? formatDateInElSalvador(parsed)
-      : invoice.date_display || invoice.date;
+    const { dateString, formatted } = getInvoiceDateInfo(invoice);
+    return formatted ?? dateString ?? "—";
   };
 
   const filteredInvoices = useMemo(() => {
-    const now = new Date();
-    const nowEs = toElSalvadorMidnightUtc(now);
-    const todayRange = {
-      start: startOfDay(nowEs),
-      end: endOfDay(nowEs),
-    };
-    const weekRange = {
-      start: startOfWeek(nowEs, { weekStartsOn: 1 }),
-      end: endOfWeek(nowEs, { weekStartsOn: 1 }),
-    };
-    const monthRange = {
-      start: startOfMonth(nowEs),
-      end: endOfMonth(nowEs),
-    };
-
+    const referenceDate = new Date();
     return invoices.filter((invoice) => {
       const clientId = resolveClientId(invoice.client);
       const matchesSearch = `${invoice.number} ${clientLookup[clientId ?? -1] || ""}`
@@ -301,23 +263,9 @@ export default function POS() {
 
       if (!matchesSearch) return false;
 
-      const invoiceDate = resolveInvoiceDate(invoice);
-      if (!invoiceDate) return false;
-      const invoiceEs = toElSalvadorMidnightUtc(invoiceDate);
-
-      if (filter === "today") {
-        return isWithinInterval(invoiceEs, todayRange);
-      }
-
-      if (filter === "week" || filter === "this-week") {
-        return isWithinInterval(invoiceEs, weekRange);
-      }
-
-      if (filter === "month" || filter === "this-month") {
-        return isWithinInterval(invoiceEs, monthRange);
-      }
-
-      return true;
+      const { dateString, matchesFilter } = getInvoiceDateInfo(invoice);
+      if (!dateString) return false;
+      return matchesFilter(filter as InvoiceDateFilter, referenceDate);
     });
   }, [clientLookup, filter, invoices, search]);
 
@@ -342,12 +290,18 @@ export default function POS() {
     const items = invoice.items || [];
     const mappedServices = items.map((item) => {
       const { serviceId, serviceDetails } = resolveServiceFromItem(item, services);
-      const price = Number(item.unit_price || serviceDetails?.base_price || 0);
+      const originalPrice = Number(
+        item.original_unit_price ?? item.unit_price ?? serviceDetails?.base_price ?? 0,
+      );
+      const price = Number(item.unit_price || originalPrice);
       const quantity = item.quantity || 1;
       return {
         service_id: serviceId ?? 0,
         name: serviceDetails?.name || `Servicio ${serviceId ?? ""}`,
         price,
+        original_unit_price: originalPrice,
+        unit_price: price,
+        price_overridden: price !== originalPrice,
         quantity,
         subtotal: Number((price * quantity).toFixed(2)),
       } as SelectedServicePayload;

@@ -18,8 +18,10 @@ export interface InvoiceItem {
   invoice: number;
   service: number | Service;
   quantity: number;
+  original_unit_price?: number | string;
   unit_price: number | string;
   subtotal: number | string;
+  price_overridden?: boolean;
 }
 
 export interface Invoice {
@@ -62,6 +64,9 @@ export interface InvoiceItemPayload {
   service: number;
   quantity: number;
   unit_price: number;
+  original_unit_price?: number;
+  price_overridden?: boolean;
+  override_code?: string;
   subtotal: number;
 }
 
@@ -69,6 +74,10 @@ export interface SelectedServicePayload {
   service_id: number;
   name: string;
   price: number;
+  original_unit_price?: number;
+  unit_price?: number;
+  price_overridden?: boolean;
+  override_code?: string;
   quantity: number;
   subtotal: number;
 }

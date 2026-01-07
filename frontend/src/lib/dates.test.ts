@@ -1,44 +1,30 @@
 import { describe, expect, it } from "vitest";
-import {
-  formatDateInElSalvador,
-  parseInvoiceDate,
-  toElSalvadorMidnightUtc,
-} from "./dates";
+import { getInvoiceDateInfo } from "./dates";
 
-describe("parseInvoiceDate", () => {
-  it("parses ISO date", () => {
-    const parsed = parseInvoiceDate("2026-01-05");
-    expect(parsed).not.toBeNull();
-    expect(parsed?.getFullYear()).toBe(2026);
-    expect(parsed?.getMonth()).toBe(0);
-    expect(parsed?.getDate()).toBe(5);
+describe("getInvoiceDateInfo", () => {
+  it("reads issue_date and formats dd/MM/yyyy", () => {
+    const info = getInvoiceDateInfo({ issue_date: "2026-01-05" });
+    expect(info.dateString).toBe("2026-01-05");
+    expect(info.formatted).toBe("05/01/2026");
   });
 
-  it("parses ISO datetime", () => {
-    const parsed = parseInvoiceDate("2026-01-05T10:00:00Z");
-    expect(parsed).not.toBeNull();
+  it("falls back to date when issue_date is missing", () => {
+    const info = getInvoiceDateInfo({ date: "2026-02-10" });
+    expect(info.dateString).toBe("2026-02-10");
+    expect(info.formatted).toBe("10/02/2026");
   });
 
-  it("parses DD/MM/YYYY", () => {
-    const parsed = parseInvoiceDate("05/01/2026");
-    expect(parsed).not.toBeNull();
-    expect(parsed?.getMonth()).toBe(0);
-    expect(parsed?.getDate()).toBe(5);
-  });
-
-  it("returns null for empty input", () => {
-    expect(parseInvoiceDate("")).toBeNull();
-    expect(parseInvoiceDate(null)).toBeNull();
-  });
-
-  it("formats El Salvador dates without day rollover at 10pm ES", () => {
+  it("matches today based on El Salvador date without UTC rollover", () => {
+    const info = getInvoiceDateInfo({ issue_date: "2026-01-05" });
     const tenPmEs = new Date("2026-01-06T04:00:00Z");
-    expect(formatDateInElSalvador(tenPmEs)).toBe("05/01/2026");
+    expect(info.matchesFilter("today", tenPmEs)).toBe(true);
+    expect(info.matchesFilter("today", new Date("2026-01-06T12:00:00Z"))).toBe(
+      false,
+    );
   });
 
-  it("normalizes to El Salvador midnight in UTC", () => {
-    const sample = new Date("2026-01-06T04:00:00Z");
-    const normalized = toElSalvadorMidnightUtc(sample);
-    expect(normalized.toISOString().startsWith("2026-01-05")).toBe(true);
+  it("returns false when date is missing for filtered views", () => {
+    const info = getInvoiceDateInfo({});
+    expect(info.matchesFilter("today", new Date())).toBe(false);
   });
 });

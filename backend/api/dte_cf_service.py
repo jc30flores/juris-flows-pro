@@ -1,21 +1,22 @@
 import json
 import logging
-import random
 import uuid
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Tuple
 
 import requests
+from django.db import transaction
 from django.utils import timezone
 
 from .connectivity import get_connectivity_status as _connectivity_status_snapshot
-from .models import Activity, DTERecord, Invoice, InvoiceItem, Service
+from .models import Activity, DTEControlCounter, DTERecord, Invoice, InvoiceItem, Service
 
 logger = logging.getLogger(__name__)
 
 
 IVA_RATE = Decimal("0.13")
 ONE = Decimal("1")
+CONTROL_NUMBER_WIDTH = 15
 
 
 def _round_2(value: Decimal) -> Decimal:
@@ -46,6 +47,47 @@ def split_gross_amount_with_tax(gross) -> tuple[Decimal, Decimal]:
 
 def get_connectivity_status():
     return _connectivity_status_snapshot()
+
+
+def _build_numero_control(
+    ambiente: str,
+    tipo_dte: str,
+    emision_date,
+    est_code: str,
+    pv_code: str,
+) -> tuple[str, int]:
+    with transaction.atomic():
+        counter, _ = DTEControlCounter.objects.select_for_update().get_or_create(
+            ambiente=ambiente,
+            tipo_dte=tipo_dte,
+            anio_emision=emision_date.year,
+            est_code=est_code,
+            pv_code=pv_code,
+        )
+        next_number = counter.last_number + 1
+    correlativo = str(next_number).zfill(CONTROL_NUMBER_WIDTH)
+    return f"DTE-{tipo_dte}-{est_code}{pv_code}-{correlativo}", next_number
+
+
+def _mark_control_number_processed(
+    ambiente: str,
+    tipo_dte: str,
+    emision_date,
+    est_code: str,
+    pv_code: str,
+    processed_number: int,
+) -> None:
+    with transaction.atomic():
+        counter, _ = DTEControlCounter.objects.select_for_update().get_or_create(
+            ambiente=ambiente,
+            tipo_dte=tipo_dte,
+            anio_emision=emision_date.year,
+            est_code=est_code,
+            pv_code=pv_code,
+        )
+        if processed_number > counter.last_number:
+            counter.last_number = processed_number
+            counter.save(update_fields=["last_number"])
 
 
 UNIDADES = [
@@ -293,11 +335,20 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
     """
 
     codigo_generacion = str(uuid.uuid4()).upper()
-    random_suffix = "".join(str(random.randint(0, 9)) for _ in range(15))
-    numero_control = f"DTE-01-M002P001-{random_suffix}"
+    ambiente = "00"
+    est_code = EMITTER_INFO["codEstable"]
+    pv_code = EMITTER_INFO["codPuntoVenta"]
 
     now_local = timezone.localtime()
-    fec_emi = now_local.date().isoformat()
+    emision_date = now_local.date()
+    numero_control, control_number_value = _build_numero_control(
+        ambiente,
+        "01",
+        emision_date,
+        est_code,
+        pv_code,
+    )
+    fec_emi = emision_date.isoformat()
     hor_emi = now_local.strftime("%H:%M:%S")
 
     receptor, receiver_nit, receiver_name = _build_receptor(invoice)
@@ -403,7 +454,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
                 "tipoDte": "01",
                 "version": 1,
                 "tipoContingencia": None,
-                "ambiente": "00",
+                "ambiente": ambiente,
                 "numeroControl": numero_control,
                 "horEmi": hor_emi,
                 "tipoOperacion": 1,
@@ -494,6 +545,16 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         record.status = estado_interno
         record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
 
+        if estado_hacienda == "PROCESADO":
+            _mark_control_number_processed(
+                ambiente,
+                "01",
+                emision_date,
+                est_code,
+                pv_code,
+                control_number_value,
+            )
+
         invoice.dte_status = estado_interno
         invoice.save(update_fields=["dte_status"])
         invoice._dte_message = user_message
@@ -517,11 +578,20 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
     """
 
     codigo_generacion = str(uuid.uuid4()).upper()
-    random_suffix = "".join(str(random.randint(0, 9)) for _ in range(15))
-    numero_control = f"DTE-03-M002P001-{random_suffix}"
+    ambiente = "00"
+    est_code = EMITTER_INFO["codEstable"]
+    pv_code = EMITTER_INFO["codPuntoVenta"]
 
     now_local = timezone.localtime()
-    fec_emi = now_local.date().isoformat()
+    emision_date = now_local.date()
+    numero_control, control_number_value = _build_numero_control(
+        ambiente,
+        "03",
+        emision_date,
+        est_code,
+        pv_code,
+    )
+    fec_emi = emision_date.isoformat()
     hor_emi = now_local.strftime("%H:%M:%S")
 
     client = getattr(invoice, "client", None)
@@ -680,7 +750,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
                 "tipoDte": "03",
                 "version": 3,
                 "tipoContingencia": None,
-                "ambiente": "00",
+                "ambiente": ambiente,
                 "numeroControl": numero_control,
                 "horEmi": hor_emi,
                 "tipoOperacion": 1,
@@ -769,6 +839,16 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         record.status = estado_interno
         record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
 
+        if estado_hacienda == "PROCESADO":
+            _mark_control_number_processed(
+                ambiente,
+                "03",
+                emision_date,
+                est_code,
+                pv_code,
+                control_number_value,
+            )
+
         invoice.dte_status = estado_interno
         invoice.save(update_fields=["dte_status"])
         invoice._dte_message = user_message
@@ -792,11 +872,20 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
     """
 
     codigo_generacion = str(uuid.uuid4()).upper()
-    random_suffix = "".join(str(random.randint(0, 9)) for _ in range(15))
-    numero_control = f"DTE-14-M002P001-{random_suffix}"
+    ambiente = "00"
+    est_code = EMITTER_INFO["codEstable"]
+    pv_code = EMITTER_INFO["codPuntoVenta"]
 
     now_local = timezone.localtime()
-    fec_emi = now_local.date().isoformat()
+    emision_date = now_local.date()
+    numero_control, control_number_value = _build_numero_control(
+        ambiente,
+        "14",
+        emision_date,
+        est_code,
+        pv_code,
+    )
+    fec_emi = emision_date.isoformat()
     hor_emi = now_local.strftime("%H:%M:%S")
 
     client = getattr(invoice, "client", None)
@@ -920,7 +1009,7 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
                 "tipoDte": "14",
                 "version": 1,
                 "tipoContingencia": None,
-                "ambiente": "00",
+                "ambiente": ambiente,
                 "numeroControl": numero_control,
                 "horEmi": hor_emi,
                 "tipoOperacion": 1,
@@ -993,6 +1082,16 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         record.hacienda_state = estado_hacienda
         record.status = estado_interno
         record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
+
+        if estado_hacienda == "PROCESADO":
+            _mark_control_number_processed(
+                ambiente,
+                "14",
+                emision_date,
+                est_code,
+                pv_code,
+                control_number_value,
+            )
 
         invoice.dte_status = estado_interno
         invoice.save(update_fields=["dte_status"])
