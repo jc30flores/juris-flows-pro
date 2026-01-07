@@ -146,14 +146,12 @@ export function NuevaFacturaModal({
   const [clientSearch, setClientSearch] = useState("");
   const [clientOpen, setClientOpen] = useState(false);
   const [serviceLines, setServiceLines] = useState<ServiceLine[]>([]);
+  const [priceUnlocked, setPriceUnlocked] = useState(false);
   const [authorizedUntil, setAuthorizedUntil] = useState<number | null>(null);
+  const [unlockTimerId, setUnlockTimerId] = useState<number | null>(null);
   const [accessModalOpen, setAccessModalOpen] = useState(false);
   const [accessCodeInput, setAccessCodeInput] = useState("");
   const [accessError, setAccessError] = useState<string | null>(null);
-  const [pendingOverride, setPendingOverride] = useState<{
-    serviceId: number;
-    value: number;
-  } | null>(null);
 
   const resolveClientId = (client: Invoice["client"]): string => {
     if (typeof client === "object" && client !== null) {
@@ -198,7 +196,6 @@ export function NuevaFacturaModal({
       return;
     }
 
-    let blockedByAuth: { serviceId: number; value: number } | null = null;
     const normalizedLines = serviceLines.map((item) => {
       const draftValue = item.unit_price_draft.trim();
       const fallbackValue = item.original_unit_price;
@@ -206,13 +203,6 @@ export function NuevaFacturaModal({
 
       if (!isFinite(parsed) || parsed <= 0) {
         return { ...item, price_error: "El precio debe ser mayor a 0." };
-      }
-
-      if (parsed !== item.original_unit_price && !isAuthorized()) {
-        if (!blockedByAuth) {
-          blockedByAuth = { serviceId: item.service_id, value: parsed };
-        }
-        return item;
       }
 
       const priceOverridden = parsed !== item.original_unit_price;
@@ -225,11 +215,6 @@ export function NuevaFacturaModal({
         subtotal: Number((parsed * item.quantity).toFixed(2)),
       };
     });
-
-    if (blockedByAuth) {
-      openAccessModal(blockedByAuth.serviceId, blockedByAuth.value);
-      return;
-    }
 
     const invalidLines = normalizedLines.filter(
       (item) => !isFinite(item.unit_price_applied) || item.unit_price_applied <= 0,
@@ -280,7 +265,12 @@ export function NuevaFacturaModal({
         metodoPago: "Efectivo",
         observations: "",
       });
+      setPriceUnlocked(false);
       setAuthorizedUntil(null);
+      if (unlockTimerId) {
+        window.clearTimeout(unlockTimerId);
+        setUnlockTimerId(null);
+      }
       onOpenChange(false);
     } catch (error) {
       console.error("Error al guardar factura", error);
@@ -358,11 +348,15 @@ export function NuevaFacturaModal({
           };
         }),
       );
+      setPriceUnlocked(false);
       setAuthorizedUntil(null);
+      if (unlockTimerId) {
+        window.clearTimeout(unlockTimerId);
+        setUnlockTimerId(null);
+      }
       setAccessModalOpen(false);
       setAccessCodeInput("");
       setAccessError(null);
-      setPendingOverride(null);
     }
 
     if (mode === "edit" && invoice) {
@@ -386,7 +380,15 @@ export function NuevaFacturaModal({
       setClientSearch("");
       setClientOpen(false);
     }
-  }, [invoice, mode, open, form, selectedServices]);
+  }, [invoice, mode, open, form, selectedServices, unlockTimerId]);
+
+  useEffect(() => {
+    return () => {
+      if (unlockTimerId) {
+        window.clearTimeout(unlockTimerId);
+      }
+    };
+  }, [unlockTimerId]);
 
   const updateServiceLine = (
     serviceId: number,
@@ -396,9 +398,6 @@ export function NuevaFacturaModal({
       prev.map((item) => (item.service_id === serviceId ? updater(item) : item)),
     );
   };
-
-  const isAuthorized = (): boolean =>
-    authorizedUntil !== null && Date.now() < authorizedUntil;
 
   const applyOverrideValue = (serviceId: number, value: number) => {
     updateServiceLine(serviceId, (item) => {
@@ -413,13 +412,6 @@ export function NuevaFacturaModal({
         subtotal: Number((nextValue * item.quantity).toFixed(2)),
       };
     });
-  };
-
-  const openAccessModal = (serviceId: number, value: number) => {
-    setPendingOverride({ serviceId, value });
-    setAccessCodeInput("");
-    setAccessError(null);
-    setAccessModalOpen(true);
   };
 
   const handlePriceDraftChange = (serviceId: number, value: string) => {
@@ -444,26 +436,12 @@ export function NuevaFacturaModal({
     if (!isFinite(parsed) || parsed <= 0) {
       updateServiceLine(serviceId, (item) => ({
         ...item,
-        unit_price_draft: item.original_unit_price.toFixed(2),
-        unit_price_applied: item.original_unit_price,
-        price_overridden: false,
         price_error: "El precio debe ser mayor a 0.",
-        subtotal: Number((item.original_unit_price * item.quantity).toFixed(2)),
       }));
       return;
     }
 
-    if (parsed === target.original_unit_price) {
-      applyOverrideValue(serviceId, parsed);
-      return;
-    }
-
-    if (isAuthorized()) {
-      applyOverrideValue(serviceId, parsed);
-      return;
-    }
-
-    openAccessModal(serviceId, parsed);
+    applyOverrideValue(serviceId, parsed);
   };
 
   const handleResetPrice = (serviceId: number) => {
@@ -478,37 +456,42 @@ export function NuevaFacturaModal({
       return;
     }
 
-    setAuthorizedUntil(Date.now() + AUTHORIZATION_WINDOW_MS);
+    const expiresAt = Date.now() + AUTHORIZATION_WINDOW_MS;
+    setAuthorizedUntil(expiresAt);
+    setPriceUnlocked(true);
+    if (unlockTimerId) {
+      window.clearTimeout(unlockTimerId);
+    }
+    const timerId = window.setTimeout(() => {
+      setPriceUnlocked(false);
+      setAuthorizedUntil(null);
+      setUnlockTimerId(null);
+    }, AUTHORIZATION_WINDOW_MS);
+    setUnlockTimerId(timerId);
     setAccessModalOpen(false);
     setAccessError(null);
     setAccessCodeInput("");
-
-    if (pendingOverride) {
-      applyOverrideValue(pendingOverride.serviceId, pendingOverride.value);
-      setPendingOverride(null);
-    }
   };
 
   const handleAccessCancel = () => {
     setAccessModalOpen(false);
     setAccessError(null);
     setAccessCodeInput("");
-    if (pendingOverride) {
-      const target = serviceLines.find(
-        (item) => item.service_id === pendingOverride.serviceId,
-      );
-      if (target) {
-        applyOverrideValue(target.service_id, target.original_unit_price);
-      }
-      setPendingOverride(null);
-    }
+  };
+
+  const handleUnlockRequest = () => {
+    setAccessModalOpen(true);
   };
 
   const handleDialogChange = (value: boolean) => {
     if (!value) {
+      if (unlockTimerId) {
+        window.clearTimeout(unlockTimerId);
+        setUnlockTimerId(null);
+      }
+      setPriceUnlocked(false);
       setAuthorizedUntil(null);
       setAccessModalOpen(false);
-      setPendingOverride(null);
       onCancel();
     } else {
       onOpenChange(value);
@@ -696,6 +679,7 @@ export function NuevaFacturaModal({
                                     min="0"
                                     className="w-32"
                                     value={servicio.unit_price_draft}
+                                    disabled={!priceUnlocked}
                                     onChange={(event) =>
                                       handlePriceDraftChange(
                                         servicio.service_id,
@@ -708,6 +692,32 @@ export function NuevaFacturaModal({
                                     <span className="rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
                                       Modificado
                                     </span>
+                                  )}
+                                  {priceUnlocked ? (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => {
+                                        setPriceUnlocked(false);
+                                        setAuthorizedUntil(null);
+                                        if (unlockTimerId) {
+                                          window.clearTimeout(unlockTimerId);
+                                          setUnlockTimerId(null);
+                                        }
+                                      }}
+                                    >
+                                      Bloquear
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={handleUnlockRequest}
+                                    >
+                                      Modificar
+                                    </Button>
                                   )}
                                   <Button
                                     type="button"
@@ -763,6 +773,7 @@ export function NuevaFacturaModal({
                             step="0.01"
                             min="0"
                             value={servicio.unit_price_draft}
+                            disabled={!priceUnlocked}
                             onChange={(event) =>
                               handlePriceDraftChange(servicio.service_id, event.target.value)
                             }
@@ -772,6 +783,32 @@ export function NuevaFacturaModal({
                             <span className="inline-flex w-fit rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
                               Modificado
                             </span>
+                          )}
+                          {priceUnlocked ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setPriceUnlocked(false);
+                                setAuthorizedUntil(null);
+                                if (unlockTimerId) {
+                                  window.clearTimeout(unlockTimerId);
+                                  setUnlockTimerId(null);
+                                }
+                              }}
+                            >
+                              Bloquear
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={handleUnlockRequest}
+                            >
+                              Modificar
+                            </Button>
                           )}
                           {servicio.price_error && (
                             <p className="text-xs text-destructive">
