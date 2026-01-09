@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -147,7 +147,6 @@ export function NuevaFacturaModal({
   const [submitting, setSubmitting] = useState(false);
   const [clientSearch, setClientSearch] = useState("");
   const [clientOpen, setClientOpen] = useState(false);
-  const [dialogContainer, setDialogContainer] = useState<HTMLDivElement | null>(null);
   const [serviceLines, setServiceLines] = useState<ServiceLine[]>([]);
   const [authorizedUntil, setAuthorizedUntil] = useState<number | null>(null);
   const [accessModalOpen, setAccessModalOpen] = useState(false);
@@ -156,15 +155,7 @@ export function NuevaFacturaModal({
   const [selectedLineId, setSelectedLineId] = useState<number | null>(null);
   const unlockTimersRef = useRef<Record<number, number>>({});
   const priceInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
-
-  const handleDialogContentRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      if (node !== dialogContainer) {
-        setDialogContainer(node);
-      }
-    },
-    [dialogContainer],
-  );
+  const dialogContainerRef = useRef<HTMLDivElement | null>(null);
 
   const resolveClientId = (client: Invoice["client"]): string => {
     if (typeof client === "object" && client !== null) {
@@ -546,7 +537,9 @@ export function NuevaFacturaModal({
     <>
       <Dialog open={open} onOpenChange={handleDialogChange}>
         <DialogContent
-          ref={handleDialogContentRef}
+          ref={(node) => {
+            dialogContainerRef.current = node;
+          }}
           className="flex h-[90vh] w-[94vw] max-w-none flex-col overflow-visible rounded-2xl p-0 sm:h-auto sm:max-h-[90vh] sm:w-full sm:max-w-3xl"
         >
           <DialogHeader className="sticky top-0 z-10 border-b border-border bg-background/95 px-6 py-4 backdrop-blur">
@@ -597,7 +590,7 @@ export function NuevaFacturaModal({
 
             <div className="space-y-2">
               <Label htmlFor="clienteId">Cliente</Label>
-              <Popover open={clientOpen} onOpenChange={setClientOpen}>
+              <Popover open={clientOpen} onOpenChange={setClientOpen} modal={false}>
                 <PopoverTrigger asChild>
                   <Button
                     type="button"
@@ -615,7 +608,7 @@ export function NuevaFacturaModal({
                   side="bottom"
                   avoidCollisions
                   collisionPadding={8}
-                  container={dialogContainer}
+                  container={dialogContainerRef.current}
                   className="z-[60] w-[--radix-popover-trigger-width] max-h-[45vh] overflow-y-auto p-0"
                 >
                   <Command shouldFilter={false} className="max-h-[45vh] w-full">
