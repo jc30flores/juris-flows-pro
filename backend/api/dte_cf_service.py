@@ -230,23 +230,23 @@ def interpret_dte_response(response_data: dict) -> Tuple[str, str, str]:
 
 
 EMITTER_INFO = {
-    "nit": "12101304761012",
-    "nrc": "1880600",
-    "nombre": "MIRNA ABIGAIL GARCIA FLORES",
-    "nombreComercial": "Oficina Juridica Garcia Flores",
+    "nit": "12172402231026",
+    "nrc": "3255304",
+    "nombre": "EDWIN ARNULFO MATA CASTILLO",
+    "nombreComercial": "RELITE GROUP",
     "codActividad": "69100",
-    "descActividad": "Actividades juridicas",
+    "descActividad": "Venta de bienes inmuebles",
     "direccion": {
         "municipio": "22",
-        "complemento": "24 Calle oriente, col. lopez, #13,san miguel, san miguel",
+        "complemento": "AV. BARCELONA POLIGONO B, RESIDENCIAL SEVILLA, #21, SAN MIGUEL",
         "departamento": "12",
     },
-    "telefono": "50376523555",
-    "correo": "dtemirnagarcia@gmail.com",
-    "codEstable": "M002",
+    "telefono": "77961054",
+    "correo": "infodte@relitegroup.com",
+    "codEstable": "M001",
     "codPuntoVenta": "P001",
     "codPuntoVentaMH": "P001",
-    "codEstableMH": "M002",
+    "codEstableMH": "M001",
     "tipoEstablecimiento": "02",
 }
 
@@ -480,7 +480,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/factura"
+    url = "https://t12172402231026.cheros.dev/api/v1/dte/factura"
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
@@ -774,7 +774,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/credito-fiscal"
+    url = "https://t12172402231026.cheros.dev/api/v1/dte/credito-fiscal"
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
@@ -1018,7 +1018,7 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/sujeto-excluido"
+    url = "https://t12172402231026.cheros.dev/api/v1/dte/sujeto-excluido"
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")

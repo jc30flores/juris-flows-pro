@@ -14,7 +14,7 @@ ALLOWED_HOSTS = [
 
 CSRF_TRUSTED_ORIGINS = [
     "https://cuska-juridico.cuskatech.com",
-    "http://localhost:9007",
+    "http://localhost:9104",
 ]
 
 INSTALLED_APPS = [
@@ -99,14 +99,14 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:8087",
-    "http://localhost:9007",
+    "http://localhost:8184",
+    "http://localhost:9104",
     "https://cuska-juridico.cuskatech.com",
 ]
 REST_FRAMEWORK = {}
 
 INTERNET_HEALTH_URL = os.getenv("INTERNET_HEALTH_URL", "https://www.google.com/generate_204")
-API_HEALTH_URL = os.getenv("API_HEALTH_URL", "https://t12101304761012.cheros.dev/health")
+API_HEALTH_URL = os.getenv("API_HEALTH_URL", "https://t12172402231026.cheros.dev/health")
 CONNECTIVITY_CHECK_INTERVAL = int(os.getenv("CONNECTIVITY_CHECK_INTERVAL", "15"))
 CONNECTIVITY_CHECK_TIMEOUT = int(os.getenv("CONNECTIVITY_CHECK_TIMEOUT", "5"))
 

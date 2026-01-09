@@ -13,7 +13,7 @@ def main():
             "forget to activate a virtual environment?"
         ) from exc
     if len(sys.argv) == 2 and sys.argv[1] == "runserver":
-        sys.argv.append("127.0.0.1:8007")
+        sys.argv.append("127.0.0.1:8104")
     execute_from_command_line(sys.argv)
 
 
