@@ -547,7 +547,7 @@ export function NuevaFacturaModal({
       <Dialog open={open} onOpenChange={handleDialogChange}>
         <DialogContent
           ref={handleDialogContentRef}
-          className="flex h-[90vh] w-[94vw] max-w-none flex-col overflow-hidden rounded-2xl p-0 sm:h-auto sm:max-h-[90vh] sm:w-full sm:max-w-3xl"
+          className="flex h-[90vh] w-[94vw] max-w-none flex-col overflow-visible rounded-2xl p-0 sm:h-auto sm:max-h-[90vh] sm:w-full sm:max-w-3xl"
         >
           <DialogHeader className="sticky top-0 z-10 border-b border-border bg-background/95 px-6 py-4 backdrop-blur">
             <DialogTitle>
@@ -616,15 +616,21 @@ export function NuevaFacturaModal({
                   avoidCollisions
                   collisionPadding={8}
                   container={dialogContainer}
-                  className="w-[--radix-popover-trigger-width] max-h-[45vh] overflow-hidden p-0"
+                  className="z-[60] w-[--radix-popover-trigger-width] max-h-[45vh] overflow-y-auto p-0"
                 >
-                  <Command className="max-h-[45vh] overflow-hidden">
+                  <Command shouldFilter={false} className="max-h-[45vh] w-full">
                     <CommandInput
                       placeholder="Buscar cliente…"
                       value={clientSearch}
                       onValueChange={setClientSearch}
                     />
-                    <CommandEmpty>No se encontraron clientes</CommandEmpty>
+                    {clients.length === 0 ? (
+                      <div className="p-4 text-sm text-muted-foreground">
+                        No hay clientes disponibles.
+                      </div>
+                    ) : (
+                      <CommandEmpty>No se encontraron clientes</CommandEmpty>
+                    )}
                     <CommandGroup className="max-h-[35vh] overflow-y-auto">
                       {filteredClients.map((cliente) => {
                         const secondary = cliente.nrc || cliente.nit || cliente.dui;
