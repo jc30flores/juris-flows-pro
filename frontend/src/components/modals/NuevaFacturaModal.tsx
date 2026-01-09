@@ -155,6 +155,7 @@ export function NuevaFacturaModal({
   const [selectedLineId, setSelectedLineId] = useState<number | null>(null);
   const unlockTimersRef = useRef<Record<number, number>>({});
   const priceInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+  const dialogContainerRef = useRef<HTMLDivElement | null>(null);
 
   const resolveClientId = (client: Invoice["client"]): string => {
     if (typeof client === "object" && client !== null) {
@@ -535,15 +536,24 @@ export function NuevaFacturaModal({
   return (
     <>
       <Dialog open={open} onOpenChange={handleDialogChange}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent
+          ref={(node) => {
+            dialogContainerRef.current = node;
+          }}
+          className="flex h-[90vh] w-[94vw] max-w-none flex-col overflow-visible rounded-2xl p-0 sm:h-auto sm:max-h-[90vh] sm:w-full sm:max-w-3xl"
+        >
+          <DialogHeader className="sticky top-0 z-10 border-b border-border bg-background/95 px-6 py-4 backdrop-blur">
             <DialogTitle>
               {mode === "edit" ? "Editar Factura" : "Nueva Factura"}
             </DialogTitle>
           </DialogHeader>
 
-        <form onSubmit={form.handleSubmit(onSubmitForm)} className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <form
+          onSubmit={form.handleSubmit(onSubmitForm)}
+          className="flex flex-1 flex-col overflow-hidden"
+        >
+          <div className="flex-1 space-y-6 overflow-y-auto px-6 pb-6 pt-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="tipoDTE">Tipo de DTE</Label>
               <Select
@@ -552,7 +562,7 @@ export function NuevaFacturaModal({
                   form.setValue("tipoDTE", value as "CF" | "CCF" | "SX")
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger autoFocus>
                   <SelectValue placeholder="Seleccionar tipo" />
                 </SelectTrigger>
                 <SelectContent>
@@ -580,7 +590,7 @@ export function NuevaFacturaModal({
 
             <div className="space-y-2">
               <Label htmlFor="clienteId">Cliente</Label>
-              <Popover open={clientOpen} onOpenChange={setClientOpen}>
+              <Popover open={clientOpen} onOpenChange={setClientOpen} modal={false}>
                 <PopoverTrigger asChild>
                   <Button
                     type="button"
@@ -593,15 +603,28 @@ export function NuevaFacturaModal({
                       : "Buscar cliente…"}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-full p-0" align="start">
-                  <Command className="max-h-72">
+                <PopoverContent
+                  align="start"
+                  side="bottom"
+                  avoidCollisions
+                  collisionPadding={8}
+                  container={dialogContainerRef.current}
+                  className="z-[60] w-[--radix-popover-trigger-width] max-h-[45vh] overflow-y-auto p-0"
+                >
+                  <Command shouldFilter={false} className="max-h-[45vh] w-full">
                     <CommandInput
                       placeholder="Buscar cliente…"
                       value={clientSearch}
                       onValueChange={setClientSearch}
                     />
-                    <CommandEmpty>No se encontraron clientes</CommandEmpty>
-                    <CommandGroup className="max-h-60 overflow-y-auto">
+                    {clients.length === 0 ? (
+                      <div className="p-4 text-sm text-muted-foreground">
+                        No hay clientes disponibles.
+                      </div>
+                    ) : (
+                      <CommandEmpty>No se encontraron clientes</CommandEmpty>
+                    )}
+                    <CommandGroup className="max-h-[35vh] overflow-y-auto">
                       {filteredClients.map((cliente) => {
                         const secondary = cliente.nrc || cliente.nit || cliente.dui;
                         return (
@@ -665,7 +688,7 @@ export function NuevaFacturaModal({
               )}
             </div>
 
-            <div className="md:col-span-2 space-y-4">
+            <div className="sm:col-span-2 space-y-4">
               <div className="flex items-center justify-between">
                 <Label>Resumen de servicios</Label>
                 <span className="text-sm text-muted-foreground">
@@ -791,7 +814,7 @@ export function NuevaFacturaModal({
                     {serviceLines.map((servicio) => (
                       <div
                         key={servicio.service_id}
-                        className="rounded-lg border border-border p-3 space-y-2"
+                        className="space-y-2 rounded-lg border border-border p-3"
                       >
                         <p className="text-sm font-medium leading-tight">{servicio.name}</p>
                         <p className="text-xs text-muted-foreground">
@@ -903,7 +926,7 @@ export function NuevaFacturaModal({
           </div>
 
           {serviceLines.length > 0 && (
-            <div className="space-y-2 bg-muted/50 p-4 rounded-lg">
+            <div className="space-y-2 rounded-lg bg-muted/50 p-4">
               <div className="flex justify-between text-sm">
                 <span>Subtotal:</span>
                 <span className="font-medium">${subtotal.toFixed(2)}</span>
@@ -918,16 +941,21 @@ export function NuevaFacturaModal({
               </div>
             </div>
           )}
-
-          <DialogFooter className="gap-2">
+          </div>
+          <DialogFooter className="sticky bottom-0 z-10 flex-col-reverse gap-2 border-t border-border bg-background/95 px-6 py-4 backdrop-blur sm:flex-row sm:justify-end">
             <Button
               type="button"
               variant="outline"
               onClick={onCancel}
+              className="w-full sm:w-auto"
             >
               Cancelar
             </Button>
-            <Button type="submit" disabled={submitting || serviceLines.length === 0}>
+            <Button
+              type="submit"
+              disabled={submitting || serviceLines.length === 0}
+              className="w-full sm:w-auto"
+            >
               {mode === "edit" ? "Guardar Cambios" : "Crear Factura"}
             </Button>
           </DialogFooter>
