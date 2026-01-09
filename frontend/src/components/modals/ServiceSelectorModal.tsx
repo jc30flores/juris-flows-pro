@@ -91,14 +91,14 @@ export function ServiceSelectorModal({
   return (
     <Dialog open={open} onOpenChange={(value) => !value && onCancel()}>
       <DialogContent
-        className="flex h-[90vh] w-[95vw] max-w-none flex-col overflow-hidden rounded-2xl p-0 sm:h-auto sm:max-h-[90vh] sm:w-full sm:max-w-3xl"
+        className="flex w-[95vw] max-w-md flex-col overflow-hidden rounded-2xl p-0 sm:max-w-lg md:max-w-xl max-h-[90vh]"
       >
         <DialogHeader className="sticky top-0 z-10 border-b border-border bg-background/95 px-6 py-4 backdrop-blur">
           <DialogTitle>Seleccionar Servicios</DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="flex-1 space-y-4 overflow-y-auto px-6 pb-6 pt-4">
+          <div className="flex-1 space-y-4 overflow-y-auto px-6 pb-6 pt-4 max-h-[calc(90vh-140px)]">
             <div className="space-y-2">
               <Label htmlFor="searchService">Buscar servicio por nombre o texto</Label>
               <Input
