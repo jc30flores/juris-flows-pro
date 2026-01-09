@@ -80,12 +80,12 @@ export default function Usuarios() {
   };
 
   return (
-    <div className="space-y-4 md:space-y-6 overflow-x-hidden">
+    <div className="w-full max-w-none space-y-4 px-3 md:space-y-6 sm:px-4 md:px-6">
       {/* Título móvil */}
       <h2 className="text-lg font-semibold md:hidden">Usuarios</h2>
-      <div className="flex justify-end">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
         <Button
-          className="bg-primary hover:bg-primary/90 w-full md:w-auto"
+          className="w-full bg-primary hover:bg-primary/90 sm:w-auto"
           onClick={() => setShowNuevoModal(true)}
         >
           <Plus className="h-4 w-4 mr-2" />
@@ -99,7 +99,7 @@ export default function Usuarios() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Buscar por nombre, usuario o rol..."
-            className="pl-9"
+            className="w-full pl-9"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -120,20 +120,22 @@ export default function Usuarios() {
         {filteredUsers.map((usuario) => (
           <div
             key={usuario.id}
-            className="rounded-lg border border-border bg-card p-4 shadow-elegant hover:shadow-elegant-lg transition-smooth"
+            className="rounded-lg border border-border bg-card p-4 shadow-elegant transition-smooth hover:shadow-elegant-lg"
           >
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                <UserCog className="h-5 w-5 text-primary" />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-primary/10">
+                  <UserCog className="h-5 w-5 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-base font-semibold">{usuario.full_name}</p>
+                  <p className="truncate text-xs text-muted-foreground">{usuario.username}</p>
+                  <Badge variant="outline" className={getRolBadgeColor(usuario.role)}>
+                    {usuario.role}
+                  </Badge>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-base truncate">{usuario.full_name}</p>
-                <p className="text-xs text-muted-foreground truncate">{usuario.username}</p>
-                <Badge variant="outline" className={getRolBadgeColor(usuario.role)}>
-                  {usuario.role}
-                </Badge>
-              </div>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap gap-2 sm:flex-nowrap sm:justify-end">
                 <Button
                   variant="ghost"
                   size="sm"
