@@ -9,7 +9,16 @@ from django.db import transaction
 from django.utils import timezone
 
 from .connectivity import get_connectivity_status as _connectivity_status_snapshot
-from .models import Activity, DTEControlCounter, DTERecord, Invoice, InvoiceItem, Service
+from .models import (
+    Activity,
+    DTEControlCounter,
+    DTERecord,
+    Invoice,
+    InvoiceItem,
+    IssuerProfile,
+    Service,
+    StaffUser,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -229,13 +238,15 @@ def interpret_dte_response(response_data: dict) -> Tuple[str, str, str]:
     return "PENDIENTE", "SIN_RESPUESTA", "DTE en estado PENDIENTE: la respuesta de la API no se pudo interpretar."
 
 
-EMITTER_INFO = {
+DEFAULT_RUBRO_CODE = "64922"
+
+DEFAULT_EMITTER_INFO = {
     "nit": "12172402231026",
     "nrc": "3255304",
     "nombre": "EDWIN ARNULFO MATA CASTILLO",
     "nombreComercial": "RELITE GROUP",
-    "codActividad": "69100",
-    "descActividad": "Venta de bienes inmuebles",
+    "codActividad": "64922",
+    "descActividad": "Tipos de Creditos N.C.P",
     "direccion": {
         "municipio": "22",
         "complemento": "AV. BARCELONA POLIGONO B, RESIDENCIAL SEVILLA, #21, SAN MIGUEL",
@@ -251,6 +262,36 @@ EMITTER_INFO = {
 }
 
 
+def _resolve_emitter_info(staff_user: StaffUser | None) -> tuple[dict, str, str]:
+    rubro_code = DEFAULT_RUBRO_CODE
+    if staff_user and staff_user.active_rubro_code:
+        rubro_code = staff_user.active_rubro_code
+
+    profile = IssuerProfile.objects.filter(rubro_code=rubro_code, is_active=True).first()
+    if not profile:
+        profile = IssuerProfile.objects.filter(is_active=True).order_by("rubro_code").first()
+
+    if profile:
+        emitter_info = {**profile.emisor_schema}
+        emitter_info["codActividad"] = profile.rubro_code
+        emitter_info["descActividad"] = profile.rubro_name
+        rubro_code = profile.rubro_code
+        rubro_name = profile.rubro_name
+    else:
+        emitter_info = {**DEFAULT_EMITTER_INFO}
+        rubro_code = emitter_info.get("codActividad", DEFAULT_RUBRO_CODE)
+        rubro_name = emitter_info.get(
+            "descActividad",
+            "Actividades Inmobiliarias Realizadas a Cambio de una Retribucion o por Contrata",
+        )
+
+    if staff_user and staff_user.active_rubro_code != rubro_code:
+        staff_user.active_rubro_code = rubro_code
+        staff_user.save(update_fields=["active_rubro_code"])
+
+    return emitter_info, rubro_code, rubro_name
+
+
 def _to_decimal(value: Decimal | float | int | str) -> Decimal:
     return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
@@ -259,9 +300,9 @@ def _format_currency(value: Decimal) -> float:
     return float(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
-def _build_receptor(invoice):
+def _build_receptor(invoice, emitter_info: dict):
     client = getattr(invoice, "client", None)
-    emitter_address = EMITTER_INFO["direccion"]
+    emitter_address = emitter_info["direccion"]
     if not client:
         return {
             "correo": None,
@@ -328,7 +369,7 @@ def _resolve_receiver_doc_for_extension(client, context_label: str) -> str:
     return default_doc
 
 
-def send_cf_dte_for_invoice(invoice) -> DTERecord:
+def send_cf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTERecord:
     """
     Construye el JSON DTE para tipo CF a partir de la factura y sus items,
     lo envía al endpoint externo y registra el request/response en DTERecord.
@@ -336,8 +377,9 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
 
     codigo_generacion = str(uuid.uuid4()).upper()
     ambiente = "00"
-    est_code = EMITTER_INFO["codEstable"]
-    pv_code = EMITTER_INFO["codPuntoVenta"]
+    emitter_info, rubro_code, rubro_name = _resolve_emitter_info(staff_user)
+    est_code = emitter_info["codEstable"]
+    pv_code = emitter_info["codPuntoVenta"]
 
     now_local = timezone.localtime()
     emision_date = now_local.date()
@@ -351,7 +393,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
     fec_emi = emision_date.isoformat()
     hor_emi = now_local.strftime("%H:%M:%S")
 
-    receptor, receiver_nit, receiver_name = _build_receptor(invoice)
+    receptor, receiver_nit, receiver_name = _build_receptor(invoice, emitter_info)
     receiver_doc_for_extension = _resolve_receiver_doc_for_extension(
         getattr(invoice, "client", None),
         f"CF invoice {invoice.id}",
@@ -471,7 +513,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
             },
             "cuerpoDocumento": cuerpo_documento,
             "emisor": {
-                **EMITTER_INFO,
+                **emitter_info,
             },
             "documentoRelacionado": None,
             "ventaTercero": None,
@@ -491,15 +533,21 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         dte_type="CF",
         status="ENVIANDO",
         control_number=numero_control,
-        issuer_nit=EMITTER_INFO["nit"],
+        issuer_nit=emitter_info["nit"],
         receiver_nit=receiver_nit,
         receiver_name=receiver_name,
         issue_date=invoice.date,
         total_amount=invoice.total,
         request_payload=payload,
     )
+    logger.info(
+        "Enviando DTE CF con rubro %s (%s) para usuario %s",
+        rubro_code,
+        rubro_name,
+        staff_user.id if staff_user else "anonimo",
+    )
     headers = {
-        "Authorization": "Bearer api_k_12101304761012",
+        "Authorization": "Bearer api_key_cliente_12172402231026",
         "Content-Type": "application/json",
     }
 
@@ -571,7 +619,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         return record
 
 
-def send_ccf_dte_for_invoice(invoice) -> DTERecord:
+def send_ccf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTERecord:
     """
     Construye el JSON DTE para tipo CCF (03) a partir de la factura y sus items,
     lo envía al endpoint externo y registra el request/response en DTERecord.
@@ -579,8 +627,9 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
 
     codigo_generacion = str(uuid.uuid4()).upper()
     ambiente = "00"
-    est_code = EMITTER_INFO["codEstable"]
-    pv_code = EMITTER_INFO["codPuntoVenta"]
+    emitter_info, rubro_code, rubro_name = _resolve_emitter_info(staff_user)
+    est_code = emitter_info["codEstable"]
+    pv_code = emitter_info["codPuntoVenta"]
 
     now_local = timezone.localtime()
     emision_date = now_local.date()
@@ -595,7 +644,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
     hor_emi = now_local.strftime("%H:%M:%S")
 
     client = getattr(invoice, "client", None)
-    emitter_address = EMITTER_INFO["direccion"]
+    emitter_address = emitter_info["direccion"]
 
     client_name = (client.company_name if client else "") or (client.full_name if client else "") or "CLIENTE"
     client_trade_name = client.company_name if client and client.company_name else client_name
@@ -766,7 +815,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
                 "docuEntrega": None,
             },
             "cuerpoDocumento": cuerpo_documento,
-            "emisor": {**EMITTER_INFO},
+            "emisor": {**emitter_info},
             "documentoRelacionado": None,
             "ventaTercero": None,
             "otrosDocumentos": None,
@@ -785,15 +834,21 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         dte_type="CCF",
         status="ENVIANDO",
         control_number=numero_control,
-        issuer_nit=EMITTER_INFO["nit"],
+        issuer_nit=emitter_info["nit"],
         receiver_nit=client_nit,
         receiver_name=client_name,
         issue_date=invoice.date,
         total_amount=_to_decimal(total_operacion),
         request_payload=payload,
     )
+    logger.info(
+        "Enviando DTE CCF con rubro %s (%s) para usuario %s",
+        rubro_code,
+        rubro_name,
+        staff_user.id if staff_user else "anonimo",
+    )
     headers = {
-        "Authorization": "Bearer api_k_12101304761012",
+        "Authorization": "Bearer api_key_cliente_12172402231026",
         "Content-Type": "application/json",
     }
 
@@ -865,7 +920,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         return record
 
 
-def send_se_dte_for_invoice(invoice) -> DTERecord:
+def send_se_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTERecord:
     """
     Construye el JSON DTE para tipo Sujeto Excluido (14) a partir de la factura y sus items,
     lo envía al endpoint externo y registra el request/response en DTERecord.
@@ -873,8 +928,9 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
 
     codigo_generacion = str(uuid.uuid4()).upper()
     ambiente = "00"
-    est_code = EMITTER_INFO["codEstable"]
-    pv_code = EMITTER_INFO["codPuntoVenta"]
+    emitter_info, rubro_code, rubro_name = _resolve_emitter_info(staff_user)
+    est_code = emitter_info["codEstable"]
+    pv_code = emitter_info["codPuntoVenta"]
 
     now_local = timezone.localtime()
     emision_date = now_local.date()
@@ -900,13 +956,13 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
     se_desc_actividad = getattr(client, "activity_description", None) or None
     se_departamento = (
         getattr(client, "department_code", None)
-        or EMITTER_INFO["direccion"].get("departamento", "12")
+        or emitter_info["direccion"].get("departamento", "12")
     )
     se_municipio = (
         getattr(client, "municipality_code", None)
-        or EMITTER_INFO["direccion"].get("municipio", "22")
+        or emitter_info["direccion"].get("municipio", "22")
     )
-    se_direccion = getattr(client, "address", None) or EMITTER_INFO["direccion"].get(
+    se_direccion = getattr(client, "address", None) or emitter_info["direccion"].get(
         "complemento", "Colonia Centro, Calle Principal"
     )
 
@@ -988,18 +1044,18 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
             "resumen": resumen,
             "sujetoExcluido": sujeto_excluido,
             "emisor": {
-                "correo": EMITTER_INFO["correo"],
-                "codPuntoVenta": EMITTER_INFO["codPuntoVenta"],
-                "nombre": EMITTER_INFO["nombre"],
-                "codEstableMH": EMITTER_INFO["codEstableMH"],
-                "direccion": EMITTER_INFO["direccion"],
-                "codPuntoVentaMH": EMITTER_INFO["codPuntoVentaMH"],
-                "codEstable": EMITTER_INFO["codEstable"],
-                "nit": EMITTER_INFO["nit"],
-                "nrc": EMITTER_INFO["nrc"],
-                "telefono": EMITTER_INFO["telefono"],
-                "codActividad": EMITTER_INFO["codActividad"],
-                "descActividad": EMITTER_INFO["descActividad"],
+                "correo": emitter_info["correo"],
+                "codPuntoVenta": emitter_info["codPuntoVenta"],
+                "nombre": emitter_info["nombre"],
+                "codEstableMH": emitter_info["codEstableMH"],
+                "direccion": emitter_info["direccion"],
+                "codPuntoVentaMH": emitter_info["codPuntoVentaMH"],
+                "codEstable": emitter_info["codEstable"],
+                "nit": emitter_info["nit"],
+                "nrc": emitter_info["nrc"],
+                "telefono": emitter_info["telefono"],
+                "codActividad": emitter_info["codActividad"],
+                "descActividad": emitter_info["descActividad"],
             },
             "identificacion": {
                 "codigoGeneracion": codigo_generacion,
@@ -1029,15 +1085,21 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         dte_type="SE",
         status="ENVIANDO",
         control_number=numero_control,
-        issuer_nit=EMITTER_INFO["nit"],
+        issuer_nit=emitter_info["nit"],
         receiver_nit=se_num_documento,
         receiver_name=se_nombre,
         issue_date=invoice.date,
         total_amount=_to_decimal(total_pagar),
         request_payload=payload,
     )
+    logger.info(
+        "Enviando DTE SE con rubro %s (%s) para usuario %s",
+        rubro_code,
+        rubro_name,
+        staff_user.id if staff_user else "anonimo",
+    )
     headers = {
-        "Authorization": "Bearer api_k_12101304761012",
+        "Authorization": "Bearer api_key_cliente_12172402231026",
         "Content-Type": "application/json",
     }
 

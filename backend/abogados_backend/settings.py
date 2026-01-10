@@ -7,13 +7,13 @@ SECRET_KEY = os.getenv("SECRET_KEY", "changeme")
 DEBUG = True
 
 ALLOWED_HOSTS = [
-    "cuska-juridico.cuskatech.com",
+    "relite-facturador.relitegroup.com",
     "localhost",
     "127.0.0.1",
 ]
 
 CSRF_TRUSTED_ORIGINS = [
-    "https://cuska-juridico.cuskatech.com",
+    "https://relite-facturador.relitegroup.com",
     "http://localhost:9104",
 ]
 
@@ -64,7 +64,7 @@ ASGI_APPLICATION = "abogados_backend.asgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME", "abogados"),
+        "NAME": os.getenv("DB_NAME", "relitedb"),
         "USER": os.getenv("DB_USER", "jarvis"),
         "PASSWORD": os.getenv("DB_PASSWORD", "diez2030"),
         "HOST": os.getenv("DB_HOST", "localhost"),
@@ -101,7 +101,7 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:8184",
     "http://localhost:9104",
-    "https://cuska-juridico.cuskatech.com",
+    "https://relite-facturador.relitegroup.com",
 ]
 REST_FRAMEWORK = {}
 

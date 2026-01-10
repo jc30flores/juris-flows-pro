@@ -17,6 +17,7 @@ from .models import (
     Expense,
     GeoDepartment,
     GeoMunicipality,
+    IssuerProfile,
     Invoice,
     InvoiceItem,
     Service,
@@ -36,6 +37,7 @@ from .serializers import (
     ServiceSerializer,
     StaffUserSerializer,
 )
+from .utils import get_staff_user_from_request
 
 
 def filter_invoices_queryset(queryset, params):
@@ -198,7 +200,11 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         return queryset
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        staff_user = get_staff_user_from_request(request)
+        serializer = self.get_serializer(
+            data=request.data,
+            context={"request": request, "staff_user": staff_user},
+        )
         serializer.is_valid(raise_exception=True)
 
         invoice = serializer.save()
@@ -211,6 +217,114 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             data["dte_message"] = dte_message
 
         return Response(data, status=status.HTTP_201_CREATED, headers=headers)
+
+
+class EmisorRubrosView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        staff_user = get_staff_user_from_request(request)
+        rubros = list(
+            IssuerProfile.objects.filter(is_active=True)
+            .order_by("rubro_code")
+            .values("rubro_code", "rubro_name")
+        )
+        active_code = staff_user.active_rubro_code if staff_user else ""
+        active_name = ""
+        for rubro in rubros:
+            if rubro["rubro_code"] == active_code:
+                active_name = rubro["rubro_name"]
+                break
+
+        if not active_code and rubros:
+            default_rubro = next(
+                (rubro for rubro in rubros if rubro["rubro_code"] == "64922"),
+                rubros[0],
+            )
+            active_code = default_rubro["rubro_code"]
+            active_name = default_rubro["rubro_name"]
+            if staff_user:
+                staff_user.active_rubro_code = active_code
+                staff_user.save(update_fields=["active_rubro_code"])
+
+        return Response(
+            {
+                "rubros": [
+                    {"code": rubro["rubro_code"], "name": rubro["rubro_name"]}
+                    for rubro in rubros
+                ],
+                "active_rubro_code": active_code,
+                "active_rubro_name": active_name,
+            }
+        )
+
+
+class EmisorActiveRubroView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        staff_user = get_staff_user_from_request(request)
+        if not staff_user:
+            return Response(
+                {"detail": "Usuario no identificado para asignar rubro."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        rubro_code = request.data.get("rubro_code")
+        if not rubro_code:
+            return Response(
+                {"detail": "Debe enviar el rubro_code."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        profile = IssuerProfile.objects.filter(
+            rubro_code=rubro_code,
+            is_active=True,
+        ).first()
+        if not profile:
+            return Response(
+                {"detail": "Rubro no permitido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        staff_user.active_rubro_code = profile.rubro_code
+        staff_user.save(update_fields=["active_rubro_code"])
+        return Response(
+            {
+                "ok": True,
+                "active_rubro_code": profile.rubro_code,
+                "active_rubro_name": profile.rubro_name,
+            }
+        )
+
+
+class EmisorActiveView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        staff_user = get_staff_user_from_request(request)
+        rubro_code = staff_user.active_rubro_code if staff_user else ""
+        profile = None
+        if rubro_code:
+            profile = IssuerProfile.objects.filter(
+                rubro_code=rubro_code, is_active=True
+            ).first()
+        if not profile:
+            profile = (
+                IssuerProfile.objects.filter(rubro_code="64922", is_active=True).first()
+                or IssuerProfile.objects.filter(is_active=True)
+                .order_by("rubro_code")
+                .first()
+            )
+        if not profile:
+            return Response({"detail": "No hay perfiles de emisor configurados."}, status=404)
+        if staff_user and staff_user.active_rubro_code != profile.rubro_code:
+            staff_user.active_rubro_code = profile.rubro_code
+            staff_user.save(update_fields=["active_rubro_code"])
+        return Response(
+            {
+                "active_rubro_code": profile.rubro_code,
+                "active_rubro_name": profile.rubro_name,
+                "emisor_schema": profile.emisor_schema,
+            }
+        )
 
 
 class InvoiceItemViewSet(viewsets.ModelViewSet):

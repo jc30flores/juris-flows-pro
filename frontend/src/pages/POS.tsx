@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Ban, Copy, Download, FilePlus2, Filter, Mail, MessageCircle, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
 import { ServiceSelectorModal } from "@/components/modals/ServiceSelectorModal";
 import { API_BASE_URL, api } from "@/lib/api";
@@ -26,6 +27,7 @@ import { Client } from "@/types/client";
 import { Invoice, InvoiceItem, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
 import { Service } from "@/types/service";
 import { toast } from "@/hooks/use-toast";
+import { useRubro } from "@/contexts/RubroContext";
 
 const getDteBadgeStyle = (status: string | undefined) => {
   const normalized = status?.toUpperCase();
@@ -121,6 +123,14 @@ const resolveServiceFromItem = (
   return { serviceId: item.service, serviceDetails };
 };
 
+const rubroOrder = ["64922", "68200", "45100"];
+
+const rubroShortLabels: Record<string, string> = {
+  "64922": "Créditos",
+  "68200": "Inmobiliario",
+  "45100": "Vehículos",
+};
+
 export default function POS() {
   const now = new Date();
   const [filter, setFilter] = useState("all");
@@ -141,6 +151,8 @@ export default function POS() {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [selectedServices, setSelectedServices] = useState<SelectedServicePayload[]>([]);
+  const rubroSelectorRef = useRef<HTMLDivElement | null>(null);
+  const { rubros, activeRubro, loading: loadingRubros, setActiveRubro } = useRubro();
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -491,16 +503,59 @@ export default function POS() {
   return (
     <div className="space-y-4 md:space-y-6 overflow-x-hidden">
       {/* Título móvil */}
-      <h2 className="text-lg font-semibold md:hidden">Facturador</h2>
-      <div className="flex justify-end">
-        <Button
-          className="bg-primary hover:bg-primary/90 w-full md:w-auto"
-          onClick={handleOpenCreate}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          <span className="md:hidden">Nueva</span>
-          <span className="hidden md:inline">Nueva Factura</span>
-        </Button>
+      <div className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold md:hidden">Facturador</h2>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-2" ref={rubroSelectorRef}>
+            <p className="text-sm font-medium text-muted-foreground">Rubro activo</p>
+            <div className="flex flex-col gap-2">
+              <ToggleGroup
+                type="single"
+                value={activeRubro?.code ?? ""}
+                onValueChange={(value) => {
+                  if (value) {
+                    void setActiveRubro(value);
+                  }
+                }}
+                className="justify-start"
+              >
+                {rubroOrder
+                  .map((code) => rubros.find((rubro) => rubro.code === code))
+                  .filter((rubro): rubro is NonNullable<typeof rubro> => Boolean(rubro))
+                  .map((rubro) => (
+                  <Tooltip key={rubro.code}>
+                    <TooltipTrigger asChild>
+                      <ToggleGroupItem
+                        value={rubro.code}
+                        className="text-xs px-3 font-medium bg-transparent text-foreground/80 hover:bg-muted data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-sm data-[state=on]:ring-1 data-[state=on]:ring-primary/40"
+                      >
+                        {rubro.code} - {rubroShortLabels[rubro.code] || rubro.name}
+                      </ToggleGroupItem>
+                    </TooltipTrigger>
+                    <TooltipContent>{rubro.name}</TooltipContent>
+                  </Tooltip>
+                ))}
+              </ToggleGroup>
+              <span className="inline-flex w-fit items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                {activeRubro
+                  ? `Rubro activo: ${activeRubro.code} - ${activeRubro.name}`
+                  : loadingRubros
+                    ? "Cargando rubros..."
+                    : "Selecciona un rubro para facturar"}
+              </span>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button
+              className="bg-primary hover:bg-primary/90 w-full md:w-auto"
+              onClick={handleOpenCreate}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              <span className="md:hidden">Nueva</span>
+              <span className="hidden md:inline">Nueva Factura</span>
+            </Button>
+          </div>
+        </div>
       </div>
 
       <div className="flex flex-col gap-2 md:gap-3">
@@ -719,6 +774,10 @@ export default function POS() {
         mode={mode}
         selectedServices={selectedServices}
         onCancel={handleCancelSelection}
+        activeRubro={activeRubro}
+        onMissingRubro={() => {
+          rubroSelectorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }}
       />
 
       <Dialog open={showExportModal} onOpenChange={setShowExportModal}>
