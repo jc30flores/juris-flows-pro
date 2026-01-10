@@ -29,7 +29,7 @@ export function AppHeader() {
         {/* Logo - oculto en móvil */}
         <div className="hidden md:flex items-center gap-2 flex-shrink-0">
           <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-navy-700 to-navy-500 bg-clip-text text-transparent dark:from-navy-500 dark:to-gold-400 whitespace-nowrap">
-            Cuska-OnOffice
+            Relite-Group
           </h1>
         </div>
 

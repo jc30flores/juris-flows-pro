@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => ({
     host: "0.0.0.0",
     port: 8184,
     allowedHosts: [
-      "cuska-juridico.cuskatech.com",
+      "relite-facturador.relitegroup.com",
       "localhost",
       "127.0.0.1",
     ],

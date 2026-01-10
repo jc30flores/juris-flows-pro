@@ -1,7 +1,7 @@
-# Panorama del sistema Cuska-OnOffice
+# Panorama del sistema Relite-Group
 
 ## Descripción general del sistema
-Cuska-OnOffice es una plataforma para la gestión integral de una oficina jurídica. El objetivo es centralizar operaciones de facturación electrónica (DTE), servicios jurídicos, clientes, gastos y usuarios internos. Los módulos clave son:
+Relite-Group es una plataforma para la gestión integral de una oficina jurídica. El objetivo es centralizar operaciones de facturación electrónica (DTE), servicios jurídicos, clientes, gastos y usuarios internos. Los módulos clave son:
 
 - **Facturación electrónica / DTE**: emisión y seguimiento de documentos fiscales (CF, CCF, etc.). Permite registrar método de pago, estado del DTE y totales.
 - **Servicios jurídicos**: catálogo de servicios con código, categoría y precio base; control de si el servicio es imponible y si está activo.

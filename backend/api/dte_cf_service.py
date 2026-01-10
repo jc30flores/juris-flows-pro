@@ -247,6 +247,7 @@ DEFAULT_EMITTER_INFO = {
     "nombreComercial": "RELITE GROUP",
     "codActividad": "68200",
     "descActividad": "Actividades Inmobiliarias Realizadas a Cambio de una Retribucion o por Contrata",
+    "codActividad": "64922",
     "direccion": {
         "municipio": "22",
         "complemento": "AV. BARCELONA POLIGONO B, RESIDENCIAL SEVILLA, #21, SAN MIGUEL",
@@ -547,7 +548,7 @@ def send_cf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTE
         staff_user.id if staff_user else "anonimo",
     )
     headers = {
-        "Authorization": "Bearer api_k_12101304761012",
+        "Authorization": "Bearer api_key_cliente_12172402231026",
         "Content-Type": "application/json",
     }
 
@@ -848,7 +849,7 @@ def send_ccf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DT
         staff_user.id if staff_user else "anonimo",
     )
     headers = {
-        "Authorization": "Bearer api_k_12101304761012",
+        "Authorization": "Bearer api_key_cliente_12172402231026",
         "Content-Type": "application/json",
     }
 
@@ -1099,7 +1100,7 @@ def send_se_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTE
         staff_user.id if staff_user else "anonimo",
     )
     headers = {
-        "Authorization": "Bearer api_k_12101304761012",
+        "Authorization": "Bearer api_key_cliente_12172402231026",
         "Content-Type": "application/json",
     }
 
