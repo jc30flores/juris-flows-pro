@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format } from "date-fns";
+import { es } from "date-fns/locale";
 import { CalendarIcon } from "lucide-react";
 import {
   Dialog,
@@ -109,7 +110,7 @@ export function NuevoGastoModal({
             <Label htmlFor="nombre">Nombre del Gasto</Label>
             <Input
               id="nombre"
-              placeholder="Papelería y Suministros"
+              placeholder="Ingrese el nombre del gasto"
               {...form.register("nombre")}
             />
             {form.formState.errors.nombre && (
@@ -123,7 +124,7 @@ export function NuevoGastoModal({
             <Label htmlFor="proveedor">Proveedor</Label>
             <Input
               id="proveedor"
-              placeholder="Librería Central"
+              placeholder="Ingrese el nombre del proveedor"
               {...form.register("proveedor")}
             />
             {form.formState.errors.proveedor && (
@@ -146,7 +147,7 @@ export function NuevoGastoModal({
                 >
                   <CalendarIcon className="mr-2 h-4 w-4" />
                   {form.watch("fecha") ? (
-                    format(form.watch("fecha"), "PPP")
+                    format(form.watch("fecha"), "PPP", { locale: es })
                   ) : (
                     <span>Seleccionar fecha</span>
                   )}
@@ -159,6 +160,7 @@ export function NuevoGastoModal({
                   onSelect={(date) => form.setValue("fecha", date || new Date())}
                   initialFocus
                   className={cn("p-3 pointer-events-auto")}
+                  locale={es}
                 />
               </PopoverContent>
             </Popover>
