@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 
 
@@ -198,12 +200,27 @@ class StaffUser(models.Model):
     password = models.CharField(max_length=128)
     role = models.CharField(max_length=20)
     is_active = models.BooleanField(default=True)
+    active_rubro_code = models.CharField(max_length=10, blank=True, default="")
 
     class Meta:
         db_table = "api_staffuser"
 
     def __str__(self):
         return self.full_name or self.username
+
+
+class IssuerProfile(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    rubro_code = models.CharField(max_length=10, unique=True)
+    rubro_name = models.CharField(max_length=255)
+    emisor_schema = models.JSONField()
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "api_issuer_profile"
+
+    def __str__(self) -> str:
+        return f"{self.rubro_code} - {self.rubro_name}"
 
 
 class GeoDepartment(models.Model):

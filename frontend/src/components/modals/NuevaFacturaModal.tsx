@@ -33,6 +33,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { renderCellValue } from "@/lib/render";
 import { getElSalvadorDateString } from "@/lib/dates";
+import type { Rubro } from "@/types/issuer";
 
 const IVA_RATE = 0.13;
 const PRICE_OVERRIDE_ACCESS_CODE = "123";
@@ -132,6 +133,8 @@ interface NuevaFacturaModalProps {
   mode?: "create" | "edit";
   selectedServices: SelectedServicePayload[];
   onCancel: () => void;
+  activeRubro: Rubro | null;
+  onMissingRubro?: () => void;
 }
 
 export function NuevaFacturaModal({
@@ -143,6 +146,8 @@ export function NuevaFacturaModal({
   mode = "create",
   selectedServices,
   onCancel,
+  activeRubro,
+  onMissingRubro,
 }: NuevaFacturaModalProps) {
   const [submitting, setSubmitting] = useState(false);
   const [clientSearch, setClientSearch] = useState("");
@@ -191,6 +196,16 @@ export function NuevaFacturaModal({
   );
 
   const onSubmitForm = async (data: z.infer<typeof facturaSchema>) => {
+    if (!activeRubro) {
+      toast({
+        title: "Selecciona un rubro para facturar",
+        description: "Necesitamos el rubro activo para generar el DTE.",
+        variant: "destructive",
+      });
+      onMissingRubro?.();
+      return;
+    }
+
     if (serviceLines.length === 0) {
       toast({
         title: "Error",
@@ -923,6 +938,13 @@ export function NuevaFacturaModal({
               rows={3}
               {...form.register("observations")}
             />
+          </div>
+
+          <div className="rounded-lg border border-border bg-muted/50 p-3 text-sm">
+            <span className="font-medium">Rubro activo para este DTE:</span>{" "}
+            {activeRubro
+              ? `${activeRubro.code} - ${activeRubro.name}`
+              : "Sin rubro seleccionado"}
           </div>
 
           {serviceLines.length > 0 && (

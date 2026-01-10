@@ -6,6 +6,9 @@ from .views import (
     ConnectivityStatusView,
     ClientViewSet,
     ExpenseViewSet,
+    EmisorActiveRubroView,
+    EmisorActiveView,
+    EmisorRubrosView,
     GeoDepartmentViewSet,
     GeoMunicipalityViewSet,
     InvoiceExportAllCSVAPIView,
@@ -32,6 +35,9 @@ router.register(r"activities", ActivityViewSet)
 
 urlpatterns = [
     path("invoices/export/", InvoiceExportAllCSVAPIView.as_view(), name="invoice-export"),
+    path("emisor/rubros/", EmisorRubrosView.as_view(), name="emisor-rubros"),
+    path("emisor/active-rubro/", EmisorActiveRubroView.as_view(), name="emisor-active-rubro"),
+    path("emisor/active/", EmisorActiveView.as_view(), name="emisor-active"),
     path("", include(router.urls)),
     path("status/connectivity/", ConnectivityStatusView.as_view(), name="connectivity-status"),
     path("auth/login/", LoginView.as_view(), name="auth-login"),

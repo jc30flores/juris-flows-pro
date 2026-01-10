@@ -110,6 +110,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         items_data = validated_data.pop("items", None)
         services_data = validated_data.pop("services", None)
+        staff_user = self.context.get("staff_user")
 
         if not validated_data.get("dte_status"):
             validated_data["dte_status"] = Invoice.PENDING
@@ -130,11 +131,11 @@ class InvoiceSerializer(serializers.ModelSerializer):
         self._upsert_items(invoice, normalized_items, replace=True)
         try:
             if invoice.doc_type == Invoice.CF:
-                send_cf_dte_for_invoice(invoice)
+                send_cf_dte_for_invoice(invoice, staff_user=staff_user)
             elif invoice.doc_type == Invoice.CCF:
-                send_ccf_dte_for_invoice(invoice)
+                send_ccf_dte_for_invoice(invoice, staff_user=staff_user)
             elif invoice.doc_type == Invoice.SX:
-                send_se_dte_for_invoice(invoice)
+                send_se_dte_for_invoice(invoice, staff_user=staff_user)
         except Exception as exc:  # noqa: BLE001
             logger.exception(
                 "Error sending DTE for invoice %s", invoice.id, exc_info=exc

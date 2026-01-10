@@ -14,6 +14,7 @@ import NotFound from "./pages/NotFound";
 import LoginPage from "./pages/LoginPage";
 import { PrivateRoute } from "@/components/PrivateRoute";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { RubroProvider } from "@/contexts/RubroContext";
 
 const queryClient = new QueryClient();
 
@@ -49,7 +50,9 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <AuthProvider>
-            <AppLayout />
+            <RubroProvider>
+              <AppLayout />
+            </RubroProvider>
           </AuthProvider>
         </BrowserRouter>
       </TooltipProvider>
