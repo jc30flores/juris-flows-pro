@@ -123,9 +123,11 @@ const resolveServiceFromItem = (
   return { serviceId: item.service, serviceDetails };
 };
 
+const rubroOrder = ["64922", "68200", "45100"];
+
 const rubroShortLabels: Record<string, string> = {
-  "68200": "Inmobiliario",
   "64922": "Créditos",
+  "68200": "Inmobiliario",
   "45100": "Vehículos",
 };
 
@@ -517,10 +519,16 @@ export default function POS() {
                 }}
                 className="justify-start"
               >
-                {rubros.map((rubro) => (
+                {rubroOrder
+                  .map((code) => rubros.find((rubro) => rubro.code === code))
+                  .filter((rubro): rubro is NonNullable<typeof rubro> => Boolean(rubro))
+                  .map((rubro) => (
                   <Tooltip key={rubro.code}>
                     <TooltipTrigger asChild>
-                      <ToggleGroupItem value={rubro.code} className="text-xs px-3">
+                      <ToggleGroupItem
+                        value={rubro.code}
+                        className="text-xs px-3 font-medium bg-transparent text-foreground/80 hover:bg-muted data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-sm data-[state=on]:ring-1 data-[state=on]:ring-primary/40"
+                      >
                         {rubro.code} - {rubroShortLabels[rubro.code] || rubro.name}
                       </ToggleGroupItem>
                     </TooltipTrigger>
