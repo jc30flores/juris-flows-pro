@@ -238,15 +238,15 @@ def interpret_dte_response(response_data: dict) -> Tuple[str, str, str]:
     return "PENDIENTE", "SIN_RESPUESTA", "DTE en estado PENDIENTE: la respuesta de la API no se pudo interpretar."
 
 
-DEFAULT_RUBRO_CODE = "68200"
+DEFAULT_RUBRO_CODE = "64922"
 
 DEFAULT_EMITTER_INFO = {
     "nit": "12172402231026",
     "nrc": "3255304",
     "nombre": "EDWIN ARNULFO MATA CASTILLO",
     "nombreComercial": "RELITE GROUP",
-    "codActividad": "68200",
-    "descActividad": "Actividades Inmobiliarias Realizadas a Cambio de una Retribucion o por Contrata",
+    "codActividad": "64922",
+    "descActividad": "Tipos de Creditos N.C.P",
     "direccion": {
         "municipio": "22",
         "complemento": "AV. BARCELONA POLIGONO B, RESIDENCIAL SEVILLA, #21, SAN MIGUEL",

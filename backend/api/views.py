@@ -237,8 +237,12 @@ class EmisorRubrosView(APIView):
                 break
 
         if not active_code and rubros:
-            active_code = rubros[0]["rubro_code"]
-            active_name = rubros[0]["rubro_name"]
+            default_rubro = next(
+                (rubro for rubro in rubros if rubro["rubro_code"] == "64922"),
+                rubros[0],
+            )
+            active_code = default_rubro["rubro_code"]
+            active_name = default_rubro["rubro_name"]
             if staff_user:
                 staff_user.active_rubro_code = active_code
                 staff_user.save(update_fields=["active_rubro_code"])
@@ -303,7 +307,12 @@ class EmisorActiveView(APIView):
                 rubro_code=rubro_code, is_active=True
             ).first()
         if not profile:
-            profile = IssuerProfile.objects.filter(is_active=True).order_by("rubro_code").first()
+            profile = (
+                IssuerProfile.objects.filter(rubro_code="64922", is_active=True).first()
+                or IssuerProfile.objects.filter(is_active=True)
+                .order_by("rubro_code")
+                .first()
+            )
         if not profile:
             return Response({"detail": "No hay perfiles de emisor configurados."}, status=404)
         if staff_user and staff_user.active_rubro_code != profile.rubro_code:
