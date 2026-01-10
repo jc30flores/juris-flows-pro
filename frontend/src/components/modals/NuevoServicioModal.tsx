@@ -159,7 +159,7 @@ export function NuevoServicioModal({
             <Label htmlFor="nombre">Nombre del Servicio</Label>
             <Input
               id="nombre"
-              placeholder="Compra Venta de Vehículos"
+              placeholder="Ingrese el nombre del servicio"
               {...form.register("name", {
                 onChange: (event) =>
                   form.setValue("name", event.target.value.toUpperCase()),

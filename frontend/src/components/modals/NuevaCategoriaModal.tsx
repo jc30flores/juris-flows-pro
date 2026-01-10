@@ -211,7 +211,7 @@ export function NuevaCategoriaModal({ open, onOpenChange, onCreated }: NuevaCate
                     <FormLabel>Nombre de la Categoría</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="Escrituras Públicas"
+                        placeholder="Ingrese el nombre de la categoría"
                         {...field}
                         onChange={(event) =>
                           field.onChange(event.target.value.toUpperCase())
