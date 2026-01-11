@@ -103,7 +103,11 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:9104",
     "https://relite-facturador.relitegroup.com",
 ]
-REST_FRAMEWORK = {}
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.BasicAuthentication",
+    ],
+}
 
 INTERNET_HEALTH_URL = os.getenv("INTERNET_HEALTH_URL", "https://www.google.com/generate_204")
 API_HEALTH_URL = os.getenv("API_HEALTH_URL", "https://t12172402231026.cheros.dev/health")
