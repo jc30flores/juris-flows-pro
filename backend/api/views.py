@@ -1,6 +1,8 @@
 import csv
+import logging
 from datetime import date, datetime, timedelta
 
+from django.conf import settings
 from django.contrib.auth.hashers import check_password
 from django.db import models
 from django.db.models import Q
@@ -37,7 +39,9 @@ from .serializers import (
     ServiceSerializer,
     StaffUserSerializer,
 )
-from .utils import get_staff_user_from_request
+from .utils import generate_price_override_token, get_staff_user_from_request
+
+logger = logging.getLogger(__name__)
 
 
 def filter_invoices_queryset(queryset, params):
@@ -370,6 +374,33 @@ class LogoutView(APIView):
 
     def post(self, request):
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PriceOverrideValidateView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        access_code = request.data.get("code") or request.data.get("access_code")
+        staff_user = get_staff_user_from_request(request)
+
+        if access_code != settings.PRICE_OVERRIDE_ACCESS_CODE:
+            if settings.DEBUG:
+                logger.warning(
+                    "Price override access denied (staff_user=%s, code_present=%s)",
+                    getattr(staff_user, "id", None),
+                    bool(access_code),
+                )
+            return Response(
+                {"detail": "Código de acceso inválido."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        token = generate_price_override_token(staff_user)
+        expires_in = getattr(settings, "PRICE_OVERRIDE_TOKEN_MAX_AGE_SECONDS", 300)
+        return Response(
+            {"override_token": token, "expires_in": expires_in},
+            status=status.HTTP_200_OK,
+        )
 
 
 class GeoDepartmentViewSet(viewsets.ReadOnlyModelViewSet):

@@ -90,4 +90,5 @@ export interface InvoicePayload {
   total: number;
   observations?: string;
   services: SelectedServicePayload[];
+  override_token?: string;
 }

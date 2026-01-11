@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { isAxiosError } from "axios";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -32,11 +33,11 @@ import {
 } from "@/types/invoice";
 import { Textarea } from "@/components/ui/textarea";
 import { renderCellValue } from "@/lib/render";
+import { api } from "@/lib/api";
 import { getElSalvadorDateString } from "@/lib/dates";
 import type { Rubro } from "@/types/issuer";
 
 const IVA_RATE = 0.13;
-const PRICE_OVERRIDE_ACCESS_CODE = "123";
 const AUTHORIZATION_WINDOW_MS = 5 * 60 * 1000;
 
 type ServiceLine = SelectedServicePayload & {
@@ -154,6 +155,7 @@ export function NuevaFacturaModal({
   const [clientOpen, setClientOpen] = useState(false);
   const [serviceLines, setServiceLines] = useState<ServiceLine[]>([]);
   const [authorizedUntil, setAuthorizedUntil] = useState<number | null>(null);
+  const [overrideToken, setOverrideToken] = useState<string | null>(null);
   const [accessModalOpen, setAccessModalOpen] = useState(false);
   const [accessCodeInput, setAccessCodeInput] = useState("");
   const [accessError, setAccessError] = useState<string | null>(null);
@@ -244,6 +246,18 @@ export function NuevaFacturaModal({
     }
 
     setServiceLines(normalizedLines);
+    const hasOverrides = normalizedLines.some((item) => item.price_overridden);
+    if (hasOverrides) {
+      const now = Date.now();
+      if (!overrideToken || (authorizedUntil && authorizedUntil < now)) {
+        toast({
+          title: "Autorización requerida",
+          description: "Debes validar el código antes de modificar precios.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
 
     const servicesPayload: SelectedServicePayload[] = normalizedLines.map((item) => {
       const price = Number(item.unit_price_applied);
@@ -256,7 +270,6 @@ export function NuevaFacturaModal({
         price_overridden: item.price_overridden,
         quantity: item.quantity,
         subtotal: Number((price * item.quantity).toFixed(2)),
-        ...(item.price_overridden ? { override_code: PRICE_OVERRIDE_ACCESS_CODE } : {}),
       };
     });
 
@@ -268,6 +281,7 @@ export function NuevaFacturaModal({
       total,
       observations: data.observations || "",
       services: servicesPayload,
+      ...(hasOverrides && overrideToken ? { override_token: overrideToken } : {}),
     };
 
     try {
@@ -285,6 +299,7 @@ export function NuevaFacturaModal({
         observations: "",
       });
       setAuthorizedUntil(null);
+      setOverrideToken(null);
       Object.values(unlockTimersRef.current).forEach((timerId) => {
         window.clearTimeout(timerId);
       });
@@ -370,6 +385,7 @@ export function NuevaFacturaModal({
         }),
       );
       setAuthorizedUntil(null);
+      setOverrideToken(null);
       Object.values(unlockTimersRef.current).forEach((timerId) => {
         window.clearTimeout(timerId);
       });
@@ -473,49 +489,66 @@ export function NuevaFacturaModal({
   };
 
   const handleAccessConfirm = () => {
-    if (accessCodeInput !== PRICE_OVERRIDE_ACCESS_CODE) {
-      setAccessError("Código incorrecto. Intenta nuevamente.");
-      return;
-    }
+    const confirmAccess = async () => {
+      try {
+        const response = await api.post("/price-overrides/validate/", {
+          code: accessCodeInput,
+        });
+        const token = response.data?.override_token as string | undefined;
+        const expiresIn = Number(response.data?.expires_in) || AUTHORIZATION_WINDOW_MS / 1000;
+        if (!token) {
+          setAccessError("No se pudo validar el código.");
+          return;
+        }
+        const expiresAt = Date.now() + expiresIn * 1000;
+        setAuthorizedUntil(expiresAt);
+        setOverrideToken(token);
+        if (selectedLineId === null) {
+          setAccessError("Selecciona un servicio para desbloquear.");
+          return;
+        }
 
-    const expiresAt = Date.now() + AUTHORIZATION_WINDOW_MS;
-    setAuthorizedUntil(expiresAt);
-    if (selectedLineId === null) {
-      setAccessError("Selecciona un servicio para desbloquear.");
-      return;
-    }
+        const prevTimer = unlockTimersRef.current[selectedLineId];
+        if (prevTimer) {
+          window.clearTimeout(prevTimer);
+        }
+        const timerId = window.setTimeout(() => {
+          setServiceLines((prev) =>
+            prev.map((item) =>
+              item.service_id === selectedLineId
+                ? { ...item, price_locked: true, unlocked_until: null }
+                : item,
+            ),
+          );
+          delete unlockTimersRef.current[selectedLineId];
+        }, expiresIn * 1000);
+        unlockTimersRef.current[selectedLineId] = timerId;
 
-    const prevTimer = unlockTimersRef.current[selectedLineId];
-    if (prevTimer) {
-      window.clearTimeout(prevTimer);
-    }
-    const timerId = window.setTimeout(() => {
-      setServiceLines((prev) =>
-        prev.map((item) =>
-          item.service_id === selectedLineId
-            ? { ...item, price_locked: true, unlocked_until: null }
-            : item,
-        ),
-      );
-      delete unlockTimersRef.current[selectedLineId];
-    }, AUTHORIZATION_WINDOW_MS);
-    unlockTimersRef.current[selectedLineId] = timerId;
+        updateServiceLine(selectedLineId, (item) => ({
+          ...item,
+          price_locked: false,
+          unlocked_until: expiresAt,
+        }));
+        setAccessModalOpen(false);
+        setAccessError(null);
+        setAccessCodeInput("");
+        const input = priceInputRefs.current[selectedLineId];
+        if (input) {
+          window.setTimeout(() => {
+            input.focus();
+            input.select();
+          }, 0);
+        }
+      } catch (error) {
+        if (isAxiosError(error)) {
+          setAccessError(error.response?.data?.detail || "Código incorrecto.");
+        } else {
+          setAccessError("No se pudo validar el código.");
+        }
+      }
+    };
 
-    updateServiceLine(selectedLineId, (item) => ({
-      ...item,
-      price_locked: false,
-      unlocked_until: expiresAt,
-    }));
-    setAccessModalOpen(false);
-    setAccessError(null);
-    setAccessCodeInput("");
-    const input = priceInputRefs.current[selectedLineId];
-    if (input) {
-      window.setTimeout(() => {
-        input.focus();
-        input.select();
-      }, 0);
-    }
+    void confirmAccess();
   };
 
   const handleAccessCancel = () => {
