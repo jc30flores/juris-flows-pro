@@ -102,25 +102,39 @@ const AccessCodeModal = ({
       <DialogHeader>
         <DialogTitle>Código de acceso requerido</DialogTitle>
       </DialogHeader>
-      <div className="space-y-3">
-        <Label htmlFor="accessCode">Código de acceso</Label>
-        <Input
-          id="accessCode"
-          type="password"
-          placeholder="Ingresa el código"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-        />
-        {error && <p className="text-sm text-destructive">{error}</p>}
-      </div>
-      <DialogFooter className="gap-2">
-        <Button type="button" variant="outline" onClick={onCancel}>
-          Cancelar
-        </Button>
-        <Button type="button" onClick={onConfirm}>
-          Confirmar
-        </Button>
-      </DialogFooter>
+      <form
+        autoComplete="off"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onConfirm();
+        }}
+      >
+        <div className="space-y-3">
+          <Label htmlFor="accessCode">Código de acceso</Label>
+          <Input
+            id="accessCode"
+            name="access_code"
+            type="password"
+            placeholder="Ingresa el código"
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            autoComplete="off"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            inputMode="numeric"
+            data-lpignore="true"
+            data-form-type="other"
+          />
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </div>
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="outline" onClick={onCancel}>
+            Cancelar
+          </Button>
+          <Button type="submit">Confirmar</Button>
+        </DialogFooter>
+      </form>
     </DialogContent>
   </Dialog>
 );
@@ -420,6 +434,13 @@ export function NuevaFacturaModal({
   }, [invoice, mode, open, form, selectedServices]);
 
   useEffect(() => {
+    if (!accessModalOpen) {
+      setAccessCodeInput("");
+      setAccessError(null);
+    }
+  }, [accessModalOpen]);
+
+  useEffect(() => {
     return () => {
       Object.values(unlockTimersRef.current).forEach((timerId) => {
         window.clearTimeout(timerId);
@@ -560,6 +581,7 @@ export function NuevaFacturaModal({
 
   const handleUnlockRequest = (serviceId: number) => {
     setSelectedLineId(serviceId);
+    setAccessCodeInput("");
     setAccessModalOpen(true);
   };
 
