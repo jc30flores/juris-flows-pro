@@ -85,9 +85,7 @@ const isPriceChanged = (item: ServiceLine): boolean =>
   money(item.unit_price_applied) !== money(item.original_unit_price);
 
 const noSujetaSwitchClassName =
-  "h-5 w-10 border border-border bg-muted/70 data-[state=checked]:bg-primary data-[state=unchecked]:bg-muted/70 " +
-  "dark:bg-muted/40 dark:data-[state=unchecked]:bg-muted/40 " +
-  "data-[state=checked]:border-primary data-[state=checked]:bg-primary " +
+  "h-5 w-10 border bg-transparent " +
   "[&>span]:h-4 [&>span]:w-4 [&>span]:bg-white " +
   "[&>span]:border [&>span]:border-border [&>span]:shadow-sm " +
   "dark:[&>span]:bg-white dark:[&>span]:border-white/40";
@@ -566,6 +564,10 @@ export function NuevaFacturaModal({
           onCheckedChange={(value) => handleToggleNoSujeta(serviceId, value)}
           aria-label="Marcar como venta no sujeta (sin IVA)"
           className={noSujetaSwitchClassName}
+          style={{
+            backgroundColor: checked ? "hsl(var(--primary))" : "hsl(var(--muted))",
+            borderColor: checked ? "hsl(var(--primary))" : "hsl(var(--border))",
+          }}
         />
       </TooltipTrigger>
       <TooltipContent>
