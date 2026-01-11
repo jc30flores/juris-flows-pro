@@ -104,12 +104,13 @@ const AccessCodeModal = ({
       </DialogHeader>
       <form
         autoComplete="off"
+        className="flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault();
           onConfirm();
         }}
       >
-        <div className="space-y-3">
+        <div className="space-y-2">
           <Label htmlFor="accessCode">Código de acceso</Label>
           <Input
             id="accessCode"
@@ -125,14 +126,17 @@ const AccessCodeModal = ({
             inputMode="numeric"
             data-lpignore="true"
             data-form-type="other"
+            autoFocus
           />
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
-        <DialogFooter className="gap-2">
-          <Button type="button" variant="outline" onClick={onCancel}>
+        <DialogFooter className="gap-2 sm:gap-2 sm:pt-1">
+          <Button type="button" variant="outline" onClick={onCancel} className="w-full sm:w-auto">
             Cancelar
           </Button>
-          <Button type="submit">Confirmar</Button>
+          <Button type="submit" className="w-full sm:w-auto">
+            Confirmar
+          </Button>
         </DialogFooter>
       </form>
     </DialogContent>
