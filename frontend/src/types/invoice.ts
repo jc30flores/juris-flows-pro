@@ -78,6 +78,7 @@ export interface SelectedServicePayload {
   unit_price?: number;
   price_overridden?: boolean;
   override_code?: string;
+  override_reason?: string;
   quantity: number;
   subtotal: number;
 }
@@ -90,4 +91,5 @@ export interface InvoicePayload {
   total: number;
   observations?: string;
   services: SelectedServicePayload[];
+  override_token?: string;
 }

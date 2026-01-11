@@ -1,9 +1,9 @@
 import logging
-from decimal import Decimal
-import logging
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
+from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
@@ -28,6 +28,14 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 PRICE_OVERRIDE_ACCESS_CODE = getattr(settings, "PRICE_OVERRIDE_ACCESS_CODE", "123")
+PRICE_OVERRIDE_TOKEN_MAX_AGE = int(
+    getattr(settings, "PRICE_OVERRIDE_TOKEN_MAX_AGE", 300)
+)
+PRICE_OVERRIDE_TOKEN_SALT = getattr(
+    settings,
+    "PRICE_OVERRIDE_TOKEN_SALT",
+    "price-override",
+)
 
 
 class ServiceCategorySerializer(serializers.ModelSerializer):
@@ -119,15 +127,12 @@ class InvoiceSerializer(serializers.ModelSerializer):
         if not validated_data.get("number"):
             validated_data["number"] = self._generate_number()
 
+        normalized_items = self._normalize_items_payload(items_data, services_data)
+        if normalized_items:
+            validated_data["total"] = self._calculate_total(normalized_items)
+
         invoice = super().create(validated_data)
-
-        normalized_items = (
-            self._normalize_services(services_data)
-            if services_data is not None
-            else items_data or []
-        )
-
-        self._upsert_items(invoice, normalized_items, replace=True)
+        self._upsert_items(invoice, normalized_items or [], replace=True)
         try:
             if invoice.doc_type == Invoice.CF:
                 send_cf_dte_for_invoice(invoice)
@@ -198,13 +203,15 @@ class InvoiceSerializer(serializers.ModelSerializer):
         if not validated_data.get("dte_status"):
             validated_data["dte_status"] = instance.dte_status or Invoice.PENDING
 
+        normalized_items = None
+        if services_data is not None or items_data is not None:
+            normalized_items = self._normalize_items_payload(items_data, services_data)
+            validated_data["total"] = self._calculate_total(normalized_items)
+
         invoice = super().update(instance, validated_data)
 
-        if services_data is not None:
-            normalized_items = self._normalize_services(services_data)
+        if normalized_items is not None:
             self._upsert_items(invoice, normalized_items, replace=True)
-        elif items_data is not None:
-            self._upsert_items(invoice, items_data, replace=True)
 
         return invoice
 
@@ -242,7 +249,9 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
             unit_price = Decimal(str(unit_price))
             original_unit_price = (
-                Decimal(str(original_unit_price)) if original_unit_price is not None else unit_price
+                Decimal(str(original_unit_price))
+                if original_unit_price is not None
+                else unit_price
             )
 
             if unit_price <= 0:
@@ -251,15 +260,29 @@ class InvoiceSerializer(serializers.ModelSerializer):
                 )
 
             price_overridden = unit_price != original_unit_price
+            override_token = self._get_override_token(service_data)
+            override_reason = service_data.get("override_reason") or service_data.get(
+                "overrideReason"
+            )
             if price_overridden:
-                if not override_code or override_code != PRICE_OVERRIDE_ACCESS_CODE:
+                if not self._is_price_override_authorized(
+                    override_code=override_code,
+                    override_token=override_token,
+                ):
+                    self._log_override_denied(
+                        service_id=service_id,
+                        unit_price=unit_price,
+                        original_unit_price=original_unit_price,
+                    )
                     raise PermissionDenied(
-                        "Código de acceso inválido para modificar el precio "
-                        f"del servicio {service_id}."
+                        "Se requiere autorización para modificar el precio del "
+                        f"servicio {service_id}."
                     )
 
-            if subtotal is None:
-                subtotal = Decimal(unit_price) * int(quantity)
+            subtotal = self._coerce_subtotal(
+                unit_price=unit_price,
+                quantity=quantity,
+            )
 
             normalized_items.append(
                 {
@@ -269,10 +292,140 @@ class InvoiceSerializer(serializers.ModelSerializer):
                     "original_unit_price": original_unit_price,
                     "subtotal": subtotal,
                     "price_overridden": price_overridden,
+                    "override_reason": override_reason or "",
+                    "override_authorized_at": timezone.now()
+                    if price_overridden
+                    else None,
+                    "override_authorized_by": self._get_override_authorizer()
+                    if price_overridden
+                    else "",
                 }
             )
 
         return normalized_items
+
+    def _normalize_items_payload(self, items_data, services_data):
+        if services_data is not None:
+            return self._normalize_services(services_data)
+        if not items_data:
+            return []
+
+        normalized_items = []
+        for item_data in items_data:
+            service_id = item_data.get("service_id") or item_data.get("service")
+            if not service_id:
+                continue
+            quantity = item_data.get("quantity", 1)
+            unit_price = Decimal(str(item_data.get("unit_price") or 0))
+            original_unit_price = item_data.get("original_unit_price")
+            if original_unit_price is None:
+                service_instance = Service.objects.filter(pk=service_id).first()
+                original_unit_price = (
+                    service_instance.base_price if service_instance else unit_price
+                )
+            original_unit_price = Decimal(str(original_unit_price))
+
+            if unit_price <= 0:
+                raise serializers.ValidationError(
+                    {"items": f"El precio debe ser mayor a 0 para servicio {service_id}."}
+                )
+
+            price_overridden = unit_price != original_unit_price
+            override_code = item_data.get("override_code") or item_data.get("overrideCode")
+            override_token = self._get_override_token(item_data)
+            override_reason = item_data.get("override_reason") or item_data.get(
+                "overrideReason"
+            )
+            if price_overridden and not self._is_price_override_authorized(
+                override_code=override_code,
+                override_token=override_token,
+            ):
+                self._log_override_denied(
+                    service_id=service_id,
+                    unit_price=unit_price,
+                    original_unit_price=original_unit_price,
+                )
+                raise PermissionDenied(
+                    "Se requiere autorización para modificar el precio del "
+                    f"servicio {service_id}."
+                )
+
+            normalized_items.append(
+                {
+                    "service_id": service_id,
+                    "quantity": quantity,
+                    "unit_price": unit_price,
+                    "original_unit_price": original_unit_price,
+                    "subtotal": self._coerce_subtotal(unit_price, quantity),
+                    "price_overridden": price_overridden,
+                    "override_reason": override_reason or "",
+                    "override_authorized_at": timezone.now()
+                    if price_overridden
+                    else None,
+                    "override_authorized_by": self._get_override_authorizer()
+                    if price_overridden
+                    else "",
+                }
+            )
+
+        return normalized_items
+
+    def _coerce_subtotal(self, unit_price, quantity):
+        subtotal = Decimal(unit_price) * Decimal(int(quantity))
+        return subtotal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    def _calculate_total(self, items):
+        total = sum(
+            ((item.get("subtotal") or Decimal("0")) for item in items),
+            Decimal("0"),
+        )
+        return Decimal(total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    def _get_override_token(self, payload):
+        if isinstance(payload, dict):
+            token = payload.get("override_token") or payload.get("overrideToken")
+            if token:
+                return token
+        request = self.context.get("request")
+        if not request:
+            return None
+        header_token = request.headers.get("X-Price-Override-Token") if hasattr(
+            request, "headers"
+        ) else None
+        if header_token:
+            return header_token
+        return request.data.get("override_token") if hasattr(request, "data") else None
+
+    def _is_price_override_authorized(self, override_code, override_token):
+        if override_code and override_code == PRICE_OVERRIDE_ACCESS_CODE:
+            return True
+        if not override_token:
+            return False
+        signer = TimestampSigner(salt=PRICE_OVERRIDE_TOKEN_SALT)
+        try:
+            signer.unsign(override_token, max_age=PRICE_OVERRIDE_TOKEN_MAX_AGE)
+        except (BadSignature, SignatureExpired):
+            return False
+        return True
+
+    def _get_override_authorizer(self):
+        request = self.context.get("request")
+        if request and getattr(request, "user", None) and request.user.is_authenticated:
+            return getattr(request.user, "username", None) or str(request.user)
+        return "override_token"
+
+    def _log_override_denied(self, service_id, unit_price, original_unit_price):
+        if not settings.DEBUG:
+            return
+        request = self.context.get("request")
+        logger.debug(
+            "Price override denied for service %s. unit_price=%s original_unit_price=%s user=%s auth=%s",
+            service_id,
+            unit_price,
+            original_unit_price,
+            getattr(request, "user", None),
+            getattr(request, "auth", None),
+        )
 
     def _upsert_items(self, invoice, items_data, replace: bool = False):
         if replace:

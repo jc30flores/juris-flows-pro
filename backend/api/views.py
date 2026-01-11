@@ -1,7 +1,11 @@
 import csv
 from datetime import date, datetime, timedelta
 
+import logging
+
+from django.conf import settings
 from django.contrib.auth.hashers import check_password
+from django.core.signing import TimestampSigner
 from django.db import models
 from django.db.models import Q
 from django.http import HttpResponse
@@ -36,6 +40,8 @@ from .serializers import (
     ServiceSerializer,
     StaffUserSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def filter_invoices_queryset(queryset, params):
@@ -198,6 +204,13 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         return queryset
 
     def create(self, request, *args, **kwargs):
+        if settings.DEBUG:
+            logger.debug(
+                "Invoice create request: user=%s auth=%s data_keys=%s",
+                getattr(request, "user", None),
+                getattr(request, "auth", None),
+                list(request.data.keys()) if hasattr(request, "data") else None,
+            )
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -256,6 +269,34 @@ class LogoutView(APIView):
 
     def post(self, request):
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PriceOverrideAuthorizationView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        code = request.data.get("code", "")
+        expected = getattr(settings, "PRICE_OVERRIDE_ACCESS_CODE", "123")
+        if code != expected:
+            if settings.DEBUG:
+                logger.debug(
+                    "Price override code rejected: user=%s auth=%s",
+                    getattr(request, "user", None),
+                    getattr(request, "auth", None),
+                )
+            return Response(
+                {"detail": "Código de autorización inválido."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        signer = TimestampSigner(
+            salt=getattr(settings, "PRICE_OVERRIDE_TOKEN_SALT", "price-override")
+        )
+        token = signer.sign("price-override")
+        max_age = int(getattr(settings, "PRICE_OVERRIDE_TOKEN_MAX_AGE", 300))
+        return Response(
+            {"token": token, "expires_in": max_age},
+            status=status.HTTP_200_OK,
+        )
 
 
 class GeoDepartmentViewSet(viewsets.ReadOnlyModelViewSet):
