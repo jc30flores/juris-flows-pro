@@ -84,6 +84,12 @@ const resolveDefaultNoSujeta = (name?: string): boolean =>
 const isPriceChanged = (item: ServiceLine): boolean =>
   money(item.unit_price_applied) !== money(item.original_unit_price);
 
+const noSujetaSwitchClassName =
+  "h-5 w-10 border border-border bg-muted/70 data-[state=checked]:bg-primary data-[state=unchecked]:bg-muted/70 " +
+  "dark:bg-muted/40 dark:data-[state=unchecked]:bg-muted/40 " +
+  "data-[state=checked]:border-primary [&>span]:h-4 [&>span]:w-4 [&>span]:bg-white " +
+  "[&>span]:border [&>span]:border-border [&>span]:shadow-sm " +
+  "dark:[&>span]:bg-white dark:[&>span]:border-white/40";
 const facturaSchema = z.object({
   date: z.string().min(1, "Debe seleccionar una fecha"),
   clienteId: z.string().min(1, "Debe seleccionar un cliente"),
@@ -551,6 +557,22 @@ export function NuevaFacturaModal({
     }));
   };
 
+  const renderNoSujetaSwitch = (serviceId: number, checked: boolean) => (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Switch
+          checked={checked}
+          onCheckedChange={(value) => handleToggleNoSujeta(serviceId, value)}
+          aria-label="Marcar como venta no sujeta (sin IVA)"
+          className={noSujetaSwitchClassName}
+        />
+      </TooltipTrigger>
+      <TooltipContent>
+        {checked ? "No sujeta (sin IVA)" : "Gravada (con IVA)"}
+      </TooltipContent>
+    </Tooltip>
+  );
+
   const handleAccessConfirm = () => {
     const confirmAccess = async () => {
       try {
@@ -933,18 +955,10 @@ export function NuevaFacturaModal({
                             </td>
                             <td className="px-4 py-3 text-center w-24 min-w-[90px]">
                               <div className="flex items-center justify-center">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Switch
-                                      checked={servicio.is_no_sujeta}
-                                      onCheckedChange={(value) =>
-                                        handleToggleNoSujeta(servicio.service_id, value)
-                                      }
-                                      aria-label="Marcar como venta no sujeta"
-                                    />
-                                  </TooltipTrigger>
-                                  <TooltipContent>Venta no sujeta (sin IVA)</TooltipContent>
-                                </Tooltip>
+                                {renderNoSujetaSwitch(
+                                  servicio.service_id,
+                                  servicio.is_no_sujeta,
+                                )}
                               </div>
                             </td>
                             <td className="px-4 py-3 text-right font-semibold">
@@ -1063,18 +1077,10 @@ export function NuevaFacturaModal({
                           )}
                         </div>
                         <div className="flex items-center justify-between text-sm">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Switch
-                                checked={servicio.is_no_sujeta}
-                                onCheckedChange={(value) =>
-                                  handleToggleNoSujeta(servicio.service_id, value)
-                                }
-                                aria-label="Marcar como venta no sujeta"
-                              />
-                            </TooltipTrigger>
-                            <TooltipContent>Venta no sujeta (sin IVA)</TooltipContent>
-                          </Tooltip>
+                          {renderNoSujetaSwitch(
+                            servicio.service_id,
+                            servicio.is_no_sujeta,
+                          )}
                         </div>
                         <div className="flex items-center justify-between text-sm">
                           <span>Subtotal:</span>
