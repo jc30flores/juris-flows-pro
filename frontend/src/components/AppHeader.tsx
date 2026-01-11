@@ -13,7 +13,7 @@ import { useAuth } from "@/contexts/AuthContext";
 
 const menuItems = [
   { title: "FACTURADOR", url: "/pos", icon: Receipt },
-  { title: "SERVICIOS", url: "/servicios", icon: FileText },
+  { title: "PRODUCTOS", url: "/productos", icon: FileText },
   { title: "CLIENTES", url: "/clientes", icon: Users },
   { title: "GASTOS", url: "/gastos", icon: CreditCard },
   { title: "USUARIOS", url: "/usuarios", icon: UserCog },

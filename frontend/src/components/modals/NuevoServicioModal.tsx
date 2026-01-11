@@ -98,7 +98,7 @@ export function NuevoServicioModal({
       setSubmitting(false);
       toast({
         title: "Código duplicado",
-        description: "Ya existe un servicio con ese código.",
+        description: "Ya existe un producto con ese código.",
         variant: "destructive",
       });
       return;
@@ -115,17 +115,17 @@ export function NuevoServicioModal({
       });
 
       toast({
-        title: "Servicio creado",
-        description: "El servicio se ha creado exitosamente",
+        title: "Producto creado",
+        description: "El producto se ha creado exitosamente",
       });
 
       form.reset();
       onOpenChange(false);
     } catch (error) {
-      console.error("Error al crear servicio", error);
+      console.error("Error al crear producto", error);
       toast({
         title: "Error",
-        description: "No se pudo crear el servicio. Inténtalo nuevamente.",
+        description: "No se pudo crear el producto. Inténtalo nuevamente.",
         variant: "destructive",
       });
     } finally {
@@ -137,7 +137,7 @@ export function NuevoServicioModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Nuevo Servicio</DialogTitle>
+          <DialogTitle>Nuevo Producto</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
@@ -146,6 +146,7 @@ export function NuevoServicioModal({
             <Input
               id="codigo"
               placeholder="SRV-001"
+              className="shadow-inner"
               {...form.register("code")}
             />
             {form.formState.errors.code && (
@@ -156,10 +157,11 @@ export function NuevoServicioModal({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="nombre">Nombre del Servicio</Label>
+            <Label htmlFor="nombre">Nombre del Producto</Label>
             <Input
               id="nombre"
-              placeholder="Ingrese el nombre del servicio"
+              placeholder="Ingrese el nombre del producto"
+              className="shadow-inner"
               {...form.register("name", {
                 onChange: (event) =>
                   form.setValue("name", event.target.value.toUpperCase()),
@@ -207,7 +209,7 @@ export function NuevoServicioModal({
                 type="number"
                 step="0.01"
                 placeholder="0.00"
-                className="pl-7"
+                className="pl-7 shadow-inner"
                 {...form.register("base_price")}
               />
             </div>
@@ -225,7 +227,7 @@ export function NuevoServicioModal({
               onCheckedChange={(checked) => form.setValue("activo", checked)}
             />
             <Label htmlFor="activo" className="cursor-pointer">
-              Servicio Activo
+              Producto Activo
             </Label>
           </div>
 
@@ -238,7 +240,7 @@ export function NuevoServicioModal({
               Cancelar
             </Button>
             <Button type="submit" disabled={submitting}>
-              {submitting ? "Guardando..." : "Crear Servicio"}
+              {submitting ? "Guardando..." : "Crear Producto"}
             </Button>
           </DialogFooter>
         </form>

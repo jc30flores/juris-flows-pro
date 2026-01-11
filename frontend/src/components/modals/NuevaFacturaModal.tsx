@@ -203,7 +203,7 @@ export function NuevaFacturaModal({
     if (serviceLines.length === 0) {
       toast({
         title: "Error",
-        description: "Debe agregar al menos un servicio",
+        description: "Debe agregar al menos un producto",
         variant: "destructive",
       });
       return;
@@ -488,7 +488,7 @@ export function NuevaFacturaModal({
     }
 
     if (selectedLineId === null) {
-      setAccessError("Selecciona un servicio para desbloquear.");
+      setAccessError("Selecciona un producto para desbloquear.");
       return;
     }
 
@@ -738,7 +738,7 @@ export function NuevaFacturaModal({
 
             <div className="sm:col-span-2 space-y-4">
               <div className="flex items-center justify-between">
-                <Label>Resumen de servicios</Label>
+                <Label>Resumen de productos</Label>
                 <span className="text-sm text-muted-foreground">
                   Total: ${total.toFixed(2)}
                 </span>
@@ -750,7 +750,7 @@ export function NuevaFacturaModal({
                     <table className="w-full text-sm">
                       <thead className="bg-muted/50">
                         <tr>
-                          <th className="px-4 py-3 text-left font-medium">Servicio</th>
+                          <th className="px-4 py-3 text-left font-medium">Producto</th>
                           <th className="px-4 py-3 text-center font-medium">Cantidad</th>
                           <th className="px-4 py-3 text-left font-medium">Precio</th>
                           <th className="px-4 py-3 text-right font-medium">Subtotal</th>
@@ -782,7 +782,7 @@ export function NuevaFacturaModal({
                                     type="number"
                                     step="0.01"
                                     min="0"
-                                    className="w-32"
+                                    className="w-32 shadow-inner"
                                     value={servicio.unit_price_draft}
                                     disabled={servicio.price_locked}
                                     ref={(node) => {
@@ -959,7 +959,7 @@ export function NuevaFacturaModal({
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  Selecciona servicios antes de crear la factura.
+                  Selecciona productos antes de crear la factura.
                 </p>
               )}
             </div>
