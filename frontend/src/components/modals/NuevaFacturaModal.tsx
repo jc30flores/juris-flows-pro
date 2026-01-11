@@ -100,17 +100,25 @@ const AccessCodeModal = ({
       <DialogHeader>
         <DialogTitle>Código de acceso requerido</DialogTitle>
       </DialogHeader>
-      <div className="space-y-3">
+      <form autoComplete="off" className="space-y-3">
         <Label htmlFor="accessCode">Código de acceso</Label>
         <Input
           id="accessCode"
+          name="access_code"
           type="password"
           placeholder="Ingresa el código"
           value={value}
           onChange={(event) => onChange(event.target.value)}
+          autoComplete="off"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          inputMode="numeric"
+          data-lpignore="true"
+          data-form-type="other"
         />
         {error && <p className="text-sm text-destructive">{error}</p>}
-      </div>
+      </form>
       <DialogFooter className="gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancelar
@@ -550,6 +558,7 @@ export function NuevaFacturaModal({
 
   const handleUnlockRequest = (serviceId: number) => {
     setSelectedLineId(serviceId);
+    setAccessCodeInput("");
     setAccessModalOpen(true);
   };
 
