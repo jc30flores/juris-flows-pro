@@ -13,6 +13,7 @@ from .views import (
     InvoiceViewSet,
     LoginView,
     LogoutView,
+    PriceOverrideAuthorizationView,
     ServiceCategoryViewSet,
     ServiceViewSet,
     StaffUserViewSet,
@@ -32,6 +33,11 @@ router.register(r"activities", ActivityViewSet)
 
 urlpatterns = [
     path("invoices/export/", InvoiceExportAllCSVAPIView.as_view(), name="invoice-export"),
+    path(
+        "pos/validate-price-override/",
+        PriceOverrideAuthorizationView.as_view(),
+        name="price-override-validate",
+    ),
     path("", include(router.urls)),
     path("status/connectivity/", ConnectivityStatusView.as_view(), name="connectivity-status"),
     path("auth/login/", LoginView.as_view(), name="auth-login"),

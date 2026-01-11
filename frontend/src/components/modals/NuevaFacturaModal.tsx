@@ -33,9 +33,9 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { renderCellValue } from "@/lib/render";
 import { getElSalvadorDateString } from "@/lib/dates";
+import { api } from "@/lib/api";
 
 const IVA_RATE = 0.13;
-const PRICE_OVERRIDE_ACCESS_CODE = "123";
 const AUTHORIZATION_WINDOW_MS = 5 * 60 * 1000;
 
 type ServiceLine = SelectedServicePayload & {
@@ -149,6 +149,7 @@ export function NuevaFacturaModal({
   const [clientOpen, setClientOpen] = useState(false);
   const [serviceLines, setServiceLines] = useState<ServiceLine[]>([]);
   const [authorizedUntil, setAuthorizedUntil] = useState<number | null>(null);
+  const [overrideToken, setOverrideToken] = useState<string | null>(null);
   const [accessModalOpen, setAccessModalOpen] = useState(false);
   const [accessCodeInput, setAccessCodeInput] = useState("");
   const [accessError, setAccessError] = useState<string | null>(null);
@@ -230,6 +231,25 @@ export function NuevaFacturaModal({
 
     setServiceLines(normalizedLines);
 
+    const hasPriceOverride = normalizedLines.some((item) => item.price_overridden);
+    if (hasPriceOverride) {
+      const expired = authorizedUntil !== null && Date.now() > authorizedUntil;
+      if (!overrideToken || expired) {
+        toast({
+          title: "Autorización requerida",
+          description:
+            "Debes validar el código de autorización para modificar precios.",
+          variant: "destructive",
+        });
+        const firstOverride = normalizedLines.find((item) => item.price_overridden);
+        if (firstOverride) {
+          setSelectedLineId(firstOverride.service_id);
+          setAccessModalOpen(true);
+        }
+        return;
+      }
+    }
+
     const servicesPayload: SelectedServicePayload[] = normalizedLines.map((item) => {
       const price = Number(item.unit_price_applied);
       return {
@@ -241,7 +261,6 @@ export function NuevaFacturaModal({
         price_overridden: item.price_overridden,
         quantity: item.quantity,
         subtotal: Number((price * item.quantity).toFixed(2)),
-        ...(item.price_overridden ? { override_code: PRICE_OVERRIDE_ACCESS_CODE } : {}),
       };
     });
 
@@ -253,6 +272,7 @@ export function NuevaFacturaModal({
       total,
       observations: data.observations || "",
       services: servicesPayload,
+      ...(hasPriceOverride ? { override_token: overrideToken || undefined } : {}),
     };
 
     try {
@@ -270,6 +290,7 @@ export function NuevaFacturaModal({
         observations: "",
       });
       setAuthorizedUntil(null);
+      setOverrideToken(null);
       Object.values(unlockTimersRef.current).forEach((timerId) => {
         window.clearTimeout(timerId);
       });
@@ -457,49 +478,61 @@ export function NuevaFacturaModal({
     applyOverrideValue(serviceId, target.original_unit_price);
   };
 
-  const handleAccessConfirm = () => {
-    if (accessCodeInput !== PRICE_OVERRIDE_ACCESS_CODE) {
-      setAccessError("Código incorrecto. Intenta nuevamente.");
-      return;
-    }
-
-    const expiresAt = Date.now() + AUTHORIZATION_WINDOW_MS;
-    setAuthorizedUntil(expiresAt);
+  const handleAccessConfirm = async () => {
     if (selectedLineId === null) {
       setAccessError("Selecciona un servicio para desbloquear.");
       return;
     }
 
-    const prevTimer = unlockTimersRef.current[selectedLineId];
-    if (prevTimer) {
-      window.clearTimeout(prevTimer);
-    }
-    const timerId = window.setTimeout(() => {
-      setServiceLines((prev) =>
-        prev.map((item) =>
-          item.service_id === selectedLineId
-            ? { ...item, price_locked: true, unlocked_until: null }
-            : item,
-        ),
-      );
-      delete unlockTimersRef.current[selectedLineId];
-    }, AUTHORIZATION_WINDOW_MS);
-    unlockTimersRef.current[selectedLineId] = timerId;
+    try {
+      const response = await api.post("/pos/validate-price-override/", {
+        code: accessCodeInput,
+      });
+      const expiresIn = response.data?.expires_in || AUTHORIZATION_WINDOW_MS / 1000;
+      const token = response.data?.token as string | undefined;
+      if (!token) {
+        setAccessError("No se recibió autorización del servidor.");
+        return;
+      }
 
-    updateServiceLine(selectedLineId, (item) => ({
-      ...item,
-      price_locked: false,
-      unlocked_until: expiresAt,
-    }));
-    setAccessModalOpen(false);
-    setAccessError(null);
-    setAccessCodeInput("");
-    const input = priceInputRefs.current[selectedLineId];
-    if (input) {
-      window.setTimeout(() => {
-        input.focus();
-        input.select();
-      }, 0);
+      const expiresAt = Date.now() + expiresIn * 1000;
+      setAuthorizedUntil(expiresAt);
+      setOverrideToken(token);
+
+      const prevTimer = unlockTimersRef.current[selectedLineId];
+      if (prevTimer) {
+        window.clearTimeout(prevTimer);
+      }
+      const timerId = window.setTimeout(() => {
+        setServiceLines((prev) =>
+          prev.map((item) =>
+            item.service_id === selectedLineId
+              ? { ...item, price_locked: true, unlocked_until: null }
+              : item,
+          ),
+        );
+        delete unlockTimersRef.current[selectedLineId];
+      }, expiresIn * 1000);
+      unlockTimersRef.current[selectedLineId] = timerId;
+
+      updateServiceLine(selectedLineId, (item) => ({
+        ...item,
+        price_locked: false,
+        unlocked_until: expiresAt,
+      }));
+      setAccessModalOpen(false);
+      setAccessError(null);
+      setAccessCodeInput("");
+      const input = priceInputRefs.current[selectedLineId];
+      if (input) {
+        window.setTimeout(() => {
+          input.focus();
+          input.select();
+        }, 0);
+      }
+    } catch (error) {
+      console.error("Error al validar código de acceso", error);
+      setAccessError("Código incorrecto o expirado. Intenta nuevamente.");
     }
   };
 
@@ -525,6 +558,7 @@ export function NuevaFacturaModal({
         prev.map((item) => ({ ...item, price_locked: true, unlocked_until: null })),
       );
       setAuthorizedUntil(null);
+      setOverrideToken(null);
       setAccessModalOpen(false);
       setSelectedLineId(null);
       onCancel();
@@ -765,6 +799,7 @@ export function NuevaFacturaModal({
                                           unlocked_until: null,
                                         }));
                                         setAuthorizedUntil(null);
+                                        setOverrideToken(null);
                                         const timerId =
                                           unlockTimersRef.current[servicio.service_id];
                                         if (timerId) {
@@ -865,6 +900,7 @@ export function NuevaFacturaModal({
                                   unlocked_until: null,
                                 }));
                                 setAuthorizedUntil(null);
+                                setOverrideToken(null);
                                 const timerId =
                                   unlockTimersRef.current[servicio.service_id];
                                 if (timerId) {
