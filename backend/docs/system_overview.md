@@ -186,6 +186,14 @@ Endpoints pensados para Django + Django REST Framework; el frontend podrá consu
   - `/api/auth/logout` (POST o DELETE token).
   - `/api/auth/me` (GET perfil autenticado).
 
+## Pruebas manuales (facturas con override de precio)
+1. **Caso OK sin override**: en POS crear factura con precios base -> `POST /api/invoices/` debe responder 201.
+2. **Caso override autorizado**:
+   - Validar código en `POST /api/price-overrides/validate/` con `{ "code": "<código>" }`.
+   - Enviar factura con ítems con precio modificado y `override_token` en el payload -> `POST /api/invoices/` debe responder 201 y guardar `price_overridden=true`.
+3. **Caso override no autorizado**:
+   - Enviar factura con ítems con precio modificado **sin** `override_token` válido -> `POST /api/invoices/` debe responder 403 con `detail` claro.
+
 ## Siguientes pasos
 - Completar la configuración del proyecto Django en `backend/` apuntándolo a la base `abogados` en PostgreSQL y creando apps por dominio (facturación, clientes, etc.).
 - Implementar modelos en Django basados en las tablas propuestas y preparar migraciones.

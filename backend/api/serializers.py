@@ -1,6 +1,5 @@
 import logging
 from decimal import Decimal
-import logging
 
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
@@ -89,11 +88,14 @@ class InvoiceServiceInputSerializer(serializers.Serializer):
     price = serializers.DecimalField(max_digits=10, decimal_places=2)
     quantity = serializers.IntegerField(min_value=1)
     subtotal = serializers.DecimalField(max_digits=12, decimal_places=2)
+    is_no_sujeta = serializers.BooleanField(required=False)
+    isNoSujeta = serializers.BooleanField(required=False)
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
     items = InvoiceItemSerializer(many=True, required=False)
     services = InvoiceServiceInputSerializer(many=True, write_only=True, required=False)
+    override_token = serializers.CharField(write_only=True, required=False)
     date_display = serializers.SerializerMethodField()
     issue_date = serializers.DateField(source="date", read_only=True, format="%Y-%m-%d")
     numero_control = serializers.SerializerMethodField()
@@ -110,7 +112,18 @@ class InvoiceSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         items_data = validated_data.pop("items", None)
         services_data = validated_data.pop("services", None)
+        validated_data.pop("override_token", None)
         staff_user = self.context.get("staff_user")
+        request = self.context.get("request")
+
+        normalized_items = (
+            self._normalize_services(services_data, request, staff_user)
+            if services_data is not None
+            else items_data or []
+        )
+
+        if normalized_items:
+            validated_data["total"] = self._calculate_total(normalized_items)
 
         if not validated_data.get("dte_status"):
             validated_data["dte_status"] = Invoice.PENDING
@@ -121,12 +134,6 @@ class InvoiceSerializer(serializers.ModelSerializer):
             validated_data["number"] = self._generate_number()
 
         invoice = super().create(validated_data)
-
-        normalized_items = (
-            self._normalize_services(services_data)
-            if services_data is not None
-            else items_data or []
-        )
 
         self._upsert_items(invoice, normalized_items, replace=True)
         try:
@@ -195,17 +202,26 @@ class InvoiceSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         items_data = validated_data.pop("items", None)
         services_data = validated_data.pop("services", None)
+        validated_data.pop("override_token", None)
+        staff_user = self.context.get("staff_user")
+        request = self.context.get("request")
 
         if not validated_data.get("dte_status"):
             validated_data["dte_status"] = instance.dte_status or Invoice.PENDING
 
+        normalized_items = None
+        if services_data is not None:
+            normalized_items = self._normalize_services(
+                services_data, request, staff_user
+            )
+            validated_data["total"] = self._calculate_total(normalized_items)
+        elif items_data is not None:
+            normalized_items = items_data
+
         invoice = super().update(instance, validated_data)
 
-        if services_data is not None:
-            normalized_items = self._normalize_services(services_data)
+        if normalized_items is not None:
             self._upsert_items(invoice, normalized_items, replace=True)
-        elif items_data is not None:
-            self._upsert_items(invoice, items_data, replace=True)
 
         return invoice
 
@@ -213,7 +229,59 @@ class InvoiceSerializer(serializers.ModelSerializer):
         timestamp = timezone.now().strftime("%Y%m%d%H%M%S")
         return f"INV-{timestamp}-{Invoice.objects.count() + 1}"
 
-    def _normalize_services(self, services_data):
+    def _calculate_total(self, items_data) -> Decimal:
+        total = Decimal("0")
+        for item in items_data or []:
+            quantity = int(item.get("quantity", 1))
+            unit_price = Decimal(str(item.get("unit_price")))
+            subtotal = item.get("subtotal")
+            if subtotal is None:
+                subtotal = unit_price * quantity
+            total += Decimal(str(subtotal))
+        return total
+
+    def _get_override_token(self, request):
+        if not request:
+            return None
+        return (
+            request.headers.get("X-PRICE-OVERRIDE-TOKEN")
+            or request.data.get("override_token")
+        )
+
+    def _authorize_price_override(
+        self, service_id, override_code, request, staff_user
+    ) -> None:
+        from .utils import validate_price_override_token
+
+        override_token = self._get_override_token(request)
+        if settings.DEBUG and request is not None:
+            logger.info(
+                "Price override check (service=%s, user=%s, auth=%s, session_key=%s, payload_keys=%s)",
+                service_id,
+                getattr(getattr(request, "user", None), "id", None),
+                bool(getattr(request, "auth", None)),
+                getattr(getattr(request, "session", None), "session_key", None),
+                list(getattr(request, "data", {}).keys()),
+            )
+        if override_token and validate_price_override_token(override_token, staff_user):
+            return
+
+        if override_code and override_code == PRICE_OVERRIDE_ACCESS_CODE:
+            return
+
+        if settings.DEBUG:
+            logger.warning(
+                "Price override denied for service %s (staff_user=%s, token_present=%s)",
+                service_id,
+                getattr(staff_user, "id", None),
+                bool(override_token),
+            )
+        raise PermissionDenied(
+            "Price override requires authorization for "
+            f"service {service_id}."
+        )
+
+    def _normalize_services(self, services_data, request, staff_user):
         normalized_items = []
         for service_data in services_data or []:
             service_id = (
@@ -229,6 +297,9 @@ class InvoiceSerializer(serializers.ModelSerializer):
             override_code = service_data.get("override_code") or service_data.get(
                 "overrideCode"
             )
+            is_no_sujeta = service_data.get("is_no_sujeta")
+            if is_no_sujeta is None:
+                is_no_sujeta = service_data.get("isNoSujeta", False)
 
             service_instance = Service.objects.filter(pk=service_id).first()
             original_unit_price = service_instance.base_price if service_instance else None
@@ -253,11 +324,9 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
             price_overridden = unit_price != original_unit_price
             if price_overridden:
-                if not override_code or override_code != PRICE_OVERRIDE_ACCESS_CODE:
-                    raise PermissionDenied(
-                        "Código de acceso inválido para modificar el precio "
-                        f"del servicio {service_id}."
-                    )
+                self._authorize_price_override(
+                    service_id, override_code, request, staff_user
+                )
 
             if subtotal is None:
                 subtotal = Decimal(unit_price) * int(quantity)
@@ -270,6 +339,11 @@ class InvoiceSerializer(serializers.ModelSerializer):
                     "original_unit_price": original_unit_price,
                     "subtotal": subtotal,
                     "price_overridden": price_overridden,
+                    "is_no_sujeta": bool(is_no_sujeta),
+                    "override_authorized_by": staff_user if price_overridden else None,
+                    "override_authorized_at": timezone.now()
+                    if price_overridden
+                    else None,
                 }
             )
 
@@ -296,6 +370,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             if "original_unit_price" not in item_data and "unit_price" in item_data:
                 item_data["original_unit_price"] = item_data["unit_price"]
             item_data.setdefault("price_overridden", False)
+            item_data.setdefault("is_no_sujeta", False)
 
             InvoiceItem.objects.create(invoice=invoice, **item_data)
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { isAxiosError } from "axios";
 import { Ban, Copy, Download, FilePlus2, Filter, Mail, MessageCircle, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -227,9 +228,13 @@ export default function POS() {
       setShowServiceSelectorModal(false);
     } catch (err) {
       console.error("Error al guardar factura", err);
+      const detail =
+        isAxiosError(err) && err.response?.data?.detail
+          ? String(err.response.data.detail)
+          : null;
       toast({
         title: "No se pudo guardar la factura",
-        description: "Revisa los datos e intenta nuevamente.",
+        description: detail || "Revisa los datos e intenta nuevamente.",
         variant: "destructive",
       });
     }

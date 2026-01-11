@@ -179,6 +179,15 @@ class InvoiceItem(models.Model):
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     subtotal = models.DecimalField(max_digits=12, decimal_places=2)
     price_overridden = models.BooleanField(default=False)
+    is_no_sujeta = models.BooleanField(default=False)
+    override_authorized_by = models.ForeignKey(
+        "StaffUser",
+        related_name="authorized_price_overrides",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    override_authorized_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self) -> str:
         return f"{self.invoice.number} - {self.service.name}"
