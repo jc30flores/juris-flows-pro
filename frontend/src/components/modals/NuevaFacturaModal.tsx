@@ -79,7 +79,7 @@ const normalizeServiceName = (name: string): string =>
   name.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
 const resolveDefaultNoSujeta = (name?: string): boolean =>
-  normalizeServiceName(name || "") === "intereses";
+  normalizeServiceName(name || "") === "cuota capital";
 
 const isPriceChanged = (item: ServiceLine): boolean =>
   money(item.unit_price_applied) !== money(item.original_unit_price);
