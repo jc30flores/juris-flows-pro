@@ -817,7 +817,9 @@ export function NuevaFacturaModal({
                           <th className="px-4 py-3 text-left font-medium">Servicio</th>
                           <th className="px-4 py-3 text-center font-medium">Cantidad</th>
                           <th className="px-4 py-3 text-left font-medium">Precio</th>
-                          <th className="px-4 py-3 text-center font-medium">No sujeta</th>
+                          <th className="px-4 py-3 text-center font-medium w-24 min-w-[90px]">
+                            No sujeta
+                          </th>
                           <th className="px-4 py-3 text-right font-medium">Subtotal</th>
                         </tr>
                       </thead>
@@ -929,7 +931,7 @@ export function NuevaFacturaModal({
                                 )}
                               </div>
                             </td>
-                            <td className="px-4 py-3 text-center">
+                            <td className="px-4 py-3 text-center w-24 min-w-[90px]">
                               <div className="flex items-center justify-center">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
