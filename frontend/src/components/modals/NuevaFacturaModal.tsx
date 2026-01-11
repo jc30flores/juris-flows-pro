@@ -33,9 +33,9 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { renderCellValue } from "@/lib/render";
 import { getElSalvadorDateString } from "@/lib/dates";
+import { api } from "@/lib/api";
 
 const IVA_RATE = 0.13;
-const PRICE_OVERRIDE_ACCESS_CODE = "123";
 const AUTHORIZATION_WINDOW_MS = 5 * 60 * 1000;
 
 type ServiceLine = SelectedServicePayload & {
@@ -149,6 +149,7 @@ export function NuevaFacturaModal({
   const [clientOpen, setClientOpen] = useState(false);
   const [serviceLines, setServiceLines] = useState<ServiceLine[]>([]);
   const [authorizedUntil, setAuthorizedUntil] = useState<number | null>(null);
+  const [overrideToken, setOverrideToken] = useState<string | null>(null);
   const [accessModalOpen, setAccessModalOpen] = useState(false);
   const [accessCodeInput, setAccessCodeInput] = useState("");
   const [accessError, setAccessError] = useState<string | null>(null);
@@ -230,6 +231,19 @@ export function NuevaFacturaModal({
 
     setServiceLines(normalizedLines);
 
+    const hasOverride = normalizedLines.some((item) => item.price_overridden);
+    if (hasOverride) {
+      const now = Date.now();
+      if (!overrideToken || !authorizedUntil || now > authorizedUntil) {
+        toast({
+          title: "Autorización requerida",
+          description: "Debe autorizar la modificación de precio antes de guardar.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     const servicesPayload: SelectedServicePayload[] = normalizedLines.map((item) => {
       const price = Number(item.unit_price_applied);
       return {
@@ -241,7 +255,6 @@ export function NuevaFacturaModal({
         price_overridden: item.price_overridden,
         quantity: item.quantity,
         subtotal: Number((price * item.quantity).toFixed(2)),
-        ...(item.price_overridden ? { override_code: PRICE_OVERRIDE_ACCESS_CODE } : {}),
       };
     });
 
@@ -253,6 +266,7 @@ export function NuevaFacturaModal({
       total,
       observations: data.observations || "",
       services: servicesPayload,
+      ...(hasOverride && overrideToken ? { override_token: overrideToken } : {}),
     };
 
     try {
@@ -270,6 +284,7 @@ export function NuevaFacturaModal({
         observations: "",
       });
       setAuthorizedUntil(null);
+      setOverrideToken(null);
       Object.values(unlockTimersRef.current).forEach((timerId) => {
         window.clearTimeout(timerId);
       });
@@ -355,6 +370,7 @@ export function NuevaFacturaModal({
         }),
       );
       setAuthorizedUntil(null);
+      setOverrideToken(null);
       Object.values(unlockTimersRef.current).forEach((timerId) => {
         window.clearTimeout(timerId);
       });
@@ -457,16 +473,33 @@ export function NuevaFacturaModal({
     applyOverrideValue(serviceId, target.original_unit_price);
   };
 
-  const handleAccessConfirm = () => {
-    if (accessCodeInput !== PRICE_OVERRIDE_ACCESS_CODE) {
-      setAccessError("Código incorrecto. Intenta nuevamente.");
+  const handleAccessConfirm = async () => {
+    if (!accessCodeInput.trim()) {
+      setAccessError("Ingresa un código válido.");
       return;
     }
 
-    const expiresAt = Date.now() + AUTHORIZATION_WINDOW_MS;
-    setAuthorizedUntil(expiresAt);
     if (selectedLineId === null) {
       setAccessError("Selecciona un servicio para desbloquear.");
+      return;
+    }
+
+    try {
+      const response = await api.post("/price-overrides/validate/", {
+        code: accessCodeInput.trim(),
+      });
+      const expiresIn =
+        typeof response.data?.expires_in === "number"
+          ? response.data.expires_in * 1000
+          : AUTHORIZATION_WINDOW_MS;
+      const expiresAt = Date.now() + expiresIn;
+      setOverrideToken(response.data?.token ?? null);
+      setAuthorizedUntil(expiresAt);
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail || "Código incorrecto. Intenta nuevamente.";
+      setAccessError(message);
       return;
     }
 
@@ -525,6 +558,7 @@ export function NuevaFacturaModal({
         prev.map((item) => ({ ...item, price_locked: true, unlocked_until: null })),
       );
       setAuthorizedUntil(null);
+      setOverrideToken(null);
       setAccessModalOpen(false);
       setSelectedLineId(null);
       onCancel();
@@ -765,6 +799,7 @@ export function NuevaFacturaModal({
                                           unlocked_until: null,
                                         }));
                                         setAuthorizedUntil(null);
+                                        setOverrideToken(null);
                                         const timerId =
                                           unlockTimersRef.current[servicio.service_id];
                                         if (timerId) {
@@ -865,6 +900,7 @@ export function NuevaFacturaModal({
                                   unlocked_until: null,
                                 }));
                                 setAuthorizedUntil(null);
+                                setOverrideToken(null);
                                 const timerId =
                                   unlockTimersRef.current[servicio.service_id];
                                 if (timerId) {
