@@ -60,6 +60,9 @@ const round2 = (value: number): number => {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 };
 
+const money = (value: number | string | undefined): number =>
+  Number((Number(value) || 0).toFixed(2));
+
 const splitGrossAmount = (gross: number) => {
   // gross = total con IVA incluido
   const grossRounded = round2(gross); // Aseguramos 2 decimales base
@@ -77,6 +80,9 @@ const normalizeServiceName = (name: string): string =>
 
 const resolveDefaultNoSujeta = (name?: string): boolean =>
   normalizeServiceName(name || "") === "intereses";
+
+const isPriceChanged = (item: ServiceLine): boolean =>
+  money(item.unit_price_applied) !== money(item.original_unit_price);
 
 const facturaSchema = z.object({
   date: z.string().min(1, "Debe seleccionar una fecha"),
@@ -855,11 +861,6 @@ export function NuevaFacturaModal({
                                     }
                                     onBlur={() => handlePriceBlur(servicio.service_id)}
                                   />
-                                  {servicio.price_overridden && (
-                                    <span className="rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
-                                      Modificado
-                                    </span>
-                                  )}
                                   {!servicio.price_locked ? (
                                     <Tooltip>
                                       <TooltipTrigger asChild>
@@ -904,20 +905,22 @@ export function NuevaFacturaModal({
                                       <TooltipContent>Editar precio</TooltipContent>
                                     </Tooltip>
                                   )}
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon"
-                                        aria-label="Restablecer precio"
-                                        onClick={() => handleResetPrice(servicio.service_id)}
-                                      >
-                                        <RotateCcw className="h-4 w-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Restablecer precio</TooltipContent>
-                                  </Tooltip>
+                                  {isPriceChanged(servicio) && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          aria-label="Restablecer precio"
+                                          onClick={() => handleResetPrice(servicio.service_id)}
+                                        >
+                                          <RotateCcw className="h-4 w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Restablecer precio</TooltipContent>
+                                    </Tooltip>
+                                  )}
                                 </div>
                                 {servicio.price_error && (
                                   <p className="text-xs text-destructive">
@@ -927,15 +930,19 @@ export function NuevaFacturaModal({
                               </div>
                             </td>
                             <td className="px-4 py-3 text-center">
-                              <div className="flex items-center justify-center gap-2">
-                                <Switch
-                                  checked={servicio.is_no_sujeta}
-                                  onCheckedChange={(value) =>
-                                    handleToggleNoSujeta(servicio.service_id, value)
-                                  }
-                                  aria-label="Venta no sujeta"
-                                />
-                                <span className="text-xs text-muted-foreground">No sujeta</span>
+                              <div className="flex items-center justify-center">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Switch
+                                      checked={servicio.is_no_sujeta}
+                                      onCheckedChange={(value) =>
+                                        handleToggleNoSujeta(servicio.service_id, value)
+                                      }
+                                      aria-label="Marcar como venta no sujeta"
+                                    />
+                                  </TooltipTrigger>
+                                  <TooltipContent>Venta no sujeta (sin IVA)</TooltipContent>
+                                </Tooltip>
                               </div>
                             </td>
                             <td className="px-4 py-3 text-right font-semibold">
@@ -985,11 +992,6 @@ export function NuevaFacturaModal({
                             }
                             onBlur={() => handlePriceBlur(servicio.service_id)}
                           />
-                          {servicio.price_overridden && (
-                            <span className="inline-flex w-fit rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
-                              Modificado
-                            </span>
-                          )}
                           <div className="flex flex-wrap items-center gap-2">
                             {!servicio.price_locked ? (
                               <Tooltip>
@@ -1035,20 +1037,22 @@ export function NuevaFacturaModal({
                                 <TooltipContent>Editar precio</TooltipContent>
                               </Tooltip>
                             )}
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  aria-label="Restablecer precio"
-                                  onClick={() => handleResetPrice(servicio.service_id)}
-                                >
-                                  <RotateCcw className="h-4 w-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Restablecer precio</TooltipContent>
-                            </Tooltip>
+                            {isPriceChanged(servicio) && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label="Restablecer precio"
+                                    onClick={() => handleResetPrice(servicio.service_id)}
+                                  >
+                                    <RotateCcw className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Restablecer precio</TooltipContent>
+                              </Tooltip>
+                            )}
                           </div>
                           {servicio.price_error && (
                             <p className="text-xs text-destructive">
@@ -1057,14 +1061,18 @@ export function NuevaFacturaModal({
                           )}
                         </div>
                         <div className="flex items-center justify-between text-sm">
-                          <span>No sujeta:</span>
-                          <Switch
-                            checked={servicio.is_no_sujeta}
-                            onCheckedChange={(value) =>
-                              handleToggleNoSujeta(servicio.service_id, value)
-                            }
-                            aria-label="Venta no sujeta"
-                          />
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Switch
+                                checked={servicio.is_no_sujeta}
+                                onCheckedChange={(value) =>
+                                  handleToggleNoSujeta(servicio.service_id, value)
+                                }
+                                aria-label="Marcar como venta no sujeta"
+                              />
+                            </TooltipTrigger>
+                            <TooltipContent>Venta no sujeta (sin IVA)</TooltipContent>
+                          </Tooltip>
                         </div>
                         <div className="flex items-center justify-between text-sm">
                           <span>Subtotal:</span>
