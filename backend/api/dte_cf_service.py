@@ -404,17 +404,23 @@ def send_cf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTE
     total_base = Decimal("0.00")
     total_iva = Decimal("0.00")
     total_gross = Decimal("0.00")
+    total_no_suj = Decimal("0.00")
 
     for index, item in enumerate(items, start=1):
         unit_price = Decimal(str(item.unit_price))
         quantity = Decimal(str(item.quantity))
         gross_line = quantity * unit_price
 
-        base_line, iva_line = split_gross_amount_with_tax(gross_line)
-
-        total_base += base_line
-        total_iva += iva_line
-        total_gross += gross_line
+        is_no_sujeta = bool(getattr(item, "is_no_sujeta", False))
+        if is_no_sujeta:
+            base_line = Decimal("0.00")
+            iva_line = Decimal("0.00")
+            total_no_suj += gross_line
+        else:
+            base_line, iva_line = split_gross_amount_with_tax(gross_line)
+            total_base += base_line
+            total_iva += iva_line
+            total_gross += gross_line
 
         service: Service | None = getattr(item, "service", None)
         descripcion = service.name if service else "Servicio"
@@ -429,11 +435,11 @@ def send_cf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTE
                 "ivaItem": float(_round_2(iva_line)),
                 "numeroDocumento": None,
                 "codigo": codigo,
-                "ventaGravada": float(_round_2(gross_line)),
+                "ventaGravada": 0 if is_no_sujeta else float(_round_2(gross_line)),
                 "codTributo": None,
                 "numItem": index,
                 "psv": 0,
-                "ventaNoSuj": 0,
+                "ventaNoSuj": float(_round_2(gross_line)) if is_no_sujeta else 0,
                 "precioUni": float(_round_2(unit_price)),
                 "montoDescu": 0,
                 "tributos": None,
@@ -445,8 +451,9 @@ def send_cf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTE
     total_base = _round_2(total_base)
     total_iva = _round_2(total_iva)
     total_gross = _round_2(total_gross)
-    monto_total_operacion = total_gross
-    total_pagar = total_gross
+    total_no_suj = _round_2(total_no_suj)
+    monto_total_operacion = _round_2(total_gross + total_no_suj)
+    total_pagar = monto_total_operacion
 
     resumen = {
         "totalDescu": 0,
@@ -465,13 +472,13 @@ def send_cf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTE
         "totalNoGravado": 0,
         "totalGravada": float(total_gross),
         "descuExenta": 0,
-        "subTotal": float(total_gross),
-        "totalLetras": amount_to_spanish_words(total_gross),
+        "subTotal": float(monto_total_operacion),
+        "totalLetras": amount_to_spanish_words(monto_total_operacion),
         "descuNoSuj": 0,
-        "subTotalVentas": float(total_gross),
+        "subTotalVentas": float(monto_total_operacion),
         "reteRenta": 0,
         "tributos": None,
-        "totalNoSuj": 0,
+        "totalNoSuj": float(total_no_suj),
         "montoTotalOperacion": float(monto_total_operacion),
         "totalIva": float(total_iva),
         "descuGravada": 0,
@@ -701,16 +708,22 @@ def send_ccf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DT
     total_gross = Decimal("0.00")
     total_base = Decimal("0.00")
     total_iva = Decimal("0.00")
+    total_no_suj = Decimal("0.00")
 
     for index, item in enumerate(items, start=1):
         gross_unit = Decimal(str(item.unit_price))
         qty_dec = Decimal(str(item.quantity))
         gross_line = gross_unit * qty_dec
-        line_base, iva_line = split_gross_amount_with_tax(gross_line)
-
+        is_no_sujeta = bool(getattr(item, "is_no_sujeta", False))
+        if is_no_sujeta:
+            line_base = gross_line
+            iva_line = Decimal("0.00")
+            total_no_suj += gross_line
+        else:
+            line_base, iva_line = split_gross_amount_with_tax(gross_line)
+            total_base += line_base
+            total_iva += iva_line
         total_gross += gross_line
-        total_base += line_base
-        total_iva += iva_line
 
         service: Service | None = getattr(item, "service", None)
         descripcion = service.name if service else "Servicio"
@@ -725,16 +738,16 @@ def send_ccf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DT
                 "tipoItem": 1,
                 "codigo": codigo,
                 "cantidad": float(qty_dec),
-                "tributos": ["20"],
+                "tributos": None if is_no_sujeta else ["20"],
                 "uniMedida": 59,
                 "noGravado": 0,
                 "codTributo": None,
                 "montoDescu": 0,
-                "ventaNoSuj": 0,
+                "ventaNoSuj": float(_round_2(gross_line)) if is_no_sujeta else 0,
                 "psv": 0,
                 "precioUni": float(precio_base_unitario),
                 "descripcion": descripcion,
-                "ventaGravada": float(_round_2(line_base)),
+                "ventaGravada": 0 if is_no_sujeta else float(_round_2(line_base)),
                 "numeroDocumento": None,
             }
         )
@@ -742,6 +755,7 @@ def send_ccf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DT
     total_gross = _round_2(total_gross)
     total_base = _round_2(total_base)
     total_iva = _round_2(total_iva)
+    total_no_suj = _round_2(total_no_suj)
     total_operacion = _round_2(total_gross)
     total_letras = amount_to_spanish_words(total_operacion)
 
@@ -762,19 +776,23 @@ def send_ccf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DT
         "totalNoGravado": 0,
         "totalGravada": float(total_base),
         "descuExenta": 0,
-        "subTotal": float(total_base),
+        "subTotal": float(total_base + total_no_suj),
         "totalLetras": total_letras,
         "descuNoSuj": 0,
-        "subTotalVentas": float(total_base),
+        "subTotalVentas": float(total_base + total_no_suj),
         "reteRenta": 0,
-        "tributos": [
-            {
-                "valor": float(total_iva),
-                "descripcion": "Impuesto al Valor Agregado 13%",
-                "codigo": "20",
-            }
-        ],
-        "totalNoSuj": 0,
+        "tributos": (
+            [
+                {
+                    "valor": float(total_iva),
+                    "descripcion": "Impuesto al Valor Agregado 13%",
+                    "codigo": "20",
+                }
+            ]
+            if total_iva > 0
+            else None
+        ),
+        "totalNoSuj": float(total_no_suj),
         "montoTotalOperacion": float(total_operacion),
         "descuGravada": 0,
         "totalExenta": 0,

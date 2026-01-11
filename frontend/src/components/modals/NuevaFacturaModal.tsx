@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { isAxiosError } from "axios";
+import { Pencil, RotateCcw, Lock } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -36,6 +37,8 @@ import { renderCellValue } from "@/lib/render";
 import { api } from "@/lib/api";
 import { getElSalvadorDateString } from "@/lib/dates";
 import type { Rubro } from "@/types/issuer";
+import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const IVA_RATE = 0.13;
 const AUTHORIZATION_WINDOW_MS = 5 * 60 * 1000;
@@ -45,6 +48,7 @@ type ServiceLine = SelectedServicePayload & {
   unit_price_draft: string;
   original_unit_price: number;
   price_overridden: boolean;
+  is_no_sujeta: boolean;
   price_error?: string | null;
   price_locked: boolean;
   unlocked_until?: number | null;
@@ -67,6 +71,12 @@ const splitGrossAmount = (gross: number) => {
 
   return { subtotal, iva, total: grossRounded };
 };
+
+const normalizeServiceName = (name: string): string =>
+  name.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+const resolveDefaultNoSujeta = (name?: string): boolean =>
+  normalizeServiceName(name || "") === "intereses";
 
 const facturaSchema = z.object({
   date: z.string().min(1, "Debe seleccionar una fecha"),
@@ -200,19 +210,28 @@ export function NuevaFacturaModal({
     },
   });
 
-  const grossTotal = useMemo(
-    () =>
-      serviceLines.reduce((sum, item) => {
-        const qty = Number(item.quantity) || 0;
-        const priceWithVat = Number(item.unit_price_applied) || 0;
-        return sum + qty * priceWithVat;
-      }, 0),
-    [serviceLines],
-  );
+  const totals = useMemo(() => {
+    return serviceLines.reduce(
+      (acc, item) => {
+        const lineSubtotal = Number(item.subtotal) || 0;
+        if (item.is_no_sujeta) {
+          acc.noSujetas += lineSubtotal;
+        } else {
+          acc.gravadas += lineSubtotal;
+        }
+        return acc;
+      },
+      { gravadas: 0, noSujetas: 0 },
+    );
+  }, [serviceLines]);
 
-  const { subtotal, iva, total } = useMemo(
-    () => splitGrossAmount(grossTotal),
-    [grossTotal],
+  const { subtotal, iva } = useMemo(
+    () => splitGrossAmount(totals.gravadas),
+    [totals.gravadas],
+  );
+  const total = useMemo(
+    () => round2(totals.gravadas + totals.noSujetas),
+    [totals.gravadas, totals.noSujetas],
   );
 
   const onSubmitForm = async (data: z.infer<typeof facturaSchema>) => {
@@ -250,6 +269,7 @@ export function NuevaFacturaModal({
         unit_price_applied: parsed,
         unit_price_draft: parsed.toFixed(2),
         price_overridden: priceOverridden,
+        is_no_sujeta: item.is_no_sujeta,
         price_error: null,
         subtotal: Number((parsed * item.quantity).toFixed(2)),
       };
@@ -286,6 +306,7 @@ export function NuevaFacturaModal({
         original_unit_price: item.original_unit_price,
         unit_price: price,
         price_overridden: item.price_overridden,
+        is_no_sujeta: item.is_no_sujeta,
         quantity: item.quantity,
         subtotal: Number((price * item.quantity).toFixed(2)),
       };
@@ -389,12 +410,15 @@ export function NuevaFacturaModal({
           );
           const appliedPrice = Number(item.unit_price ?? item.price ?? originalPrice);
           const priceOverridden = item.price_overridden ?? appliedPrice !== originalPrice;
+          const defaultNoSujeta =
+            item.is_no_sujeta ?? resolveDefaultNoSujeta(item.name);
           return {
             ...item,
             original_unit_price: originalPrice,
             unit_price_applied: appliedPrice,
             unit_price_draft: appliedPrice.toFixed(2),
             price_overridden: priceOverridden,
+            is_no_sujeta: defaultNoSujeta,
             price_error: null,
             subtotal: Number((appliedPrice * item.quantity).toFixed(2)),
             price_locked: true,
@@ -471,6 +495,7 @@ export function NuevaFacturaModal({
         unit_price_applied: nextValue,
         unit_price_draft: nextValue.toFixed(2),
         price_overridden: priceOverridden,
+        is_no_sujeta: item.is_no_sujeta,
         price_error: null,
         subtotal: Number((nextValue * item.quantity).toFixed(2)),
       };
@@ -511,6 +536,13 @@ export function NuevaFacturaModal({
     const target = serviceLines.find((item) => item.service_id === serviceId);
     if (!target) return;
     applyOverrideValue(serviceId, target.original_unit_price);
+  };
+
+  const handleToggleNoSujeta = (serviceId: number, value: boolean) => {
+    updateServiceLine(serviceId, (item) => ({
+      ...item,
+      is_no_sujeta: value,
+    }));
   };
 
   const handleAccessConfirm = () => {
@@ -779,6 +811,7 @@ export function NuevaFacturaModal({
                           <th className="px-4 py-3 text-left font-medium">Servicio</th>
                           <th className="px-4 py-3 text-center font-medium">Cantidad</th>
                           <th className="px-4 py-3 text-left font-medium">Precio</th>
+                          <th className="px-4 py-3 text-center font-medium">No sujeta</th>
                           <th className="px-4 py-3 text-right font-medium">Subtotal</th>
                         </tr>
                       </thead>
@@ -828,51 +861,81 @@ export function NuevaFacturaModal({
                                     </span>
                                   )}
                                   {!servicio.price_locked ? (
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => {
-                                        updateServiceLine(servicio.service_id, (item) => ({
-                                          ...item,
-                                          price_locked: true,
-                                          unlocked_until: null,
-                                        }));
-                                        setAuthorizedUntil(null);
-                                        const timerId =
-                                          unlockTimersRef.current[servicio.service_id];
-                                        if (timerId) {
-                                          window.clearTimeout(timerId);
-                                          delete unlockTimersRef.current[servicio.service_id];
-                                        }
-                                      }}
-                                    >
-                                      Bloquear
-                                    </Button>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          aria-label="Bloquear precio"
+                                          onClick={() => {
+                                            updateServiceLine(servicio.service_id, (item) => ({
+                                              ...item,
+                                              price_locked: true,
+                                              unlocked_until: null,
+                                            }));
+                                            setAuthorizedUntil(null);
+                                            const timerId =
+                                              unlockTimersRef.current[servicio.service_id];
+                                            if (timerId) {
+                                              window.clearTimeout(timerId);
+                                              delete unlockTimersRef.current[servicio.service_id];
+                                            }
+                                          }}
+                                        >
+                                          <Lock className="h-4 w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Bloquear precio</TooltipContent>
+                                    </Tooltip>
                                   ) : (
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleUnlockRequest(servicio.service_id)}
-                                    >
-                                      Modificar
-                                    </Button>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          aria-label="Editar precio"
+                                          onClick={() => handleUnlockRequest(servicio.service_id)}
+                                        >
+                                          <Pencil className="h-4 w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Editar precio</TooltipContent>
+                                    </Tooltip>
                                   )}
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleResetPrice(servicio.service_id)}
-                                  >
-                                    Restablecer
-                                  </Button>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        aria-label="Restablecer precio"
+                                        onClick={() => handleResetPrice(servicio.service_id)}
+                                      >
+                                        <RotateCcw className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Restablecer precio</TooltipContent>
+                                  </Tooltip>
                                 </div>
                                 {servicio.price_error && (
                                   <p className="text-xs text-destructive">
                                     {servicio.price_error}
                                   </p>
                                 )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                <Switch
+                                  checked={servicio.is_no_sujeta}
+                                  onCheckedChange={(value) =>
+                                    handleToggleNoSujeta(servicio.service_id, value)
+                                  }
+                                  aria-label="Venta no sujeta"
+                                />
+                                <span className="text-xs text-muted-foreground">No sujeta</span>
                               </div>
                             </td>
                             <td className="px-4 py-3 text-right font-semibold">
@@ -927,51 +990,81 @@ export function NuevaFacturaModal({
                               Modificado
                             </span>
                           )}
-                          {!servicio.price_locked ? (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                updateServiceLine(servicio.service_id, (item) => ({
-                                  ...item,
-                                  price_locked: true,
-                                  unlocked_until: null,
-                                }));
-                                setAuthorizedUntil(null);
-                                const timerId =
-                                  unlockTimersRef.current[servicio.service_id];
-                                if (timerId) {
-                                  window.clearTimeout(timerId);
-                                  delete unlockTimersRef.current[servicio.service_id];
-                                }
-                              }}
-                            >
-                              Bloquear
-                            </Button>
-                          ) : (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleUnlockRequest(servicio.service_id)}
-                            >
-                              Modificar
-                            </Button>
-                          )}
+                          <div className="flex flex-wrap items-center gap-2">
+                            {!servicio.price_locked ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label="Bloquear precio"
+                                    onClick={() => {
+                                      updateServiceLine(servicio.service_id, (item) => ({
+                                        ...item,
+                                        price_locked: true,
+                                        unlocked_until: null,
+                                      }));
+                                      setAuthorizedUntil(null);
+                                      const timerId =
+                                        unlockTimersRef.current[servicio.service_id];
+                                      if (timerId) {
+                                        window.clearTimeout(timerId);
+                                        delete unlockTimersRef.current[servicio.service_id];
+                                      }
+                                    }}
+                                  >
+                                    <Lock className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Bloquear precio</TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label="Editar precio"
+                                    onClick={() => handleUnlockRequest(servicio.service_id)}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Editar precio</TooltipContent>
+                              </Tooltip>
+                            )}
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  aria-label="Restablecer precio"
+                                  onClick={() => handleResetPrice(servicio.service_id)}
+                                >
+                                  <RotateCcw className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Restablecer precio</TooltipContent>
+                            </Tooltip>
+                          </div>
                           {servicio.price_error && (
                             <p className="text-xs text-destructive">
                               {servicio.price_error}
                             </p>
                           )}
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleResetPrice(servicio.service_id)}
-                          >
-                            Restablecer
-                          </Button>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span>No sujeta:</span>
+                          <Switch
+                            checked={servicio.is_no_sujeta}
+                            onCheckedChange={(value) =>
+                              handleToggleNoSujeta(servicio.service_id, value)
+                            }
+                            aria-label="Venta no sujeta"
+                          />
                         </div>
                         <div className="flex items-center justify-between text-sm">
                           <span>Subtotal:</span>
@@ -1009,9 +1102,15 @@ export function NuevaFacturaModal({
           {serviceLines.length > 0 && (
             <div className="space-y-2 rounded-lg bg-muted/50 p-4">
               <div className="flex justify-between text-sm">
-                <span>Subtotal:</span>
+                <span>Subtotal gravado:</span>
                 <span className="font-medium">${subtotal.toFixed(2)}</span>
               </div>
+              {totals.noSujetas > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span>Ventas no sujetas:</span>
+                  <span className="font-medium">${totals.noSujetas.toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-sm">
                 <span>IVA (13%):</span>
                 <span className="font-medium">${iva.toFixed(2)}</span>

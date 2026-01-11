@@ -88,6 +88,8 @@ class InvoiceServiceInputSerializer(serializers.Serializer):
     price = serializers.DecimalField(max_digits=10, decimal_places=2)
     quantity = serializers.IntegerField(min_value=1)
     subtotal = serializers.DecimalField(max_digits=12, decimal_places=2)
+    is_no_sujeta = serializers.BooleanField(required=False)
+    isNoSujeta = serializers.BooleanField(required=False)
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
@@ -295,6 +297,9 @@ class InvoiceSerializer(serializers.ModelSerializer):
             override_code = service_data.get("override_code") or service_data.get(
                 "overrideCode"
             )
+            is_no_sujeta = service_data.get("is_no_sujeta")
+            if is_no_sujeta is None:
+                is_no_sujeta = service_data.get("isNoSujeta", False)
 
             service_instance = Service.objects.filter(pk=service_id).first()
             original_unit_price = service_instance.base_price if service_instance else None
@@ -334,6 +339,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
                     "original_unit_price": original_unit_price,
                     "subtotal": subtotal,
                     "price_overridden": price_overridden,
+                    "is_no_sujeta": bool(is_no_sujeta),
                     "override_authorized_by": staff_user if price_overridden else None,
                     "override_authorized_at": timezone.now()
                     if price_overridden
@@ -364,6 +370,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             if "original_unit_price" not in item_data and "unit_price" in item_data:
                 item_data["original_unit_price"] = item_data["unit_price"]
             item_data.setdefault("price_overridden", False)
+            item_data.setdefault("is_no_sujeta", False)
 
             InvoiceItem.objects.create(invoice=invoice, **item_data)
 
