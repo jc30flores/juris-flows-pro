@@ -297,7 +297,7 @@ export default function POS() {
       const quantity = item.quantity || 1;
       return {
         service_id: serviceId ?? 0,
-        name: serviceDetails?.name || `Servicio ${serviceId ?? ""}`,
+        name: serviceDetails?.name || `Producto ${serviceId ?? ""}`,
         price,
         original_unit_price: originalPrice,
         unit_price: price,

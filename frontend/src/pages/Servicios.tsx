@@ -39,8 +39,8 @@ export default function Servicios() {
       setServices(servicesResponse.data);
       setCategories(categoriesResponse.data);
     } catch (err) {
-      console.error("Error al cargar servicios", err);
-      setError("No se pudieron cargar los servicios");
+      console.error("Error al cargar productos", err);
+      setError("No se pudieron cargar los productos");
     } finally {
       setLoading(false);
     }
@@ -82,7 +82,7 @@ export default function Servicios() {
   return (
     <div className="space-y-4 md:space-y-6 overflow-x-hidden">
       {/* Título móvil */}
-      <h2 className="text-lg font-semibold md:hidden">Servicios</h2>
+      <h2 className="text-lg font-semibold md:hidden">Productos</h2>
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-end gap-3 md:gap-4">
         <div className="flex items-center space-x-2">
           <Switch
@@ -110,18 +110,18 @@ export default function Servicios() {
               onClick={() => setShowNuevoModal(true)}
             >
               <Plus className="h-4 w-4 mr-2" />
-              <span className="md:hidden">Servicio</span>
-              <span className="hidden md:inline">Nuevo Servicio</span>
+              <span className="md:hidden">Producto</span>
+              <span className="hidden md:inline">Nuevo Producto</span>
             </Button>
           </div>
         )}
       </div>
 
-      {/* Tabla de Servicios */}
+      {/* Tabla de Productos */}
       <div className="rounded-lg border border-border bg-card shadow-elegant overflow-hidden">
         <div className="overflow-x-auto">
           {loading && (
-            <div className="p-4 text-sm text-muted-foreground">Cargando servicios...</div>
+            <div className="p-4 text-sm text-muted-foreground">Cargando productos...</div>
           )}
           {error && !loading && (
             <div className="p-4 text-sm text-destructive">{error}</div>
@@ -130,7 +130,7 @@ export default function Servicios() {
             <thead className="bg-muted/50">
               <tr className="border-b border-border">
                 <th className="px-4 py-3 text-left text-sm font-medium">Código</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Servicio</th>
+                <th className="px-4 py-3 text-left text-sm font-medium">Producto</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Categoría</th>
                 <th className="px-4 py-3 text-right text-sm font-medium">Precio Base</th>
                 <th className="px-4 py-3 text-center text-sm font-medium">Estado</th>
@@ -175,7 +175,7 @@ export default function Servicios() {
                     className="px-4 py-3 text-sm text-muted-foreground"
                     colSpan={5}
                   >
-                    No hay servicios registrados.
+                    No hay productos registrados.
                   </td>
                 </tr>
               )}

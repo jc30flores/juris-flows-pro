@@ -182,7 +182,7 @@ export function NuevaCategoriaModal({ open, onOpenChange, onCreated }: NuevaCate
             : "";
         if (detail.includes("protect") || detail.includes("foreign key")) {
           message =
-            "No se puede eliminar porque está en uso. Primero reasigna o elimina los servicios asociados.";
+            "No se puede eliminar porque está en uso. Primero reasigna o elimina los productos asociados.";
         }
       }
       toast.error(message);
@@ -212,6 +212,7 @@ export function NuevaCategoriaModal({ open, onOpenChange, onCreated }: NuevaCate
                     <FormControl>
                       <Input
                         placeholder="Ingrese el nombre de la categoría"
+                        className="shadow-inner"
                         {...field}
                         onChange={(event) =>
                           field.onChange(event.target.value.toUpperCase())
@@ -246,6 +247,7 @@ export function NuevaCategoriaModal({ open, onOpenChange, onCreated }: NuevaCate
               placeholder="Buscar categoría..."
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
+              className="shadow-inner"
             />
             <div className="rounded-md border border-border bg-muted/10 max-h-[60vh] overflow-y-auto">
               {loadingCategories && (
@@ -292,6 +294,7 @@ export function NuevaCategoriaModal({ open, onOpenChange, onCreated }: NuevaCate
                                     cancelEditing();
                                   }
                                 }}
+                                className="shadow-inner"
                                 disabled={isSaving}
                               />
                             ) : (

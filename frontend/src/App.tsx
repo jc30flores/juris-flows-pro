@@ -29,6 +29,7 @@ const AppLayout = () => {
           <Route element={<PrivateRoute />}>
             <Route path="/" element={<Navigate to="/pos" replace />} />
             <Route path="/pos" element={<POS />} />
+            <Route path="/productos" element={<Servicios />} />
             <Route path="/servicios" element={<Servicios />} />
             <Route path="/clientes" element={<Clientes />} />
             <Route path="/gastos" element={<Gastos />} />

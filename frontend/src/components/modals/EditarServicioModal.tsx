@@ -111,16 +111,16 @@ export function EditarServicioModal({
       });
 
       toast({
-        title: "Servicio actualizado",
+        title: "Producto actualizado",
         description: "Los cambios se han guardado exitosamente",
       });
 
       onOpenChange(false);
     } catch (error) {
-      console.error("Error al actualizar servicio", error);
+      console.error("Error al actualizar producto", error);
       toast({
         title: "Error",
-        description: "No se pudo actualizar el servicio",
+        description: "No se pudo actualizar el producto",
         variant: "destructive",
       });
     } finally {
@@ -132,16 +132,16 @@ export function EditarServicioModal({
     try {
       await onDelete();
       toast({
-        title: "Servicio eliminado",
-        description: "El servicio se ha eliminado exitosamente",
+        title: "Producto eliminado",
+        description: "El producto se ha eliminado exitosamente",
       });
       setShowDeleteDialog(false);
       onOpenChange(false);
     } catch (error) {
-      console.error("Error al eliminar servicio", error);
+      console.error("Error al eliminar producto", error);
       toast({
         title: "Error",
-        description: "No se pudo eliminar el servicio",
+        description: "No se pudo eliminar el producto",
         variant: "destructive",
       });
     }
@@ -154,7 +154,7 @@ export function EditarServicioModal({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Editar Servicio</DialogTitle>
+            <DialogTitle>Editar Producto</DialogTitle>
           </DialogHeader>
 
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
@@ -163,6 +163,7 @@ export function EditarServicioModal({
               <Input
                 id="codigo"
                 placeholder="SRV-001"
+                className="shadow-inner"
                 {...form.register("code")}
               />
               {form.formState.errors.code && (
@@ -173,10 +174,11 @@ export function EditarServicioModal({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="nombre">Nombre del Servicio</Label>
+              <Label htmlFor="nombre">Nombre del Producto</Label>
               <Input
                 id="nombre"
                 placeholder="Compra Venta de Vehículos"
+                className="shadow-inner"
                 {...form.register("name")}
               />
               {form.formState.errors.name && (
@@ -221,7 +223,7 @@ export function EditarServicioModal({
                   type="number"
                   step="0.01"
                   placeholder="0.00"
-                  className="pl-7"
+                  className="pl-7 shadow-inner"
                   {...form.register("base_price")}
                 />
               </div>
@@ -239,7 +241,7 @@ export function EditarServicioModal({
                 onCheckedChange={(checked) => form.setValue("activo", checked)}
               />
               <Label htmlFor="activo" className="cursor-pointer">
-                Servicio Activo
+                Producto Activo
               </Label>
             </div>
 
@@ -273,9 +275,9 @@ export function EditarServicioModal({
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>¿Eliminar servicio?</AlertDialogTitle>
+            <AlertDialogTitle>¿Eliminar producto?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta acción no se puede deshacer. El servicio "{servicio.name}"
+              Esta acción no se puede deshacer. El producto "{servicio.name}"
               será eliminado permanentemente.
             </AlertDialogDescription>
           </AlertDialogHeader>
