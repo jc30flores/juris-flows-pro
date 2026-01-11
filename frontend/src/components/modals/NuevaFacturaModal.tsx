@@ -87,7 +87,8 @@ const isPriceChanged = (item: ServiceLine): boolean =>
 const noSujetaSwitchClassName =
   "h-5 w-10 border border-border bg-muted/70 data-[state=checked]:bg-primary data-[state=unchecked]:bg-muted/70 " +
   "dark:bg-muted/40 dark:data-[state=unchecked]:bg-muted/40 " +
-  "data-[state=checked]:border-primary [&>span]:h-4 [&>span]:w-4 [&>span]:bg-white " +
+  "data-[state=checked]:border-primary data-[state=checked]:bg-primary " +
+  "[&>span]:h-4 [&>span]:w-4 [&>span]:bg-white " +
   "[&>span]:border [&>span]:border-border [&>span]:shadow-sm " +
   "dark:[&>span]:bg-white dark:[&>span]:border-white/40";
 const facturaSchema = z.object({
