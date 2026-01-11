@@ -230,23 +230,23 @@ def interpret_dte_response(response_data: dict) -> Tuple[str, str, str]:
 
 
 EMITTER_INFO = {
-    "nit": "12101304761012",
-    "nrc": "1880600",
-    "nombre": "MIRNA ABIGAIL GARCIA FLORES",
-    "nombreComercial": "Oficina Juridica Garcia Flores",
-    "codActividad": "69100",
-    "descActividad": "Actividades juridicas",
+    "nit": "12152606851014",
+    "nrc": "2697650",
+    "nombre": "PAULA PATRICIA LOVOS DE ZELAYA",
+    "nombreComercial": "ZELAYA SPORTS",
+    "codActividad": "47630",
+    "descActividad": "Comercio al por menor de articulos deportivos",
     "direccion": {
-        "municipio": "22",
-        "complemento": "24 Calle oriente, col. lopez, #13,san miguel, san miguel",
+        "municipio": "23",
+        "complemento": "3A AV. SUR, CRIO. LA PARRA, 2 CUADRAS AL SUR DE ALCALDIA MUNICIPAL DE SAN JORGE, SAN JORGE, SAN MIGUEL",
         "departamento": "12",
     },
-    "telefono": "50376523555",
-    "correo": "dtemirnagarcia@gmail.com",
-    "codEstable": "M002",
+    "telefono": "76962428",
+    "correo": "zelaya_sports@hotmail.com",
+    "codEstable": "M001",
     "codPuntoVenta": "P001",
     "codPuntoVentaMH": "P001",
-    "codEstableMH": "M002",
+    "codEstableMH": "M001",
     "tipoEstablecimiento": "02",
 }
 
@@ -480,7 +480,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/factura"
+    url = "https://t12152606851014.cheros.dev/api/v1/dte/factura"
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
@@ -499,7 +499,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         request_payload=payload,
     )
     headers = {
-        "Authorization": "Bearer api_k_12101304761012",
+        "Authorization": "Bearer api_key_cliente_12152606851014",
         "Content-Type": "application/json",
     }
 
@@ -774,7 +774,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/credito-fiscal"
+    url = "https://t12152606851014.cheros.dev/api/v1/dte/credito-fiscal"
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
@@ -793,7 +793,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         request_payload=payload,
     )
     headers = {
-        "Authorization": "Bearer api_k_12101304761012",
+        "Authorization": "Bearer api_key_cliente_12152606851014",
         "Content-Type": "application/json",
     }
 
@@ -1018,7 +1018,7 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/sujeto-excluido"
+    url = "https://t12152606851014.cheros.dev/api/v1/dte/sujeto-excluido"
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
@@ -1037,7 +1037,7 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         request_payload=payload,
     )
     headers = {
-        "Authorization": "Bearer api_k_12101304761012",
+        "Authorization": "Bearer api_key_cliente_12152606851014",
         "Content-Type": "application/json",
     }
 
