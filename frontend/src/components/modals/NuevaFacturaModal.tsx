@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { isAxiosError } from "axios";
-import { Pencil, RotateCcw, Lock } from "lucide-react";
+import { Pencil, RotateCcw } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -885,35 +885,7 @@ export function NuevaFacturaModal({
                                     }
                                     onBlur={() => handlePriceBlur(servicio.service_id)}
                                   />
-                                  {!servicio.price_locked ? (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          type="button"
-                                          variant="ghost"
-                                          size="icon"
-                                          aria-label="Bloquear precio"
-                                          onClick={() => {
-                                            updateServiceLine(servicio.service_id, (item) => ({
-                                              ...item,
-                                              price_locked: true,
-                                              unlocked_until: null,
-                                            }));
-                                            setAuthorizedUntil(null);
-                                            const timerId =
-                                              unlockTimersRef.current[servicio.service_id];
-                                            if (timerId) {
-                                              window.clearTimeout(timerId);
-                                              delete unlockTimersRef.current[servicio.service_id];
-                                            }
-                                          }}
-                                        >
-                                          <Lock className="h-4 w-4" />
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>Bloquear precio</TooltipContent>
-                                    </Tooltip>
-                                  ) : (
+                                  {servicio.price_locked && (
                                     <Tooltip>
                                       <TooltipTrigger asChild>
                                         <Button
@@ -1009,35 +981,7 @@ export function NuevaFacturaModal({
                             onBlur={() => handlePriceBlur(servicio.service_id)}
                           />
                           <div className="flex flex-wrap items-center gap-2">
-                            {!servicio.price_locked ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    aria-label="Bloquear precio"
-                                    onClick={() => {
-                                      updateServiceLine(servicio.service_id, (item) => ({
-                                        ...item,
-                                        price_locked: true,
-                                        unlocked_until: null,
-                                      }));
-                                      setAuthorizedUntil(null);
-                                      const timerId =
-                                        unlockTimersRef.current[servicio.service_id];
-                                      if (timerId) {
-                                        window.clearTimeout(timerId);
-                                        delete unlockTimersRef.current[servicio.service_id];
-                                      }
-                                    }}
-                                  >
-                                    <Lock className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Bloquear precio</TooltipContent>
-                              </Tooltip>
-                            ) : (
+                            {servicio.price_locked && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <Button
