@@ -484,6 +484,7 @@ export function NuevaFacturaModal({
       return;
     }
 
+    let expiresAt: number | null = null;
     try {
       const response = await api.post("/price-overrides/validate/", {
         code: accessCodeInput.trim(),
@@ -492,7 +493,7 @@ export function NuevaFacturaModal({
         typeof response.data?.expires_in === "number"
           ? response.data.expires_in * 1000
           : AUTHORIZATION_WINDOW_MS;
-      const expiresAt = Date.now() + expiresIn;
+      expiresAt = Date.now() + expiresIn;
       setOverrideToken(response.data?.token ?? null);
       setAuthorizedUntil(expiresAt);
     } catch (error) {
@@ -500,6 +501,10 @@ export function NuevaFacturaModal({
         (error as { response?: { data?: { detail?: string } } })?.response?.data
           ?.detail || "Código incorrecto. Intenta nuevamente.";
       setAccessError(message);
+      return;
+    }
+    if (!expiresAt) {
+      setAccessError("No se pudo determinar la expiración de la autorización.");
       return;
     }
 
@@ -522,7 +527,7 @@ export function NuevaFacturaModal({
     updateServiceLine(selectedLineId, (item) => ({
       ...item,
       price_locked: false,
-      unlocked_until: expiresAt,
+      unlocked_until: expiresAt ?? null,
     }));
     setAccessModalOpen(false);
     setAccessError(null);
