@@ -1,44 +1,6 @@
 from django.db import migrations, models
 
 
-def add_or_update_override_reason(apps, schema_editor):
-    InvoiceItem = apps.get_model("api", "InvoiceItem")
-    table_name = InvoiceItem._meta.db_table
-    field = InvoiceItem._meta.get_field("override_reason")
-
-    with schema_editor.connection.cursor() as cursor:
-        columns = [
-            column.name
-            for column in schema_editor.connection.introspection.get_table_description(
-                cursor, table_name
-            )
-        ]
-
-    if "override_reason" not in columns:
-        schema_editor.add_field(InvoiceItem, field)
-        return
-
-    if schema_editor.connection.vendor == "postgresql":
-        schema_editor.execute(
-            f"ALTER TABLE {table_name} ALTER COLUMN override_reason DROP NOT NULL;"
-        )
-        schema_editor.execute(
-            f"ALTER TABLE {table_name} ALTER COLUMN override_reason SET DEFAULT '';"
-        )
-        return
-
-    try:
-        schema_editor.execute(
-            f"ALTER TABLE {table_name} ALTER COLUMN override_reason DROP NOT NULL;"
-        )
-    except Exception:  # pragma: no cover - best effort on non-postgres
-        return
-
-
-def noop_reverse(apps, schema_editor):
-    return None
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("api", "0014_merge_20260113_0255"),
@@ -47,7 +9,26 @@ class Migration(migrations.Migration):
     operations = [
         migrations.SeparateDatabaseAndState(
             database_operations=[
-                migrations.RunPython(add_or_update_override_reason, noop_reverse)
+                migrations.RunSQL(
+                    sql="""
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_name='api_invoiceitem' AND column_name='override_reason'
+  ) THEN
+    ALTER TABLE api_invoiceitem ALTER COLUMN override_reason DROP NOT NULL;
+    ALTER TABLE api_invoiceitem ALTER COLUMN override_reason SET DEFAULT '';
+    UPDATE api_invoiceitem SET override_reason = '' WHERE override_reason IS NULL;
+  ELSE
+    ALTER TABLE api_invoiceitem ADD COLUMN override_reason text DEFAULT '' NULL;
+    UPDATE api_invoiceitem SET override_reason = '' WHERE override_reason IS NULL;
+  END IF;
+END $$;
+""",
+                    reverse_sql="SELECT 1;",
+                )
             ],
             state_operations=[
                 migrations.AddField(
