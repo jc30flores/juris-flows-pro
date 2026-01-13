@@ -183,6 +183,7 @@ class InvoiceItem(models.Model):
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     subtotal = models.DecimalField(max_digits=12, decimal_places=2)
     price_overridden = models.BooleanField(default=False)
+    override_reason = models.TextField(blank=True, null=True, default="")
 
     def __str__(self) -> str:
         return f"{self.invoice.number} - {self.service.name}"

@@ -14,7 +14,13 @@ DEFAULT_INTERNET_URL = getattr(
     settings, "INTERNET_HEALTH_URL", "https://www.google.com/generate_204"
 )
 DEFAULT_API_URL = getattr(
-    settings, "API_HEALTH_URL", "http://localhost:8000/api/health/"
+    settings,
+    "API_HEALTH_URL",
+    getattr(
+        settings,
+        "HACIENDA_HEALTH_URL",
+        "https://p12101304761012.cheros.dev/api/v1/dte/factura",
+    ),
 )
 DEFAULT_INTERVAL = getattr(settings, "CONNECTIVITY_CHECK_INTERVAL", 15)
 DEFAULT_TIMEOUT = getattr(settings, "CONNECTIVITY_CHECK_TIMEOUT", 5)
@@ -49,6 +55,7 @@ class ConnectivitySentinel:
         self.timeout = timeout
         self._started = False
         self._thread: threading.Thread | None = None
+        self._api_was_online = False
 
     @property
     def started(self) -> bool:
@@ -84,6 +91,14 @@ class ConnectivitySentinel:
         self._mark_status("internet", internet_ok, internet_reason if not internet_ok else "none")
         api_ok, api_reason = self._check_target("api", self.api_url)
         self._mark_status("api", api_ok, api_reason if not api_ok else "none")
+        if api_ok and not self._api_was_online:
+            try:
+                from .dte_cf_service import autoresend_pending_invoices
+
+                autoresend_pending_invoices()
+            except Exception:  # pragma: no cover - defensive
+                logger.exception("Failed to auto-resend pending invoices after reconnect")
+        self._api_was_online = api_ok
 
     def _loop(self) -> None:
         while True:

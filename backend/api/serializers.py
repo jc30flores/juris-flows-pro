@@ -299,6 +299,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             if "original_unit_price" not in item_data and "unit_price" in item_data:
                 item_data["original_unit_price"] = item_data["unit_price"]
             item_data.setdefault("price_overridden", False)
+            item_data.setdefault("override_reason", "")
 
             InvoiceItem.objects.create(invoice=invoice, **item_data)
 

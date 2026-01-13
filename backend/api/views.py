@@ -213,12 +213,10 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         dte_message = getattr(invoice, "_dte_message", None)
         if dte_message:
             data["dte_message"] = dte_message
+            data["ui_message"] = dte_message
+        data["ok"] = True
 
-        response_status = status.HTTP_201_CREATED
-        if getattr(invoice, "_dte_pending_due_to_outage", False):
-            response_status = status.HTTP_202_ACCEPTED
-
-        return Response(data, status=response_status, headers=headers)
+        return Response(data, status=status.HTTP_201_CREATED, headers=headers)
 
 
 class InvoiceResendDteAPIView(APIView):

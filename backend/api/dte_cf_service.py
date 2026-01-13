@@ -20,8 +20,7 @@ IVA_RATE = Decimal("0.13")
 ONE = Decimal("1")
 CONTROL_NUMBER_WIDTH = 15
 OFFLINE_USER_MESSAGE = (
-    "Hacienda no disponible. DTE quedó pendiente y se enviará automáticamente al "
-    "restablecer conexión."
+    "Hacienda no disponible. DTE pendiente; se enviará automáticamente."
 )
 
 
@@ -305,6 +304,40 @@ def resend_dte_for_invoice(
         )
         invoice._dte_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
         return resend_record, invoice._dte_message, now_local, False, did_generate_new_dte
+
+
+def autoresend_pending_invoices() -> int:
+    pending_ids: list[int] = []
+    with transaction.atomic():
+        pending_ids = list(
+            Invoice.objects.select_for_update(skip_locked=True)
+            .filter(
+                dte_status=Invoice.PENDING,
+                codigo_generacion__isnull=False,
+                numero_control__isnull=False,
+            )
+            .values_list("id", flat=True)
+        )
+
+    if not pending_ids:
+        return 0
+
+    sent = 0
+    for invoice_id in pending_ids:
+        invoice = (
+            Invoice.objects.select_related("client")
+            .prefetch_related("items", "dte_records")
+            .get(pk=invoice_id)
+        )
+        try:
+            resend_dte_for_invoice(invoice)
+            sent += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "Error auto-resending DTE for invoice %s", invoice_id, exc_info=exc
+            )
+            continue
+    return sent
 
 
 def _build_numero_control(
