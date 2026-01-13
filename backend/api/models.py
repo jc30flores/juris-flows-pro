@@ -93,6 +93,8 @@ class Invoice(models.Model):
     total = models.DecimalField(max_digits=12, decimal_places=2)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    last_dte_sent_at = models.DateTimeField(null=True, blank=True)
+    dte_send_attempts = models.IntegerField(default=0)
 
     def __str__(self) -> str:
         return self.number

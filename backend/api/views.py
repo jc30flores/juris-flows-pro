@@ -1,6 +1,8 @@
 import csv
+import logging
 from datetime import date, datetime, timedelta
 
+from django.shortcuts import get_object_or_404
 from django.contrib.auth.hashers import check_password
 from django.db import models
 from django.db.models import Q
@@ -24,6 +26,7 @@ from .models import (
     StaffUser,
 )
 from .connectivity import get_connectivity_status
+from .dte_cf_service import resend_dte_for_invoice
 from .serializers import (
     ActivitySerializer,
     ClientSerializer,
@@ -37,6 +40,7 @@ from .serializers import (
     StaffUserSerializer,
 )
 
+logger = logging.getLogger(__name__)
 
 def filter_invoices_queryset(queryset, params):
     search = params.get("search")
@@ -211,6 +215,40 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             data["dte_message"] = dte_message
 
         return Response(data, status=status.HTTP_201_CREATED, headers=headers)
+
+
+class InvoiceResendDteAPIView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, invoice_id):
+        invoice = get_object_or_404(Invoice, pk=invoice_id)
+        try:
+            _, message, resent_at, success = resend_dte_for_invoice(invoice)
+        except ValueError as exc:
+            return Response({"ok": False, "error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Error resending DTE for invoice %s", invoice_id, exc_info=exc)
+            return Response(
+                {"ok": False, "error": "No se pudo reenviar el DTE."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        if not success:
+            return Response(
+                {"ok": False, "error": message},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(
+            {
+                "ok": True,
+                "invoice_id": invoice.id,
+                "dte_status": invoice.dte_status,
+                "resent_at": resent_at.isoformat(),
+                "api_message": message,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class InvoiceItemViewSet(viewsets.ModelViewSet):
