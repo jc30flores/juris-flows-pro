@@ -222,6 +222,11 @@ class InvoiceResendDteAPIView(APIView):
 
     def post(self, request, invoice_id):
         invoice = get_object_or_404(Invoice, pk=invoice_id)
+        if invoice.dte_status != Invoice.PENDING:
+            return Response(
+                {"ok": False, "error": "Solo se puede reenviar un DTE en estado PENDIENTE."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             _, message, resent_at, success = resend_dte_for_invoice(invoice)
         except ValueError as exc:

@@ -67,6 +67,12 @@ const getDteDisplayStatus = (status: string | undefined) => {
   return status || "";
 };
 
+const isPendingDte = (invoice: Invoice): boolean => {
+  const raw = invoice.dte_status ?? (invoice as { dteStatus?: string }).dteStatus ?? "";
+  const normalized = String(raw).trim().toLowerCase();
+  return normalized === "pendiente" || normalized === "pending";
+};
+
 const getInvoiceTipo = (invoice: Invoice): string => {
   const tipo =
     invoice.tipo ??
@@ -428,31 +434,32 @@ export default function POS() {
         invoice.numeroControl,
     );
     const isResending = resendLoadingId === invoice.id;
+    const canResend = isPendingDte(invoice) && hasDte;
 
     return (
       <div className="flex items-center justify-end gap-2">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Reenviar DTE"
-                disabled={!hasDte || isResending}
-                onClick={() => handleOpenResendDialog(invoice)}
-              >
-                {isResending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-              </Button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>
-            {hasDte ? "Reenviar DTE" : "Sin DTE para reenviar"}
-          </TooltipContent>
-        </Tooltip>
+        {canResend && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Reenviar DTE"
+                  disabled={isResending}
+                  onClick={() => handleOpenResendDialog(invoice)}
+                >
+                  {isResending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>Reenviar DTE</TooltipContent>
+          </Tooltip>
+        )}
 
         <Tooltip>
           <TooltipTrigger asChild>
