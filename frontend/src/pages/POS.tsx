@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { Ban, Copy, Download, FilePlus2, Filter, Mail, MessageCircle, Plus } from "lucide-react";
+import {
+  Ban,
+  Copy,
+  Download,
+  FilePlus2,
+  Filter,
+  Loader2,
+  Mail,
+  MessageCircle,
+  Plus,
+  Send,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -9,6 +20,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -20,7 +41,7 @@ import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
 import { ServiceSelectorModal } from "@/components/modals/ServiceSelectorModal";
-import { API_BASE_URL, api } from "@/lib/api";
+import { API_BASE_URL, api, resendInvoiceDte } from "@/lib/api";
 import { getInvoiceDateInfo, InvoiceDateFilter } from "@/lib/dates";
 import { Client } from "@/types/client";
 import { Invoice, InvoiceItem, InvoicePayload, SelectedServicePayload } from "@/types/invoice";
@@ -38,12 +59,29 @@ const getDteBadgeStyle = (status: string | undefined) => {
   return "bg-warning/10 text-warning";
 };
 
-const getDteDisplayStatus = (status: string | undefined) => {
-  const normalized = status?.toUpperCase();
-  if (normalized === "ACEPTADO") return "ACEPTADO";
-  if (normalized === "RECHAZADO") return "RECHAZADO";
-  if (normalized === "PENDIENTE") return "Pendiente";
-  return status || "";
+const getDteUiStatus = (invoice: Invoice): "ACEPTADO" | "RECHAZADO" | "PENDIENTE" => {
+  const raw =
+    invoice.dte_status ??
+    (invoice as { dteStatus?: string; estado_dte?: string }).dteStatus ??
+    (invoice as { estado_dte?: string }).estado_dte ??
+    "";
+  const normalized = String(raw).trim().toLowerCase();
+
+  if (normalized === "aceptado" || normalized === "accepted") return "ACEPTADO";
+  if (normalized === "rechazado" || normalized === "rejected") return "RECHAZADO";
+  if (normalized === "pendiente" || normalized === "pending") return "PENDIENTE";
+
+  const hasGeneracion = Boolean(invoice.codigo_generacion || invoice.codigoGeneracion);
+  const hasControl = Boolean(invoice.numero_control || invoice.numeroControl);
+  if (!hasGeneracion || !hasControl) return "PENDIENTE";
+
+  return "PENDIENTE";
+};
+
+const getDteDisplayStatus = (invoice: Invoice): string => {
+  const status = getDteUiStatus(invoice);
+  if (status === "PENDIENTE") return "Pendiente";
+  return status;
 };
 
 const getInvoiceTipo = (invoice: Invoice): string => {
@@ -141,6 +179,9 @@ export default function POS() {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [selectedServices, setSelectedServices] = useState<SelectedServicePayload[]>([]);
+  const [resendDialogOpen, setResendDialogOpen] = useState(false);
+  const [resendTarget, setResendTarget] = useState<Invoice | null>(null);
+  const [resendLoadingId, setResendLoadingId] = useState<number | null>(null);
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -360,13 +401,72 @@ export default function POS() {
     );
   };
 
+  const handleOpenResendDialog = (invoice: Invoice) => {
+    setResendTarget(invoice);
+    setResendDialogOpen(true);
+  };
+
+  const handleConfirmResend = async () => {
+    if (!resendTarget) return;
+    setResendLoadingId(resendTarget.id);
+    try {
+      const response = await resendInvoiceDte(resendTarget.id);
+      const statusLabel = response.data?.dte_status || "PENDIENTE";
+      const didGenerate = Boolean(response.data?.did_generate_new_dte);
+      toast({
+        title: didGenerate ? "DTE enviado" : "DTE reenviado",
+        description: `Estado: ${statusLabel}`,
+      });
+      await fetchInitialData();
+    } catch (err) {
+      const errorMessage =
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (err as any)?.response?.data?.error ||
+        "No se pudo reenviar el DTE. Intenta nuevamente.";
+      toast({
+        title: "Error al reenviar DTE",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setResendLoadingId(null);
+      setResendDialogOpen(false);
+      setResendTarget(null);
+    }
+  };
+
   const renderInvoiceActions = (invoice: Invoice) => {
     const codigo = getCodigoGeneracionRaw(invoice);
     const showInvalidar = isCFInvoice(invoice);
     const showNotaCredito = isCCFInvoice(invoice);
+    const isResending = resendLoadingId === invoice.id;
+    const canResend = getDteUiStatus(invoice) === "PENDIENTE";
 
     return (
       <div className="flex items-center justify-end gap-2">
+        {canResend && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Reenviar DTE"
+                  disabled={isResending}
+                  onClick={() => handleOpenResendDialog(invoice)}
+                >
+                  {isResending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>Reenviar DTE</TooltipContent>
+          </Tooltip>
+        )}
+
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -668,10 +768,10 @@ export default function POS() {
                     <td className="px-4 py-3">
                       <span
                         className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getDteBadgeStyle(
-                          venta.dte_status,
+                          getDteUiStatus(venta),
                         )}`}
                       >
-                        {getDteDisplayStatus(venta.dte_status)}
+                        {getDteDisplayStatus(venta)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-semibold">${Number(venta.total).toFixed(2)}</td>
@@ -720,6 +820,38 @@ export default function POS() {
         selectedServices={selectedServices}
         onCancel={handleCancelSelection}
       />
+
+      <AlertDialog open={resendDialogOpen} onOpenChange={setResendDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reenviar DTE</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se reenviará el DTE usando la fecha y hora actuales. ¿Deseas continuar?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(resendLoadingId)}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void handleConfirmResend();
+              }}
+              disabled={Boolean(resendLoadingId)}
+            >
+              {resendLoadingId ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Reenviando...
+                </span>
+              ) : (
+                "Reenviar"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={showExportModal} onOpenChange={setShowExportModal}>
         <DialogContent className="max-w-md">

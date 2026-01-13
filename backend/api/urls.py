@@ -10,6 +10,7 @@ from .views import (
     GeoMunicipalityViewSet,
     InvoiceExportAllCSVAPIView,
     InvoiceItemViewSet,
+    InvoiceResendDteAPIView,
     InvoiceViewSet,
     LoginView,
     LogoutView,
@@ -32,6 +33,11 @@ router.register(r"activities", ActivityViewSet)
 
 urlpatterns = [
     path("invoices/export/", InvoiceExportAllCSVAPIView.as_view(), name="invoice-export"),
+    path(
+        "invoices/<int:invoice_id>/resend-dte/",
+        InvoiceResendDteAPIView.as_view(),
+        name="invoice-resend-dte",
+    ),
     path("", include(router.urls)),
     path("status/connectivity/", ConnectivityStatusView.as_view(), name="connectivity-status"),
     path("auth/login/", LoginView.as_view(), name="auth-login"),

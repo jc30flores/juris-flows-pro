@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 import uuid
@@ -47,6 +48,161 @@ def split_gross_amount_with_tax(gross) -> tuple[Decimal, Decimal]:
 
 def get_connectivity_status():
     return _connectivity_status_snapshot()
+
+
+DTE_ENDPOINTS = {
+    "CF": "https://t12101304761012.cheros.dev/api/v1/dte/factura",
+    "CCF": "https://t12101304761012.cheros.dev/api/v1/dte/credito-fiscal",
+    "SE": "https://t12101304761012.cheros.dev/api/v1/dte/sujeto-excluido",
+}
+
+
+def _resolve_dte_endpoint(dte_type: str) -> str:
+    endpoint = DTE_ENDPOINTS.get(dte_type)
+    if not endpoint:
+        raise ValueError(f"Tipo de DTE no soportado para reenvío: {dte_type}")
+    return endpoint
+
+
+def _extract_dte_identification(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        return {}
+    if isinstance(payload.get("dte"), dict):
+        return payload["dte"].get("identificacion") or {}
+    return payload.get("identificacion") or {}
+
+
+def _send_new_dte_for_invoice(invoice) -> DTERecord:
+    if invoice.doc_type == Invoice.CF:
+        return send_cf_dte_for_invoice(invoice)
+    if invoice.doc_type == Invoice.CCF:
+        return send_ccf_dte_for_invoice(invoice)
+    if invoice.doc_type == Invoice.SX:
+        return send_se_dte_for_invoice(invoice)
+    raise ValueError("Tipo de DTE no soportado para envío.")
+
+
+def _infer_send_success(record: DTERecord) -> bool:
+    response = record.response_payload or {}
+    if isinstance(response, dict):
+        success = response.get("success", None)
+        if success is False or success is None:
+            return False
+    return True
+
+
+def resend_dte_for_invoice(
+    invoice,
+) -> tuple[DTERecord, str, timezone.datetime, bool, bool]:
+    record = invoice.dte_records.order_by("-created_at").first()
+    did_generate_new_dte = False
+    if not record or not record.request_payload:
+        did_generate_new_dte = True
+        now_local = timezone.localtime(timezone.now())
+        new_record = _send_new_dte_for_invoice(invoice)
+        invoice.last_dte_sent_at = now_local
+        invoice.dte_send_attempts = (invoice.dte_send_attempts or 0) + 1
+        invoice.save(update_fields=["last_dte_sent_at", "dte_send_attempts"])
+        user_message = getattr(invoice, "_dte_message", "") or ""
+        return new_record, user_message, now_local, _infer_send_success(new_record), did_generate_new_dte
+
+    payload = copy.deepcopy(record.request_payload)
+    ident = _extract_dte_identification(payload)
+    if not ident:
+        raise ValueError("No se encontró identificación del DTE para reenviar.")
+
+    now_local = timezone.localtime(timezone.now())
+    ident["fecEmi"] = now_local.date().isoformat()
+    ident["horEmi"] = now_local.strftime("%H:%M:%S")
+
+    if isinstance(payload.get("dte"), dict):
+        payload["dte"]["identificacion"] = ident
+    else:
+        payload["identificacion"] = ident
+
+    control_number = ident.get("numeroControl") or record.control_number or ""
+
+    resend_record = DTERecord.objects.create(
+        invoice=invoice,
+        dte_type=record.dte_type,
+        status="ENVIANDO",
+        control_number=control_number,
+        issuer_nit=record.issuer_nit,
+        receiver_nit=record.receiver_nit,
+        receiver_name=record.receiver_name,
+        issue_date=now_local.date(),
+        total_amount=record.total_amount or invoice.total,
+        request_payload=payload,
+    )
+
+    headers = {
+        "Authorization": "Bearer api_k_12101304761012",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post(
+            _resolve_dte_endpoint(record.dte_type), json=payload, headers=headers, timeout=30
+        )
+    except requests.exceptions.RequestException as exc:
+        resend_record.response_payload = {
+            "success": None,
+            "error": {"type": "network_error", "message": str(exc)},
+        }
+        resend_record.hacienda_state = "SIN_RESPUESTA"
+        resend_record.status = "PENDIENTE"
+        resend_record.save(update_fields=["response_payload", "hacienda_state", "status"])
+
+        invoice.dte_status = "PENDIENTE"
+        invoice.last_dte_sent_at = now_local
+        invoice.dte_send_attempts = (invoice.dte_send_attempts or 0) + 1
+        invoice.save(update_fields=["dte_status", "last_dte_sent_at", "dte_send_attempts"])
+
+        user_message = (
+            "No se pudo contactar con la API de DTE (problema de red o indisponibilidad). "
+            "El DTE se ha dejado en estado PENDIENTE para reenviarlo más tarde."
+        )
+        invoice._dte_message = user_message
+        return resend_record, user_message, now_local, False, did_generate_new_dte
+
+    try:
+        try:
+            response_data = response.json()
+        except ValueError:
+            response_data = {"raw_text": response.text}
+
+        resend_record.response_payload = response_data
+        resend_record.hacienda_uuid = (
+            response_data.get("uuid", "") if isinstance(response_data, dict) else ""
+        )
+        estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
+        resend_record.hacienda_state = estado_hacienda
+        resend_record.status = estado_interno
+        resend_record.save(
+            update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"]
+        )
+
+        invoice.dte_status = estado_interno
+        invoice.last_dte_sent_at = now_local
+        invoice.dte_send_attempts = (invoice.dte_send_attempts or 0) + 1
+        invoice.save(update_fields=["dte_status", "last_dte_sent_at", "dte_send_attempts"])
+        invoice._dte_message = user_message
+        return resend_record, user_message, now_local, True, did_generate_new_dte
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Error resending DTE", exc_info=exc)
+        resend_record.response_payload = {"error": str(exc)}
+        resend_record.status = "PENDIENTE"
+        resend_record.hacienda_state = "SIN_RESPUESTA"
+        resend_record.save(update_fields=["response_payload", "status", "hacienda_state"])
+
+        invoice.dte_status = "PENDIENTE"
+        invoice.last_dte_sent_at = now_local
+        invoice.dte_send_attempts = (invoice.dte_send_attempts or 0) + 1
+        invoice.save(update_fields=["dte_status", "last_dte_sent_at", "dte_send_attempts"])
+
+        user_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
+        invoice._dte_message = user_message
+        return resend_record, user_message, now_local, False, did_generate_new_dte
 
 
 def _build_numero_control(
