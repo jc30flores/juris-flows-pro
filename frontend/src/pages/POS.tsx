@@ -243,7 +243,9 @@ export default function POS() {
         } else {
           toast({
             title: "Factura creada",
-            description: "DTE pendiente de envío o procesamiento.",
+            description:
+              invoice.dte_message ||
+              "DTE pendiente de envío o procesamiento.",
           });
         }
       }
@@ -413,9 +415,11 @@ export default function POS() {
       const response = await resendInvoiceDte(resendTarget.id);
       const statusLabel = response.data?.dte_status || "PENDIENTE";
       const didGenerate = Boolean(response.data?.did_generate_new_dte);
+      const apiMessage =
+        response.data?.api_message || response.data?.dte_message || "";
       toast({
         title: didGenerate ? "DTE enviado" : "DTE reenviado",
-        description: `Estado: ${statusLabel}`,
+        description: apiMessage ? `${apiMessage} (Estado: ${statusLabel})` : `Estado: ${statusLabel}`,
       });
       await fetchInitialData();
     } catch (err) {

@@ -174,6 +174,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
         return obj.dte_records.order_by("-created_at").first()
 
     def get_numero_control(self, obj):
+        if getattr(obj, "numero_control", None):
+            return obj.numero_control
         record = self._get_latest_record(obj)
         if record:
             if record.control_number:
@@ -183,6 +185,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
         return None
 
     def get_codigo_generacion(self, obj):
+        if getattr(obj, "codigo_generacion", None):
+            return obj.codigo_generacion
         record = self._get_latest_record(obj)
         if record:
             if record.hacienda_uuid:

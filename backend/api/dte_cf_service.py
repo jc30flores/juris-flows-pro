@@ -6,6 +6,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Tuple
 
 import requests
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -18,6 +19,10 @@ logger = logging.getLogger(__name__)
 IVA_RATE = Decimal("0.13")
 ONE = Decimal("1")
 CONTROL_NUMBER_WIDTH = 15
+OFFLINE_USER_MESSAGE = (
+    "Hacienda no disponible. DTE quedó pendiente y se enviará automáticamente al "
+    "restablecer conexión."
+)
 
 
 def _round_2(value: Decimal) -> Decimal:
@@ -57,6 +62,19 @@ DTE_ENDPOINTS = {
 }
 
 
+def check_hacienda_online(timeout: int = 5) -> bool:
+    health_url = getattr(settings, "HACIENDA_HEALTH_URL", None) or getattr(
+        settings, "API_HEALTH_URL", None
+    )
+    if not health_url:
+        health_url = DTE_ENDPOINTS["CF"]
+    try:
+        response = requests.get(health_url, timeout=timeout)
+    except requests.RequestException:  # pragma: no cover - external IO
+        return False
+    return response.status_code == 200
+
+
 def _resolve_dte_endpoint(dte_type: str) -> str:
     endpoint = DTE_ENDPOINTS.get(dte_type)
     if not endpoint:
@@ -91,6 +109,82 @@ def _infer_send_success(record: DTERecord) -> bool:
     return True
 
 
+def _ensure_invoice_dte_identifiers(
+    invoice, tipo_dte: str, now_local: timezone.datetime
+) -> tuple[str, str, int | None]:
+    codigo_generacion = getattr(invoice, "codigo_generacion", None) or ""
+    numero_control = getattr(invoice, "numero_control", None) or ""
+    control_number_value = None
+
+    if not codigo_generacion:
+        codigo_generacion = str(uuid.uuid4()).upper()
+
+    if not numero_control:
+        ambiente = "00"
+        est_code = EMITTER_INFO["codEstable"]
+        pv_code = EMITTER_INFO["codPuntoVenta"]
+        numero_control, control_number_value = _build_numero_control(
+            ambiente,
+            tipo_dte,
+            now_local.date(),
+            est_code,
+            pv_code,
+        )
+
+    update_fields = []
+    if codigo_generacion != getattr(invoice, "codigo_generacion", None):
+        invoice.codigo_generacion = codigo_generacion
+        update_fields.append("codigo_generacion")
+    if numero_control != getattr(invoice, "numero_control", None):
+        invoice.numero_control = numero_control
+        update_fields.append("numero_control")
+
+    if update_fields:
+        invoice.save(update_fields=update_fields)
+
+    return codigo_generacion, numero_control, control_number_value
+
+
+def _is_offline_status(status_code: int | None) -> bool:
+    if status_code is None:
+        return False
+    return status_code >= 500 or status_code == 530
+
+
+def _mark_invoice_attempt(
+    invoice,
+    now_local: timezone.datetime,
+    status: str,
+    error_message: str | None = None,
+    error_code: str | None = None,
+) -> None:
+    invoice.dte_status = status
+    invoice.last_dte_sent_at = now_local
+    invoice.dte_send_attempts = (invoice.dte_send_attempts or 0) + 1
+    invoice.last_dte_error = error_message
+    invoice.last_dte_error_code = error_code
+    update_fields = [
+        "dte_status",
+        "last_dte_sent_at",
+        "dte_send_attempts",
+        "last_dte_error",
+        "last_dte_error_code",
+    ]
+    invoice.save(update_fields=update_fields)
+
+
+def _mark_invoice_offline(invoice, now_local: timezone.datetime, error: str, code: str) -> None:
+    _mark_invoice_attempt(
+        invoice,
+        now_local,
+        Invoice.PENDING,
+        error_message=error,
+        error_code=code,
+    )
+    invoice._dte_message = OFFLINE_USER_MESSAGE
+    invoice._dte_pending_due_to_outage = True
+
+
 def resend_dte_for_invoice(
     invoice,
 ) -> tuple[DTERecord, str, timezone.datetime, bool, bool]:
@@ -100,9 +194,6 @@ def resend_dte_for_invoice(
         did_generate_new_dte = True
         now_local = timezone.localtime(timezone.now())
         new_record = _send_new_dte_for_invoice(invoice)
-        invoice.last_dte_sent_at = now_local
-        invoice.dte_send_attempts = (invoice.dte_send_attempts or 0) + 1
-        invoice.save(update_fields=["last_dte_sent_at", "dte_send_attempts"])
         user_message = getattr(invoice, "_dte_message", "") or ""
         return new_record, user_message, now_local, _infer_send_success(new_record), did_generate_new_dte
 
@@ -114,6 +205,10 @@ def resend_dte_for_invoice(
     now_local = timezone.localtime(timezone.now())
     ident["fecEmi"] = now_local.date().isoformat()
     ident["horEmi"] = now_local.strftime("%H:%M:%S")
+    if getattr(invoice, "numero_control", None):
+        ident["numeroControl"] = invoice.numero_control
+    if getattr(invoice, "codigo_generacion", None):
+        ident["codigoGeneracion"] = invoice.codigo_generacion
 
     if isinstance(payload.get("dte"), dict):
         payload["dte"]["identificacion"] = ident
@@ -153,23 +248,32 @@ def resend_dte_for_invoice(
         resend_record.status = "PENDIENTE"
         resend_record.save(update_fields=["response_payload", "hacienda_state", "status"])
 
-        invoice.dte_status = "PENDIENTE"
-        invoice.last_dte_sent_at = now_local
-        invoice.dte_send_attempts = (invoice.dte_send_attempts or 0) + 1
-        invoice.save(update_fields=["dte_status", "last_dte_sent_at", "dte_send_attempts"])
-
-        user_message = (
-            "No se pudo contactar con la API de DTE (problema de red o indisponibilidad). "
-            "El DTE se ha dejado en estado PENDIENTE para reenviarlo más tarde."
-        )
-        invoice._dte_message = user_message
-        return resend_record, user_message, now_local, False, did_generate_new_dte
+        _mark_invoice_offline(invoice, now_local, str(exc), "network_error")
+        return resend_record, OFFLINE_USER_MESSAGE, now_local, False, did_generate_new_dte
 
     try:
         try:
             response_data = response.json()
         except ValueError:
             response_data = {"raw_text": response.text}
+
+        if _is_offline_status(response.status_code):
+            resend_record.response_payload = {
+                "status_code": response.status_code,
+                "raw_text": response.text,
+            }
+            resend_record.hacienda_state = "SIN_RESPUESTA"
+            resend_record.status = "PENDIENTE"
+            resend_record.save(
+                update_fields=["response_payload", "hacienda_state", "status"]
+            )
+            _mark_invoice_offline(
+                invoice,
+                now_local,
+                f"status_{response.status_code}",
+                str(response.status_code),
+            )
+            return resend_record, OFFLINE_USER_MESSAGE, now_local, False, did_generate_new_dte
 
         resend_record.response_payload = response_data
         resend_record.hacienda_uuid = (
@@ -182,10 +286,7 @@ def resend_dte_for_invoice(
             update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"]
         )
 
-        invoice.dte_status = estado_interno
-        invoice.last_dte_sent_at = now_local
-        invoice.dte_send_attempts = (invoice.dte_send_attempts or 0) + 1
-        invoice.save(update_fields=["dte_status", "last_dte_sent_at", "dte_send_attempts"])
+        _mark_invoice_attempt(invoice, now_local, estado_interno, None, None)
         invoice._dte_message = user_message
         return resend_record, user_message, now_local, True, did_generate_new_dte
     except Exception as exc:  # noqa: BLE001
@@ -195,14 +296,15 @@ def resend_dte_for_invoice(
         resend_record.hacienda_state = "SIN_RESPUESTA"
         resend_record.save(update_fields=["response_payload", "status", "hacienda_state"])
 
-        invoice.dte_status = "PENDIENTE"
-        invoice.last_dte_sent_at = now_local
-        invoice.dte_send_attempts = (invoice.dte_send_attempts or 0) + 1
-        invoice.save(update_fields=["dte_status", "last_dte_sent_at", "dte_send_attempts"])
-
-        user_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
-        invoice._dte_message = user_message
-        return resend_record, user_message, now_local, False, did_generate_new_dte
+        _mark_invoice_attempt(
+            invoice,
+            now_local,
+            Invoice.PENDING,
+            error_message=str(exc),
+            error_code="unexpected_error",
+        )
+        invoice._dte_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
+        return resend_record, invoice._dte_message, now_local, False, did_generate_new_dte
 
 
 def _build_numero_control(
@@ -490,20 +592,15 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
     lo envía al endpoint externo y registra el request/response en DTERecord.
     """
 
-    codigo_generacion = str(uuid.uuid4()).upper()
+    now_local = timezone.localtime()
+    codigo_generacion, numero_control, control_number_value = _ensure_invoice_dte_identifiers(
+        invoice, "01", now_local
+    )
     ambiente = "00"
     est_code = EMITTER_INFO["codEstable"]
     pv_code = EMITTER_INFO["codPuntoVenta"]
 
-    now_local = timezone.localtime()
     emision_date = now_local.date()
-    numero_control, control_number_value = _build_numero_control(
-        ambiente,
-        "01",
-        emision_date,
-        est_code,
-        pv_code,
-    )
     fec_emi = emision_date.isoformat()
     hor_emi = now_local.strftime("%H:%M:%S")
 
@@ -675,13 +772,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         record.status = "PENDIENTE"
         record.save(update_fields=["response_payload", "hacienda_state", "status"])
 
-        invoice.dte_status = "PENDIENTE"
-        invoice.save(update_fields=["dte_status"])
-
-        invoice._dte_message = (
-            "No se pudo contactar con la API de DTE (problema de red o indisponibilidad). "
-            "El DTE se ha dejado en estado PENDIENTE para reenviarlo más tarde."
-        )
+        _mark_invoice_offline(invoice, now_local, str(exc), "network_error")
 
         return record
 
@@ -690,6 +781,22 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
             response_data = response.json()
         except ValueError:
             response_data = {"raw_text": response.text}
+
+        if _is_offline_status(response.status_code):
+            record.response_payload = {
+                "status_code": response.status_code,
+                "raw_text": response.text,
+            }
+            record.hacienda_state = "SIN_RESPUESTA"
+            record.status = "PENDIENTE"
+            record.save(update_fields=["response_payload", "hacienda_state", "status"])
+            _mark_invoice_offline(
+                invoice,
+                now_local,
+                f"status_{response.status_code}",
+                str(response.status_code),
+            )
+            return record
 
         print("\nJSON API RESPUESTA:\n")
         print(json.dumps(response_data, indent=2, ensure_ascii=False))
@@ -708,11 +815,10 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
                 emision_date,
                 est_code,
                 pv_code,
-                control_number_value,
+                control_number_value or 0,
             )
 
-        invoice.dte_status = estado_interno
-        invoice.save(update_fields=["dte_status"])
+        _mark_invoice_attempt(invoice, now_local, estado_interno, None, None)
         invoice._dte_message = user_message
         return record
     except Exception as exc:  # noqa: BLE001
@@ -721,9 +827,14 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         record.status = "PENDIENTE"
         record.hacienda_state = "SIN_RESPUESTA"
         record.save(update_fields=["response_payload", "status", "hacienda_state"])
-        invoice.dte_status = "PENDIENTE"
+        _mark_invoice_attempt(
+            invoice,
+            now_local,
+            Invoice.PENDING,
+            error_message=str(exc),
+            error_code="unexpected_error",
+        )
         invoice._dte_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
-        invoice.save(update_fields=["dte_status"])
         return record
 
 
@@ -733,20 +844,15 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
     lo envía al endpoint externo y registra el request/response en DTERecord.
     """
 
-    codigo_generacion = str(uuid.uuid4()).upper()
+    now_local = timezone.localtime()
+    codigo_generacion, numero_control, control_number_value = _ensure_invoice_dte_identifiers(
+        invoice, "03", now_local
+    )
     ambiente = "00"
     est_code = EMITTER_INFO["codEstable"]
     pv_code = EMITTER_INFO["codPuntoVenta"]
 
-    now_local = timezone.localtime()
     emision_date = now_local.date()
-    numero_control, control_number_value = _build_numero_control(
-        ambiente,
-        "03",
-        emision_date,
-        est_code,
-        pv_code,
-    )
     fec_emi = emision_date.isoformat()
     hor_emi = now_local.strftime("%H:%M:%S")
 
@@ -969,13 +1075,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         record.status = "PENDIENTE"
         record.save(update_fields=["response_payload", "hacienda_state", "status"])
 
-        invoice.dte_status = "PENDIENTE"
-        invoice.save(update_fields=["dte_status"])
-
-        invoice._dte_message = (
-            "No se pudo contactar con la API de DTE (problema de red o indisponibilidad). "
-            "El DTE se ha dejado en estado PENDIENTE para reenviarlo más tarde."
-        )
+        _mark_invoice_offline(invoice, now_local, str(exc), "network_error")
 
         return record
 
@@ -984,6 +1084,22 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
             response_data = response.json()
         except ValueError:
             response_data = {"raw_text": response.text}
+
+        if _is_offline_status(response.status_code):
+            record.response_payload = {
+                "status_code": response.status_code,
+                "raw_text": response.text,
+            }
+            record.hacienda_state = "SIN_RESPUESTA"
+            record.status = "PENDIENTE"
+            record.save(update_fields=["response_payload", "hacienda_state", "status"])
+            _mark_invoice_offline(
+                invoice,
+                now_local,
+                f"status_{response.status_code}",
+                str(response.status_code),
+            )
+            return record
 
         print("\nJSON API RESPUESTA:\n")
         print(json.dumps(response_data, indent=2, ensure_ascii=False))
@@ -1002,11 +1118,10 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
                 emision_date,
                 est_code,
                 pv_code,
-                control_number_value,
+                control_number_value or 0,
             )
 
-        invoice.dte_status = estado_interno
-        invoice.save(update_fields=["dte_status"])
+        _mark_invoice_attempt(invoice, now_local, estado_interno, None, None)
         invoice._dte_message = user_message
         return record
     except Exception as exc:  # noqa: BLE001
@@ -1015,9 +1130,14 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         record.status = "PENDIENTE"
         record.hacienda_state = "SIN_RESPUESTA"
         record.save(update_fields=["response_payload", "status", "hacienda_state"])
-        invoice.dte_status = "PENDIENTE"
+        _mark_invoice_attempt(
+            invoice,
+            now_local,
+            Invoice.PENDING,
+            error_message=str(exc),
+            error_code="unexpected_error",
+        )
         invoice._dte_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
-        invoice.save(update_fields=["dte_status"])
         return record
 
 
@@ -1027,20 +1147,15 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
     lo envía al endpoint externo y registra el request/response en DTERecord.
     """
 
-    codigo_generacion = str(uuid.uuid4()).upper()
+    now_local = timezone.localtime()
+    codigo_generacion, numero_control, control_number_value = _ensure_invoice_dte_identifiers(
+        invoice, "14", now_local
+    )
     ambiente = "00"
     est_code = EMITTER_INFO["codEstable"]
     pv_code = EMITTER_INFO["codPuntoVenta"]
 
-    now_local = timezone.localtime()
     emision_date = now_local.date()
-    numero_control, control_number_value = _build_numero_control(
-        ambiente,
-        "14",
-        emision_date,
-        est_code,
-        pv_code,
-    )
     fec_emi = emision_date.isoformat()
     hor_emi = now_local.strftime("%H:%M:%S")
 
@@ -1213,13 +1328,7 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         record.status = "PENDIENTE"
         record.save(update_fields=["response_payload", "hacienda_state", "status"])
 
-        invoice.dte_status = "PENDIENTE"
-        invoice.save(update_fields=["dte_status"])
-
-        invoice._dte_message = (
-            "No se pudo contactar con la API de DTE (problema de red o indisponibilidad). "
-            "El DTE se ha dejado en estado PENDIENTE para reenviarlo más tarde."
-        )
+        _mark_invoice_offline(invoice, now_local, str(exc), "network_error")
 
         return record
 
@@ -1228,6 +1337,22 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
             response_data = response.json()
         except ValueError:
             response_data = {"raw_text": response.text}
+
+        if _is_offline_status(response.status_code):
+            record.response_payload = {
+                "status_code": response.status_code,
+                "raw_text": response.text,
+            }
+            record.hacienda_state = "SIN_RESPUESTA"
+            record.status = "PENDIENTE"
+            record.save(update_fields=["response_payload", "hacienda_state", "status"])
+            _mark_invoice_offline(
+                invoice,
+                now_local,
+                f"status_{response.status_code}",
+                str(response.status_code),
+            )
+            return record
 
         print("\nJSON API RESPUESTA:\n")
         print(json.dumps(response_data, indent=2, ensure_ascii=False))
@@ -1246,11 +1371,10 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
                 emision_date,
                 est_code,
                 pv_code,
-                control_number_value,
+                control_number_value or 0,
             )
 
-        invoice.dte_status = estado_interno
-        invoice.save(update_fields=["dte_status"])
+        _mark_invoice_attempt(invoice, now_local, estado_interno, None, None)
         invoice._dte_message = user_message
         return record
     except Exception as exc:  # noqa: BLE001
@@ -1259,7 +1383,12 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         record.status = "PENDIENTE"
         record.hacienda_state = "SIN_RESPUESTA"
         record.save(update_fields=["response_payload", "status", "hacienda_state"])
-        invoice.dte_status = "PENDIENTE"
+        _mark_invoice_attempt(
+            invoice,
+            now_local,
+            Invoice.PENDING,
+            error_message=str(exc),
+            error_code="unexpected_error",
+        )
         invoice._dte_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
-        invoice.save(update_fields=["dte_status"])
         return record
