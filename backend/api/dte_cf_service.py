@@ -56,9 +56,9 @@ def get_connectivity_status():
 
 
 DTE_ENDPOINTS = {
-    "CF": "https://t12101304761012.cheros.dev/api/v1/dte/factura",
-    "CCF": "https://t12101304761012.cheros.dev/api/v1/dte/credito-fiscal",
-    "SE": "https://t12101304761012.cheros.dev/api/v1/dte/sujeto-excluido",
+    "CF": "https://p12101304761012.cheros.dev/api/v1/dte/factura",
+    "CCF": "https://p12101304761012.cheros.dev/api/v1/dte/credito-fiscal",
+    "SE": "https://p12101304761012.cheros.dev/api/v1/dte/sujeto-excluido",
 }
 
 
@@ -120,7 +120,7 @@ def _ensure_invoice_dte_identifiers(
         codigo_generacion = str(uuid.uuid4()).upper()
 
     if not numero_control:
-        ambiente = "00"
+        ambiente = "01"
         est_code = EMITTER_INFO["codEstable"]
         pv_code = EMITTER_INFO["codPuntoVenta"]
         numero_control, control_number_value = _build_numero_control(
@@ -596,7 +596,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
     codigo_generacion, numero_control, control_number_value = _ensure_invoice_dte_identifiers(
         invoice, "01", now_local
     )
-    ambiente = "00"
+    ambiente = "01"
     est_code = EMITTER_INFO["codEstable"]
     pv_code = EMITTER_INFO["codPuntoVenta"]
 
@@ -733,7 +733,7 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/factura"
+    url = "https://p12101304761012.cheros.dev/api/v1/dte/factura"
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
@@ -848,7 +848,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
     codigo_generacion, numero_control, control_number_value = _ensure_invoice_dte_identifiers(
         invoice, "03", now_local
     )
-    ambiente = "00"
+    ambiente = "01"
     est_code = EMITTER_INFO["codEstable"]
     pv_code = EMITTER_INFO["codPuntoVenta"]
 
@@ -1036,7 +1036,7 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/credito-fiscal"
+    url = "https://p12101304761012.cheros.dev/api/v1/dte/credito-fiscal"
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
@@ -1151,7 +1151,7 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
     codigo_generacion, numero_control, control_number_value = _ensure_invoice_dte_identifiers(
         invoice, "14", now_local
     )
-    ambiente = "00"
+    ambiente = "01"
     est_code = EMITTER_INFO["codEstable"]
     pv_code = EMITTER_INFO["codPuntoVenta"]
 
@@ -1289,7 +1289,7 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
         }
     }
 
-    url = "https://t12101304761012.cheros.dev/api/v1/dte/sujeto-excluido"
+    url = "https://p12101304761012.cheros.dev/api/v1/dte/sujeto-excluido"
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
