@@ -412,8 +412,9 @@ export default function POS() {
     try {
       const response = await resendInvoiceDte(resendTarget.id);
       const statusLabel = response.data?.dte_status || "PENDIENTE";
+      const didGenerate = Boolean(response.data?.did_generate_new_dte);
       toast({
-        title: "DTE reenviado",
+        title: didGenerate ? "DTE enviado" : "DTE reenviado",
         description: `Estado: ${statusLabel}`,
       });
       await fetchInitialData();

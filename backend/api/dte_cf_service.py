@@ -72,10 +72,39 @@ def _extract_dte_identification(payload: dict) -> dict:
     return payload.get("identificacion") or {}
 
 
-def resend_dte_for_invoice(invoice) -> tuple[DTERecord, str, timezone.datetime, bool]:
+def _send_new_dte_for_invoice(invoice) -> DTERecord:
+    if invoice.doc_type == Invoice.CF:
+        return send_cf_dte_for_invoice(invoice)
+    if invoice.doc_type == Invoice.CCF:
+        return send_ccf_dte_for_invoice(invoice)
+    if invoice.doc_type == Invoice.SX:
+        return send_se_dte_for_invoice(invoice)
+    raise ValueError("Tipo de DTE no soportado para envío.")
+
+
+def _infer_send_success(record: DTERecord) -> bool:
+    response = record.response_payload or {}
+    if isinstance(response, dict):
+        success = response.get("success", None)
+        if success is False or success is None:
+            return False
+    return True
+
+
+def resend_dte_for_invoice(
+    invoice,
+) -> tuple[DTERecord, str, timezone.datetime, bool, bool]:
     record = invoice.dte_records.order_by("-created_at").first()
+    did_generate_new_dte = False
     if not record or not record.request_payload:
-        raise ValueError("La factura no tiene un DTE previo para reenviar.")
+        did_generate_new_dte = True
+        now_local = timezone.localtime(timezone.now())
+        new_record = _send_new_dte_for_invoice(invoice)
+        invoice.last_dte_sent_at = now_local
+        invoice.dte_send_attempts = (invoice.dte_send_attempts or 0) + 1
+        invoice.save(update_fields=["last_dte_sent_at", "dte_send_attempts"])
+        user_message = getattr(invoice, "_dte_message", "") or ""
+        return new_record, user_message, now_local, _infer_send_success(new_record), did_generate_new_dte
 
     payload = copy.deepcopy(record.request_payload)
     ident = _extract_dte_identification(payload)
@@ -134,7 +163,7 @@ def resend_dte_for_invoice(invoice) -> tuple[DTERecord, str, timezone.datetime, 
             "El DTE se ha dejado en estado PENDIENTE para reenviarlo más tarde."
         )
         invoice._dte_message = user_message
-        return resend_record, user_message, now_local, False
+        return resend_record, user_message, now_local, False, did_generate_new_dte
 
     try:
         try:
@@ -158,7 +187,7 @@ def resend_dte_for_invoice(invoice) -> tuple[DTERecord, str, timezone.datetime, 
         invoice.dte_send_attempts = (invoice.dte_send_attempts or 0) + 1
         invoice.save(update_fields=["dte_status", "last_dte_sent_at", "dte_send_attempts"])
         invoice._dte_message = user_message
-        return resend_record, user_message, now_local, True
+        return resend_record, user_message, now_local, True, did_generate_new_dte
     except Exception as exc:  # noqa: BLE001
         logger.exception("Error resending DTE", exc_info=exc)
         resend_record.response_payload = {"error": str(exc)}
@@ -173,7 +202,7 @@ def resend_dte_for_invoice(invoice) -> tuple[DTERecord, str, timezone.datetime, 
 
         user_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
         invoice._dte_message = user_message
-        return resend_record, user_message, now_local, False
+        return resend_record, user_message, now_local, False, did_generate_new_dte
 
 
 def _build_numero_control(

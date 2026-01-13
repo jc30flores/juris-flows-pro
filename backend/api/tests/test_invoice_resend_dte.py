@@ -100,9 +100,41 @@ class InvoiceResendDteTests(TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["invoice_id"], self.invoice.id)
         self.assertEqual(payload["dte_status"], "ACEPTADO")
+        self.assertFalse(payload["did_generate_new_dte"])
         self.invoice.refresh_from_db()
         self.assertEqual(self.invoice.dte_send_attempts, 1)
         self.assertIsNotNone(self.invoice.last_dte_sent_at)
+
+    @patch("api.dte_cf_service.requests.post")
+    def test_resend_dte_generates_new_when_missing_record(self, mock_post):
+        mock_post.return_value = DummyResponse(
+            {
+                "success": True,
+                "uuid": "UUID-123",
+                "respuesta_hacienda": {
+                    "estado": "RECIBIDO",
+                    "descripcionMsg": "RECIBIDO",
+                },
+            }
+        )
+
+        DTERecord.objects.all().delete()
+        client = APIClient()
+        response = client.post(f"/api/invoices/{self.invoice.id}/resend-dte/")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["did_generate_new_dte"])
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.dte_send_attempts, 1)
+
+    def test_resend_dte_rejected_when_not_pending(self):
+        self.invoice.dte_status = Invoice.APPROVED
+        self.invoice.save(update_fields=["dte_status"])
+        client = APIClient()
+        response = client.post(f"/api/invoices/{self.invoice.id}/resend-dte/")
+        self.assertEqual(response.status_code, 400)
 
     def test_resend_dte_missing_invoice(self):
         client = APIClient()

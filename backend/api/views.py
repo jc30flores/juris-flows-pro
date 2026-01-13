@@ -228,7 +228,9 @@ class InvoiceResendDteAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            _, message, resent_at, success = resend_dte_for_invoice(invoice)
+            _, message, resent_at, success, did_generate_new_dte = resend_dte_for_invoice(
+                invoice
+            )
         except ValueError as exc:
             return Response({"ok": False, "error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as exc:  # noqa: BLE001
@@ -251,6 +253,7 @@ class InvoiceResendDteAPIView(APIView):
                 "dte_status": invoice.dte_status,
                 "resent_at": resent_at.isoformat(),
                 "api_message": message,
+                "did_generate_new_dte": did_generate_new_dte,
             },
             status=status.HTTP_200_OK,
         )
