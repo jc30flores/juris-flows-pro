@@ -215,7 +215,9 @@ export default function POS() {
         } else {
           toast({
             title: "Factura creada",
-            description: "DTE pendiente de envío o procesamiento.",
+            description:
+              invoice.dte_message ||
+              "Hacienda no disponible. DTE pendiente; se enviará automáticamente.",
           });
         }
       }

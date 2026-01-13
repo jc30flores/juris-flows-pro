@@ -107,6 +107,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "number": {"required": False},
             "dte_status": {"required": False},
+            "estado_dte": {"required": False},
         }
 
     def create(self, validated_data):
@@ -127,6 +128,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
         if not validated_data.get("dte_status"):
             validated_data["dte_status"] = Invoice.PENDING
+        if not validated_data.get("estado_dte"):
+            validated_data["estado_dte"] = Invoice.PENDING
 
         validated_data.setdefault("has_credit_note", False)
 
@@ -182,6 +185,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
         return obj.dte_records.order_by("-created_at").first()
 
     def get_numero_control(self, obj):
+        if getattr(obj, "numero_control", None):
+            return obj.numero_control
         record = self._get_latest_record(obj)
         if record:
             if record.control_number:
@@ -191,6 +196,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
         return None
 
     def get_codigo_generacion(self, obj):
+        if getattr(obj, "codigo_generacion", None):
+            return obj.codigo_generacion
         record = self._get_latest_record(obj)
         if record:
             if record.hacienda_uuid:
@@ -208,6 +215,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
         if not validated_data.get("dte_status"):
             validated_data["dte_status"] = instance.dte_status or Invoice.PENDING
+        if not validated_data.get("estado_dte"):
+            validated_data["estado_dte"] = instance.estado_dte or Invoice.PENDING
 
         normalized_items = None
         if services_data is not None:

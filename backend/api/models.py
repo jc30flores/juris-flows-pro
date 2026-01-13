@@ -90,6 +90,17 @@ class Invoice(models.Model):
     doc_type = models.CharField(max_length=3, choices=DOC_TYPE_CHOICES)
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
     dte_status = models.CharField(max_length=20, choices=DTE_STATUS_CHOICES)
+    estado_dte = models.CharField(
+        max_length=20,
+        choices=DTE_STATUS_CHOICES,
+        default=PENDING,
+    )
+    numero_control = models.CharField(max_length=100, blank=True, null=True)
+    codigo_generacion = models.CharField(max_length=64, blank=True, null=True)
+    last_dte_sent_at = models.DateTimeField(null=True, blank=True)
+    dte_send_attempts = models.IntegerField(default=0)
+    last_dte_error = models.TextField(null=True, blank=True)
+    last_dte_error_code = models.CharField(max_length=50, null=True, blank=True)
     observations = models.TextField(blank=True, default="")
     has_credit_note = models.BooleanField(default=False)
     total = models.DecimalField(max_digits=12, decimal_places=2)
