@@ -376,7 +376,7 @@ def send_cf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTE
     """
 
     codigo_generacion = str(uuid.uuid4()).upper()
-    ambiente = "00"
+    ambiente = "01"
     emitter_info, rubro_code, rubro_name = _resolve_emitter_info(staff_user)
     est_code = emitter_info["codEstable"]
     pv_code = emitter_info["codPuntoVenta"]
@@ -529,7 +529,7 @@ def send_cf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTE
         }
     }
 
-    url = "https://t12172402231026.cheros.dev/api/v1/dte/factura"
+    url = "https://p12172402231026.cheros.dev/api/v1/dte/factura"
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
@@ -633,7 +633,7 @@ def send_ccf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DT
     """
 
     codigo_generacion = str(uuid.uuid4()).upper()
-    ambiente = "00"
+    ambiente = "01"
     emitter_info, rubro_code, rubro_name = _resolve_emitter_info(staff_user)
     est_code = emitter_info["codEstable"]
     pv_code = emitter_info["codPuntoVenta"]
@@ -841,7 +841,7 @@ def send_ccf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DT
         }
     }
 
-    url = "https://t12172402231026.cheros.dev/api/v1/dte/credito-fiscal"
+    url = "https://p12172402231026.cheros.dev/api/v1/dte/credito-fiscal"
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")
@@ -945,7 +945,7 @@ def send_se_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTE
     """
 
     codigo_generacion = str(uuid.uuid4()).upper()
-    ambiente = "00"
+    ambiente = "01"
     emitter_info, rubro_code, rubro_name = _resolve_emitter_info(staff_user)
     est_code = emitter_info["codEstable"]
     pv_code = emitter_info["codPuntoVenta"]
@@ -1092,7 +1092,7 @@ def send_se_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTE
         }
     }
 
-    url = "https://t12172402231026.cheros.dev/api/v1/dte/sujeto-excluido"
+    url = "https://p12172402231026.cheros.dev/api/v1/dte/sujeto-excluido"
 
     print(f'\nENDPOINT DTE: "{url}"\n')
     print("\nJSON DTE ENVIO:\n")

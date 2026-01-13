@@ -106,7 +106,7 @@ CORS_ALLOWED_ORIGINS = [
 REST_FRAMEWORK = {}
 
 INTERNET_HEALTH_URL = os.getenv("INTERNET_HEALTH_URL", "https://www.google.com/generate_204")
-API_HEALTH_URL = os.getenv("API_HEALTH_URL", "https://t12172402231026.cheros.dev/health")
+API_HEALTH_URL = os.getenv("API_HEALTH_URL", "https://p12172402231026.cheros.dev/health")
 CONNECTIVITY_CHECK_INTERVAL = int(os.getenv("CONNECTIVITY_CHECK_INTERVAL", "15"))
 CONNECTIVITY_CHECK_TIMEOUT = int(os.getenv("CONNECTIVITY_CHECK_TIMEOUT", "5"))
 
