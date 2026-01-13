@@ -59,18 +59,29 @@ const getDteBadgeStyle = (status: string | undefined) => {
   return "bg-warning/10 text-warning";
 };
 
-const getDteDisplayStatus = (status: string | undefined) => {
-  const normalized = status?.toUpperCase();
-  if (normalized === "ACEPTADO") return "ACEPTADO";
-  if (normalized === "RECHAZADO") return "RECHAZADO";
-  if (normalized === "PENDIENTE") return "Pendiente";
-  return status || "";
+const getDteUiStatus = (invoice: Invoice): "ACEPTADO" | "RECHAZADO" | "PENDIENTE" => {
+  const raw =
+    invoice.dte_status ??
+    (invoice as { dteStatus?: string; estado_dte?: string }).dteStatus ??
+    (invoice as { estado_dte?: string }).estado_dte ??
+    "";
+  const normalized = String(raw).trim().toLowerCase();
+
+  if (normalized === "aceptado" || normalized === "accepted") return "ACEPTADO";
+  if (normalized === "rechazado" || normalized === "rejected") return "RECHAZADO";
+  if (normalized === "pendiente" || normalized === "pending") return "PENDIENTE";
+
+  const hasGeneracion = Boolean(invoice.codigo_generacion || invoice.codigoGeneracion);
+  const hasControl = Boolean(invoice.numero_control || invoice.numeroControl);
+  if (!hasGeneracion || !hasControl) return "PENDIENTE";
+
+  return "PENDIENTE";
 };
 
-const isPendingDte = (invoice: Invoice): boolean => {
-  const raw = invoice.dte_status ?? (invoice as { dteStatus?: string }).dteStatus ?? "";
-  const normalized = String(raw).trim().toLowerCase();
-  return normalized === "pendiente" || normalized === "pending";
+const getDteDisplayStatus = (invoice: Invoice): string => {
+  const status = getDteUiStatus(invoice);
+  if (status === "PENDIENTE") return "Pendiente";
+  return status;
 };
 
 const getInvoiceTipo = (invoice: Invoice): string => {
@@ -427,14 +438,8 @@ export default function POS() {
     const codigo = getCodigoGeneracionRaw(invoice);
     const showInvalidar = isCFInvoice(invoice);
     const showNotaCredito = isCCFInvoice(invoice);
-    const hasDte = Boolean(
-      invoice.codigo_generacion ||
-        invoice.codigoGeneracion ||
-        invoice.numero_control ||
-        invoice.numeroControl,
-    );
     const isResending = resendLoadingId === invoice.id;
-    const canResend = isPendingDte(invoice) && hasDte;
+    const canResend = getDteUiStatus(invoice) === "PENDIENTE";
 
     return (
       <div className="flex items-center justify-end gap-2">
@@ -762,10 +767,10 @@ export default function POS() {
                     <td className="px-4 py-3">
                       <span
                         className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getDteBadgeStyle(
-                          venta.dte_status,
+                          getDteUiStatus(venta),
                         )}`}
                       >
-                        {getDteDisplayStatus(venta.dte_status)}
+                        {getDteDisplayStatus(venta)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-semibold">${Number(venta.total).toFixed(2)}</td>
