@@ -4,7 +4,7 @@ from unittest.mock import patch
 from django.test import TestCase
 from django.utils import timezone
 
-from api.dte_cf_service import send_cf_dte_for_invoice
+from api.dte_cf_service import resend_pending_dtes
 from api.models import Client, Invoice, InvoiceItem, Service, ServiceCategory
 
 
@@ -18,7 +18,7 @@ class DummyResponse:
         return self._payload
 
 
-class SendCFDteTests(TestCase):
+class ResendPendingDteTests(TestCase):
     def setUp(self):
         category = ServiceCategory.objects.create(
             name="Consultoria",
@@ -42,14 +42,17 @@ class SendCFDteTests(TestCase):
             direccion="Colonia Centro",
         )
         self.invoice = Invoice.objects.create(
-            number="FAC-0001",
+            number="FAC-0002",
             date=timezone.now().date(),
             client=self.client,
             doc_type=Invoice.CF,
             payment_method=Invoice.CASH,
-            dte_status=Invoice.PENDING,
+            dte_status="PENDIENTE",
+            estado_dte="PENDIENTE",
             observations="",
             total="100.00",
+            numero_control="DTE-01-M001P001-000000000000001",
+            codigo_generacion="2F92B17B-1D7D-4D3F-9C29-6B0F830B1E4C",
         )
         InvoiceItem.objects.create(
             invoice=self.invoice,
@@ -60,7 +63,7 @@ class SendCFDteTests(TestCase):
         )
 
     @patch("api.dte_cf_service.requests.post")
-    def test_send_cf_includes_docu_recibe(self, mock_post):
+    def test_resend_pending_dte_updates_status(self, mock_post):
         mock_post.return_value = DummyResponse(
             {
                 "success": True,
@@ -68,23 +71,11 @@ class SendCFDteTests(TestCase):
             }
         )
 
-        record = send_cf_dte_for_invoice(self.invoice)
-
-        payload = record.request_payload
-        self.assertEqual(
-            payload["dte"]["extension"]["docuRecibe"],
-            self.client.nit,
-        )
-
-    @patch("api.dte_cf_service.requests.post")
-    def test_send_cf_marks_pending_on_530(self, mock_post):
-        mock_post.return_value = DummyResponse({}, status_code=530, text="CF down")
-
-        record = send_cf_dte_for_invoice(self.invoice)
+        resent = resend_pending_dtes(limit=10)
         self.invoice.refresh_from_db()
 
-        self.assertEqual(record.status, "PENDIENTE")
-        self.assertEqual(self.invoice.dte_status, "PENDIENTE")
-        self.assertEqual(self.invoice.estado_dte, "PENDIENTE")
-        self.assertTrue(self.invoice.numero_control)
-        self.assertTrue(self.invoice.codigo_generacion)
+        self.assertEqual(resent, 1)
+        self.assertEqual(self.invoice.dte_status, "ACEPTADO")
+        self.assertEqual(self.invoice.estado_dte, "ACEPTADO")
+        self.assertIsNotNone(self.invoice.last_dte_sent_at)
+        self.assertGreaterEqual(self.invoice.dte_send_attempts, 1)
