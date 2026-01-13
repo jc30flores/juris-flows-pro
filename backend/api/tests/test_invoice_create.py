@@ -183,7 +183,7 @@ class DteAutoresendPipelineTests(TestCase):
         called_invoice = mock_transmit.call_args.args[0]
         self.assertEqual(called_invoice.id, invoice.id)
         self.assertEqual(mock_transmit.call_args.kwargs["force_now_timestamp"], True)
-        self.assertEqual(mock_transmit.call_args.kwargs["allow_generate_identifiers"], True)
+        self.assertEqual(mock_transmit.call_args.kwargs["ensure_identifiers"], True)
         self.assertEqual(mock_transmit.call_args.kwargs["source"], "auto_resend")
 
     @patch("api.dte_cf_service.transmit_invoice_dte")
@@ -194,6 +194,16 @@ class DteAutoresendPipelineTests(TestCase):
         autoresend_pending_invoices()
 
         mock_transmit.assert_not_called()
+
+    @patch("api.dte_cf_service.transmit_invoice_dte")
+    def test_autoresend_sends_pending_without_identifiers(self, mock_transmit):
+        invoice = self._create_invoice(Invoice.PENDING, with_identifiers=False)
+
+        autoresend_pending_invoices()
+
+        mock_transmit.assert_called_once()
+        called_invoice = mock_transmit.call_args.args[0]
+        self.assertEqual(called_invoice.id, invoice.id)
 
     @patch("api.dte_cf_service.print")
     @patch("api.dte_cf_service.requests.post")
@@ -228,7 +238,7 @@ class DteAutoresendPipelineTests(TestCase):
             result = transmit_invoice_dte(
                 invoice,
                 force_now_timestamp=True,
-                allow_generate_identifiers=True,
+                ensure_identifiers=True,
                 source="manual_resend",
             )
 

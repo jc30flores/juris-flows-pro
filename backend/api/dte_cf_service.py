@@ -113,18 +113,18 @@ def _ensure_invoice_dte_identifiers(
     tipo_dte: str,
     now_local: timezone.datetime,
     *,
-    allow_generate_identifiers: bool = True,
+    ensure_identifiers: bool = True,
 ) -> tuple[str, str, int | None]:
     codigo_generacion = getattr(invoice, "codigo_generacion", None) or ""
     numero_control = getattr(invoice, "numero_control", None) or ""
     control_number_value = None
 
-    if not codigo_generacion and not allow_generate_identifiers:
+    if not codigo_generacion and not ensure_identifiers:
         raise ValueError("Invoice sin codigo_generacion.")
     if not codigo_generacion:
         codigo_generacion = str(uuid.uuid4()).upper()
 
-    if not numero_control and not allow_generate_identifiers:
+    if not numero_control and not ensure_identifiers:
         raise ValueError("Invoice sin numero_control.")
     if not numero_control:
         ambiente = "01"
@@ -207,7 +207,7 @@ def transmit_invoice_dte(
     invoice,
     *,
     force_now_timestamp: bool,
-    allow_generate_identifiers: bool,
+    ensure_identifiers: bool,
     source: str,
 ) -> DteTransmitResult:
     now_local = timezone.localtime(timezone.now())
@@ -251,49 +251,26 @@ def transmit_invoice_dte(
             did_generate_new_dte=not had_existing_record,
         )
 
-    if not allow_generate_identifiers and (
-        not getattr(invoice, "codigo_generacion", None)
-        or not getattr(invoice, "numero_control", None)
-    ):
-        message = "Factura pendiente sin identificadores DTE."
-        logger.error("Invoice %s missing DTE identifiers.", invoice.id)
-        _mark_invoice_attempt(
-            invoice,
-            now_local,
-            Invoice.PENDING,
-            error_message=message,
-            error_code="missing_identifiers",
-        )
-        return DteTransmitResult(
-            ok=False,
-            status=invoice.dte_status,
-            message=message,
-            record=None,
-            response_payload=None,
-            sent_at=now_local,
-            did_generate_new_dte=not had_existing_record,
-        )
-
     try:
         if invoice.doc_type == Invoice.CF:
             record = send_cf_dte_for_invoice(
                 invoice,
                 force_now_timestamp=force_now_timestamp,
-                allow_generate_identifiers=allow_generate_identifiers,
+                ensure_identifiers=ensure_identifiers,
                 source=source,
             )
         elif invoice.doc_type == Invoice.CCF:
             record = send_ccf_dte_for_invoice(
                 invoice,
                 force_now_timestamp=force_now_timestamp,
-                allow_generate_identifiers=allow_generate_identifiers,
+                ensure_identifiers=ensure_identifiers,
                 source=source,
             )
         elif invoice.doc_type == Invoice.SX:
             record = send_se_dte_for_invoice(
                 invoice,
                 force_now_timestamp=force_now_timestamp,
-                allow_generate_identifiers=allow_generate_identifiers,
+                ensure_identifiers=ensure_identifiers,
                 source=source,
             )
         else:
@@ -335,7 +312,7 @@ def resend_dte_for_invoice(
     result = transmit_invoice_dte(
         invoice,
         force_now_timestamp=True,
-        allow_generate_identifiers=True,
+        ensure_identifiers=True,
         source="manual_resend",
     )
     return (
@@ -354,8 +331,6 @@ def autoresend_pending_invoices() -> int:
             Invoice.objects.select_for_update(skip_locked=True)
             .filter(
                 dte_status=Invoice.PENDING,
-                codigo_generacion__isnull=False,
-                numero_control__isnull=False,
             )
             .values_list("id", flat=True)
         )
@@ -374,7 +349,7 @@ def autoresend_pending_invoices() -> int:
             transmit_invoice_dte(
                 invoice,
                 force_now_timestamp=True,
-                allow_generate_identifiers=True,
+                ensure_identifiers=True,
                 source="auto_resend",
             )
             sent += 1
@@ -669,7 +644,7 @@ def send_cf_dte_for_invoice(
     invoice,
     *,
     force_now_timestamp: bool = False,
-    allow_generate_identifiers: bool = True,
+    ensure_identifiers: bool = True,
     source: str = "normal_send",
 ) -> DTERecord:
     """
@@ -682,12 +657,14 @@ def send_cf_dte_for_invoice(
         invoice,
         "01",
         now_local,
-        allow_generate_identifiers=allow_generate_identifiers,
+        ensure_identifiers=ensure_identifiers,
     )
     ambiente = "01"
     est_code = EMITTER_INFO["codEstable"]
     pv_code = EMITTER_INFO["codPuntoVenta"]
 
+    if force_now_timestamp:
+        now_local = timezone.localtime(timezone.now())
     emision_date = now_local.date()
     fec_emi = emision_date.isoformat()
     hor_emi = now_local.strftime("%H:%M:%S")
@@ -930,7 +907,7 @@ def send_ccf_dte_for_invoice(
     invoice,
     *,
     force_now_timestamp: bool = False,
-    allow_generate_identifiers: bool = True,
+    ensure_identifiers: bool = True,
     source: str = "normal_send",
 ) -> DTERecord:
     """
@@ -943,12 +920,14 @@ def send_ccf_dte_for_invoice(
         invoice,
         "03",
         now_local,
-        allow_generate_identifiers=allow_generate_identifiers,
+        ensure_identifiers=ensure_identifiers,
     )
     ambiente = "01"
     est_code = EMITTER_INFO["codEstable"]
     pv_code = EMITTER_INFO["codPuntoVenta"]
 
+    if force_now_timestamp:
+        now_local = timezone.localtime(timezone.now())
     emision_date = now_local.date()
     fec_emi = emision_date.isoformat()
     hor_emi = now_local.strftime("%H:%M:%S")
@@ -1242,7 +1221,7 @@ def send_se_dte_for_invoice(
     invoice,
     *,
     force_now_timestamp: bool = False,
-    allow_generate_identifiers: bool = True,
+    ensure_identifiers: bool = True,
     source: str = "normal_send",
 ) -> DTERecord:
     """
@@ -1255,12 +1234,14 @@ def send_se_dte_for_invoice(
         invoice,
         "14",
         now_local,
-        allow_generate_identifiers=allow_generate_identifiers,
+        ensure_identifiers=ensure_identifiers,
     )
     ambiente = "01"
     est_code = EMITTER_INFO["codEstable"]
     pv_code = EMITTER_INFO["codPuntoVenta"]
 
+    if force_now_timestamp:
+        now_local = timezone.localtime(timezone.now())
     emision_date = now_local.date()
     fec_emi = emision_date.isoformat()
     hor_emi = now_local.strftime("%H:%M:%S")

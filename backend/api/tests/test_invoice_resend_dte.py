@@ -130,6 +130,32 @@ class InvoiceResendDteTests(TestCase):
         self.invoice.refresh_from_db()
         self.assertEqual(self.invoice.dte_send_attempts, 1)
 
+    @patch("api.dte_cf_service.requests.post")
+    def test_resend_dte_generates_identifiers_when_missing(self, mock_post):
+        mock_post.return_value = DummyResponse(
+            {
+                "success": True,
+                "uuid": "UUID-123",
+                "respuesta_hacienda": {
+                    "estado": "RECIBIDO",
+                    "descripcionMsg": "RECIBIDO",
+                },
+            }
+        )
+
+        self.invoice.numero_control = None
+        self.invoice.codigo_generacion = None
+        self.invoice.save(update_fields=["numero_control", "codigo_generacion"])
+        DTERecord.objects.all().delete()
+
+        client = APIClient()
+        response = client.post(f"/api/invoices/{self.invoice.id}/resend-dte/")
+
+        self.assertEqual(response.status_code, 200)
+        self.invoice.refresh_from_db()
+        self.assertTrue(self.invoice.numero_control)
+        self.assertTrue(self.invoice.codigo_generacion)
+
     def test_resend_dte_rejected_when_not_pending(self):
         self.invoice.dte_status = Invoice.APPROVED
         self.invoice.save(update_fields=["dte_status"])

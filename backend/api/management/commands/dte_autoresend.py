@@ -62,7 +62,7 @@ class Command(BaseCommand):
                     transmit_invoice_dte(
                         invoice,
                         force_now_timestamp=True,
-                        allow_generate_identifiers=True,
+                        ensure_identifiers=True,
                         source="auto_resend",
                     )
 

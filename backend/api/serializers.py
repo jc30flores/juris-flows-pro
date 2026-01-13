@@ -128,7 +128,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             transmit_invoice_dte(
                 invoice,
                 force_now_timestamp=False,
-                allow_generate_identifiers=True,
+                ensure_identifiers=True,
                 source="normal_send",
             )
         except Exception as exc:  # noqa: BLE001
