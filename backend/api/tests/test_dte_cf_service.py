@@ -9,9 +9,10 @@ from api.models import Client, Invoice, InvoiceItem, Service, ServiceCategory
 
 
 class DummyResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200):
         self._payload = payload
         self.text = json.dumps(payload)
+        self.status_code = status_code
 
     def json(self):
         return self._payload
@@ -74,3 +75,19 @@ class SendCFDteTests(TestCase):
             payload["dte"]["extension"]["docuRecibe"],
             self.client.nit,
         )
+
+    @patch("api.dte_cf_service.requests.post")
+    def test_send_cf_marks_pending_on_530(self, mock_post):
+        mock_post.return_value = DummyResponse(
+            {"error": "cloudflare"},
+            status_code=530,
+        )
+
+        record = send_cf_dte_for_invoice(self.invoice)
+
+        self.invoice.refresh_from_db()
+        self.assertIsNotNone(self.invoice.numero_control)
+        self.assertIsNotNone(self.invoice.codigo_generacion)
+        self.assertEqual(self.invoice.dte_status, Invoice.PENDING)
+        self.assertEqual(self.invoice.last_dte_error_code, "530")
+        self.assertEqual(record.status, "PENDIENTE")

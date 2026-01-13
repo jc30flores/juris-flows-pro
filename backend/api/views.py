@@ -214,7 +214,11 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         if dte_message:
             data["dte_message"] = dte_message
 
-        return Response(data, status=status.HTTP_201_CREATED, headers=headers)
+        response_status = status.HTTP_201_CREATED
+        if getattr(invoice, "_dte_pending_due_to_outage", False):
+            response_status = status.HTTP_202_ACCEPTED
+
+        return Response(data, status=response_status, headers=headers)
 
 
 class InvoiceResendDteAPIView(APIView):
@@ -241,6 +245,18 @@ class InvoiceResendDteAPIView(APIView):
             )
 
         if not success:
+            if getattr(invoice, "_dte_pending_due_to_outage", False):
+                return Response(
+                    {
+                        "ok": True,
+                        "invoice_id": invoice.id,
+                        "dte_status": invoice.dte_status,
+                        "resent_at": resent_at.isoformat(),
+                        "api_message": message,
+                        "did_generate_new_dte": did_generate_new_dte,
+                    },
+                    status=status.HTTP_202_ACCEPTED,
+                )
             return Response(
                 {"ok": False, "error": message},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
