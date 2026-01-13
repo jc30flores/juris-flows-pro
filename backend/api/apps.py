@@ -1,4 +1,5 @@
 import logging
+import sys
 
 from django.apps import AppConfig
 
@@ -12,6 +13,9 @@ class ApiConfig(AppConfig):
     def ready(self):
         try:
             from .connectivity import CONNECTIVITY_SENTINEL
+
+            if "runserver" not in sys.argv:
+                return
 
             if getattr(CONNECTIVITY_SENTINEL, "_started", False):
                 return

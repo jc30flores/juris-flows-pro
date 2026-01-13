@@ -296,6 +296,11 @@ class InvoiceSerializer(serializers.ModelSerializer):
                 item_data["original_unit_price"] = item_data["unit_price"]
             item_data.setdefault("price_overridden", False)
             item_data.setdefault("override_reason", "")
+            item_data.setdefault("override_authorized_by", "")
+            item_data.setdefault("override_requested_by", "")
+            item_data.setdefault("override_code_used", "")
+            item_data.setdefault("override_active", False)
+            item_data.setdefault("override_expires_at", None)
 
             InvoiceItem.objects.create(invoice=invoice, **item_data)
 
