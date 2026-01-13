@@ -8,11 +8,7 @@ from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
-from .dte_cf_service import (
-    send_ccf_dte_for_invoice,
-    send_cf_dte_for_invoice,
-    send_se_dte_for_invoice,
-)
+from .dte_cf_service import transmit_invoice_dte
 from .models import (
     Activity,
     Client,
@@ -129,12 +125,12 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
         self._upsert_items(invoice, normalized_items, replace=True)
         try:
-            if invoice.doc_type == Invoice.CF:
-                send_cf_dte_for_invoice(invoice)
-            elif invoice.doc_type == Invoice.CCF:
-                send_ccf_dte_for_invoice(invoice)
-            elif invoice.doc_type == Invoice.SX:
-                send_se_dte_for_invoice(invoice)
+            transmit_invoice_dte(
+                invoice,
+                force_now_timestamp=False,
+                allow_generate_identifiers=True,
+                source="normal_send",
+            )
         except Exception as exc:  # noqa: BLE001
             logger.exception(
                 "Error sending DTE for invoice %s", invoice.id, exc_info=exc

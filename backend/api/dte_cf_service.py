@@ -1,8 +1,8 @@
-import copy
 import json
 import logging
 import uuid
 from decimal import Decimal, ROUND_HALF_UP
+from dataclasses import dataclass
 from typing import Tuple
 
 import requests
@@ -109,15 +109,23 @@ def _infer_send_success(record: DTERecord) -> bool:
 
 
 def _ensure_invoice_dte_identifiers(
-    invoice, tipo_dte: str, now_local: timezone.datetime
+    invoice,
+    tipo_dte: str,
+    now_local: timezone.datetime,
+    *,
+    allow_generate_identifiers: bool = True,
 ) -> tuple[str, str, int | None]:
     codigo_generacion = getattr(invoice, "codigo_generacion", None) or ""
     numero_control = getattr(invoice, "numero_control", None) or ""
     control_number_value = None
 
+    if not codigo_generacion and not allow_generate_identifiers:
+        raise ValueError("Invoice sin codigo_generacion.")
     if not codigo_generacion:
         codigo_generacion = str(uuid.uuid4()).upper()
 
+    if not numero_control and not allow_generate_identifiers:
+        raise ValueError("Invoice sin numero_control.")
     if not numero_control:
         ambiente = "01"
         est_code = EMITTER_INFO["codEstable"]
@@ -184,126 +192,159 @@ def _mark_invoice_offline(invoice, now_local: timezone.datetime, error: str, cod
     invoice._dte_pending_due_to_outage = True
 
 
-def resend_dte_for_invoice(
+@dataclass(frozen=True)
+class DteTransmitResult:
+    ok: bool
+    status: str
+    message: str
+    record: DTERecord | None
+    response_payload: dict | None
+    sent_at: timezone.datetime
+    did_generate_new_dte: bool
+
+
+def transmit_invoice_dte(
     invoice,
-) -> tuple[DTERecord, str, timezone.datetime, bool, bool]:
-    record = invoice.dte_records.order_by("-created_at").first()
-    did_generate_new_dte = False
-    if not record or not record.request_payload:
-        did_generate_new_dte = True
-        now_local = timezone.localtime(timezone.now())
-        new_record = _send_new_dte_for_invoice(invoice)
-        user_message = getattr(invoice, "_dte_message", "") or ""
-        return new_record, user_message, now_local, _infer_send_success(new_record), did_generate_new_dte
-
-    payload = copy.deepcopy(record.request_payload)
-    ident = _extract_dte_identification(payload)
-    if not ident:
-        raise ValueError("No se encontró identificación del DTE para reenviar.")
-
+    *,
+    force_now_timestamp: bool,
+    allow_generate_identifiers: bool,
+    source: str,
+) -> DteTransmitResult:
     now_local = timezone.localtime(timezone.now())
-    ident["fecEmi"] = now_local.date().isoformat()
-    ident["horEmi"] = now_local.strftime("%H:%M:%S")
-    if getattr(invoice, "numero_control", None):
-        ident["numeroControl"] = invoice.numero_control
-    if getattr(invoice, "codigo_generacion", None):
-        ident["codigoGeneracion"] = invoice.codigo_generacion
+    had_existing_record = invoice.dte_records.exists()
 
-    if isinstance(payload.get("dte"), dict):
-        payload["dte"]["identificacion"] = ident
-    else:
-        payload["identificacion"] = ident
-
-    control_number = ident.get("numeroControl") or record.control_number or ""
-
-    resend_record = DTERecord.objects.create(
-        invoice=invoice,
-        dte_type=record.dte_type,
-        status="ENVIANDO",
-        control_number=control_number,
-        issuer_nit=record.issuer_nit,
-        receiver_nit=record.receiver_nit,
-        receiver_name=record.receiver_name,
-        issue_date=now_local.date(),
-        total_amount=record.total_amount or invoice.total,
-        request_payload=payload,
-    )
-
-    headers = {
-        "Authorization": "Bearer api_k_12101304761012",
-        "Content-Type": "application/json",
-    }
-
-    try:
-        response = requests.post(
-            _resolve_dte_endpoint(record.dte_type), json=payload, headers=headers, timeout=30
+    if source in {"manual_resend", "auto_resend"} and invoice.dte_status != Invoice.PENDING:
+        message = "Solo se puede reenviar un DTE en estado PENDIENTE."
+        logger.warning(
+            "Skipping DTE transmit for invoice %s (%s). Status=%s",
+            invoice.id,
+            source,
+            invoice.dte_status,
         )
-    except requests.exceptions.RequestException as exc:
-        resend_record.response_payload = {
-            "success": None,
-            "error": {"type": "network_error", "message": str(exc)},
-        }
-        resend_record.hacienda_state = "SIN_RESPUESTA"
-        resend_record.status = "PENDIENTE"
-        resend_record.save(update_fields=["response_payload", "hacienda_state", "status"])
+        return DteTransmitResult(
+            ok=False,
+            status=invoice.dte_status,
+            message=message,
+            record=None,
+            response_payload=None,
+            sent_at=now_local,
+            did_generate_new_dte=not had_existing_record,
+        )
 
-        _mark_invoice_offline(invoice, now_local, str(exc), "network_error")
-        return resend_record, OFFLINE_USER_MESSAGE, now_local, False, did_generate_new_dte
+    if not invoice.items.exists():
+        message = "No se encontraron items para generar el DTE."
+        logger.error("Invoice %s has no items for DTE send.", invoice.id)
+        _mark_invoice_attempt(
+            invoice,
+            now_local,
+            Invoice.PENDING,
+            error_message=message,
+            error_code="no_items",
+        )
+        return DteTransmitResult(
+            ok=False,
+            status=invoice.dte_status,
+            message=message,
+            record=None,
+            response_payload=None,
+            sent_at=now_local,
+            did_generate_new_dte=not had_existing_record,
+        )
+
+    if not allow_generate_identifiers and (
+        not getattr(invoice, "codigo_generacion", None)
+        or not getattr(invoice, "numero_control", None)
+    ):
+        message = "Factura pendiente sin identificadores DTE."
+        logger.error("Invoice %s missing DTE identifiers.", invoice.id)
+        _mark_invoice_attempt(
+            invoice,
+            now_local,
+            Invoice.PENDING,
+            error_message=message,
+            error_code="missing_identifiers",
+        )
+        return DteTransmitResult(
+            ok=False,
+            status=invoice.dte_status,
+            message=message,
+            record=None,
+            response_payload=None,
+            sent_at=now_local,
+            did_generate_new_dte=not had_existing_record,
+        )
 
     try:
-        try:
-            response_data = response.json()
-        except ValueError:
-            response_data = {"raw_text": response.text}
-
-        if _is_offline_status(response.status_code):
-            resend_record.response_payload = {
-                "status_code": response.status_code,
-                "raw_text": response.text,
-            }
-            resend_record.hacienda_state = "SIN_RESPUESTA"
-            resend_record.status = "PENDIENTE"
-            resend_record.save(
-                update_fields=["response_payload", "hacienda_state", "status"]
-            )
-            _mark_invoice_offline(
+        if invoice.doc_type == Invoice.CF:
+            record = send_cf_dte_for_invoice(
                 invoice,
-                now_local,
-                f"status_{response.status_code}",
-                str(response.status_code),
+                force_now_timestamp=force_now_timestamp,
+                allow_generate_identifiers=allow_generate_identifiers,
+                source=source,
             )
-            return resend_record, OFFLINE_USER_MESSAGE, now_local, False, did_generate_new_dte
-
-        resend_record.response_payload = response_data
-        resend_record.hacienda_uuid = (
-            response_data.get("uuid", "") if isinstance(response_data, dict) else ""
-        )
-        estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
-        resend_record.hacienda_state = estado_hacienda
-        resend_record.status = estado_interno
-        resend_record.save(
-            update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"]
-        )
-
-        _mark_invoice_attempt(invoice, now_local, estado_interno, None, None)
-        invoice._dte_message = user_message
-        return resend_record, user_message, now_local, True, did_generate_new_dte
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Error resending DTE", exc_info=exc)
-        resend_record.response_payload = {"error": str(exc)}
-        resend_record.status = "PENDIENTE"
-        resend_record.hacienda_state = "SIN_RESPUESTA"
-        resend_record.save(update_fields=["response_payload", "status", "hacienda_state"])
-
+        elif invoice.doc_type == Invoice.CCF:
+            record = send_ccf_dte_for_invoice(
+                invoice,
+                force_now_timestamp=force_now_timestamp,
+                allow_generate_identifiers=allow_generate_identifiers,
+                source=source,
+            )
+        elif invoice.doc_type == Invoice.SX:
+            record = send_se_dte_for_invoice(
+                invoice,
+                force_now_timestamp=force_now_timestamp,
+                allow_generate_identifiers=allow_generate_identifiers,
+                source=source,
+            )
+        else:
+            raise ValueError("Tipo de DTE no soportado para envío.")
+    except ValueError as exc:
+        logger.exception("Invalid DTE transmit for invoice %s", invoice.id, exc_info=exc)
         _mark_invoice_attempt(
             invoice,
             now_local,
             Invoice.PENDING,
             error_message=str(exc),
-            error_code="unexpected_error",
+            error_code="invalid_payload",
         )
-        invoice._dte_message = "El DTE se ha dejado en estado PENDIENTE por un error inesperado."
-        return resend_record, invoice._dte_message, now_local, False, did_generate_new_dte
+        return DteTransmitResult(
+            ok=False,
+            status=invoice.dte_status,
+            message=str(exc),
+            record=None,
+            response_payload=None,
+            sent_at=now_local,
+            did_generate_new_dte=not had_existing_record,
+        )
+
+    message = getattr(invoice, "_dte_message", "") or ""
+    return DteTransmitResult(
+        ok=_infer_send_success(record),
+        status=invoice.dte_status,
+        message=message,
+        record=record,
+        response_payload=record.response_payload,
+        sent_at=now_local,
+        did_generate_new_dte=not had_existing_record,
+    )
+
+
+def resend_dte_for_invoice(
+    invoice,
+) -> tuple[DTERecord, str, timezone.datetime, bool, bool]:
+    result = transmit_invoice_dte(
+        invoice,
+        force_now_timestamp=True,
+        allow_generate_identifiers=True,
+        source="manual_resend",
+    )
+    return (
+        result.record,
+        result.message,
+        result.sent_at,
+        result.ok,
+        result.did_generate_new_dte,
+    )
 
 
 def autoresend_pending_invoices() -> int:
@@ -330,7 +371,12 @@ def autoresend_pending_invoices() -> int:
             .get(pk=invoice_id)
         )
         try:
-            resend_dte_for_invoice(invoice)
+            transmit_invoice_dte(
+                invoice,
+                force_now_timestamp=True,
+                allow_generate_identifiers=True,
+                source="auto_resend",
+            )
             sent += 1
         except Exception as exc:  # noqa: BLE001
             logger.exception(
@@ -619,7 +665,13 @@ def _resolve_receiver_doc_for_extension(client, context_label: str) -> str:
     return default_doc
 
 
-def send_cf_dte_for_invoice(invoice) -> DTERecord:
+def send_cf_dte_for_invoice(
+    invoice,
+    *,
+    force_now_timestamp: bool = False,
+    allow_generate_identifiers: bool = True,
+    source: str = "normal_send",
+) -> DTERecord:
     """
     Construye el JSON DTE para tipo CF a partir de la factura y sus items,
     lo envía al endpoint externo y registra el request/response en DTERecord.
@@ -627,7 +679,10 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
 
     now_local = timezone.localtime()
     codigo_generacion, numero_control, control_number_value = _ensure_invoice_dte_identifiers(
-        invoice, "01", now_local
+        invoice,
+        "01",
+        now_local,
+        allow_generate_identifiers=allow_generate_identifiers,
     )
     ambiente = "01"
     est_code = EMITTER_INFO["codEstable"]
@@ -871,7 +926,13 @@ def send_cf_dte_for_invoice(invoice) -> DTERecord:
         return record
 
 
-def send_ccf_dte_for_invoice(invoice) -> DTERecord:
+def send_ccf_dte_for_invoice(
+    invoice,
+    *,
+    force_now_timestamp: bool = False,
+    allow_generate_identifiers: bool = True,
+    source: str = "normal_send",
+) -> DTERecord:
     """
     Construye el JSON DTE para tipo CCF (03) a partir de la factura y sus items,
     lo envía al endpoint externo y registra el request/response en DTERecord.
@@ -879,7 +940,10 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
 
     now_local = timezone.localtime()
     codigo_generacion, numero_control, control_number_value = _ensure_invoice_dte_identifiers(
-        invoice, "03", now_local
+        invoice,
+        "03",
+        now_local,
+        allow_generate_identifiers=allow_generate_identifiers,
     )
     ambiente = "01"
     est_code = EMITTER_INFO["codEstable"]
@@ -1174,7 +1238,13 @@ def send_ccf_dte_for_invoice(invoice) -> DTERecord:
         return record
 
 
-def send_se_dte_for_invoice(invoice) -> DTERecord:
+def send_se_dte_for_invoice(
+    invoice,
+    *,
+    force_now_timestamp: bool = False,
+    allow_generate_identifiers: bool = True,
+    source: str = "normal_send",
+) -> DTERecord:
     """
     Construye el JSON DTE para tipo Sujeto Excluido (14) a partir de la factura y sus items,
     lo envía al endpoint externo y registra el request/response en DTERecord.
@@ -1182,7 +1252,10 @@ def send_se_dte_for_invoice(invoice) -> DTERecord:
 
     now_local = timezone.localtime()
     codigo_generacion, numero_control, control_number_value = _ensure_invoice_dte_identifiers(
-        invoice, "14", now_local
+        invoice,
+        "14",
+        now_local,
+        allow_generate_identifiers=allow_generate_identifiers,
     )
     ambiente = "01"
     est_code = EMITTER_INFO["codEstable"]

@@ -9,9 +9,10 @@ from api.models import Client, DTERecord, Invoice, InvoiceItem, Service, Service
 
 
 class DummyResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200):
         self._payload = payload
         self.text = json.dumps(payload)
+        self.status_code = status_code
 
     def json(self):
         return self._payload

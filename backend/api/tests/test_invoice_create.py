@@ -5,7 +5,11 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from api.connectivity import ConnectivitySentinel
-from api.dte_cf_service import send_cf_dte_for_invoice
+from api.dte_cf_service import (
+    autoresend_pending_invoices,
+    send_cf_dte_for_invoice,
+    transmit_invoice_dte,
+)
 from api.models import Client, Invoice, InvoiceItem, Service, ServiceCategory
 
 
@@ -31,7 +35,7 @@ class InvoiceCreateTests(TestCase):
             direccion="",
         )
 
-    @patch("api.serializers.send_cf_dte_for_invoice")
+    @patch("api.serializers.transmit_invoice_dte")
     def test_create_invoice_without_override_reason(self, mock_send):
         payload = {
             "date": timezone.now().date().isoformat(),
@@ -121,3 +125,116 @@ class ConnectivityAutoresendTests(SimpleTestCase):
         sentinel.run_once()
 
         mock_autoresend.assert_called_once()
+
+
+class DteAutoresendPipelineTests(TestCase):
+    def setUp(self):
+        self.category = ServiceCategory.objects.create(name="Servicios", description="")
+        self.service = Service.objects.create(
+            code="SVC-1",
+            name="Consulta",
+            category=self.category,
+            base_price="10.00",
+        )
+        self.client_obj = Client.objects.create(
+            full_name="Cliente Prueba",
+            company_name="",
+            client_type=Client.CF,
+            dui="",
+            nit="",
+            nrc="",
+            phone="",
+            email="",
+            direccion="",
+        )
+
+    def _create_invoice(self, status: str, with_identifiers: bool = True) -> Invoice:
+        invoice = Invoice.objects.create(
+            number=f"INV-{status}",
+            date=timezone.now().date(),
+            client=self.client_obj,
+            doc_type=Invoice.CF,
+            payment_method=Invoice.CASH,
+            dte_status=status,
+            observations="",
+            total="10.00",
+        )
+        InvoiceItem.objects.create(
+            invoice=invoice,
+            service=self.service,
+            quantity=1,
+            unit_price="10.00",
+            subtotal="10.00",
+            original_unit_price="10.00",
+        )
+        if with_identifiers:
+            invoice.numero_control = "DTE-01-M002P001-000000000000123"
+            invoice.codigo_generacion = "ABC-123"
+            invoice.save(update_fields=["numero_control", "codigo_generacion"])
+        return invoice
+
+    @patch("api.dte_cf_service.transmit_invoice_dte")
+    def test_autoresend_uses_same_pipeline_as_manual_resend(self, mock_transmit):
+        invoice = self._create_invoice(Invoice.PENDING)
+
+        autoresend_pending_invoices()
+
+        mock_transmit.assert_called_once()
+        called_invoice = mock_transmit.call_args.args[0]
+        self.assertEqual(called_invoice.id, invoice.id)
+        self.assertEqual(mock_transmit.call_args.kwargs["force_now_timestamp"], True)
+        self.assertEqual(mock_transmit.call_args.kwargs["allow_generate_identifiers"], True)
+        self.assertEqual(mock_transmit.call_args.kwargs["source"], "auto_resend")
+
+    @patch("api.dte_cf_service.transmit_invoice_dte")
+    def test_autoresend_does_not_send_accepted_or_rejected(self, mock_transmit):
+        self._create_invoice(Invoice.APPROVED)
+        self._create_invoice(Invoice.REJECTED)
+
+        autoresend_pending_invoices()
+
+        mock_transmit.assert_not_called()
+
+    @patch("api.dte_cf_service.print")
+    @patch("api.dte_cf_service.requests.post")
+    def test_autoresend_prints_payload(self, mock_post, mock_print):
+        mock_response = Mock(status_code=200)
+        mock_response.json.return_value = {
+            "success": True,
+            "uuid": "UUID-123",
+            "respuesta_hacienda": {"estado": "RECIBIDO", "descripcionMsg": "RECIBIDO"},
+        }
+        mock_post.return_value = mock_response
+
+        self._create_invoice(Invoice.PENDING, with_identifiers=False)
+
+        autoresend_pending_invoices()
+
+        mock_print.assert_any_call("\nJSON DTE ENVIO:\n")
+
+    @patch("api.dte_cf_service.requests.post")
+    def test_resend_keeps_identifiers_and_updates_timestamp(self, mock_post):
+        mock_response = Mock(status_code=200)
+        mock_response.json.return_value = {
+            "success": True,
+            "uuid": "UUID-123",
+            "respuesta_hacienda": {"estado": "RECIBIDO", "descripcionMsg": "RECIBIDO"},
+        }
+        mock_post.return_value = mock_response
+
+        invoice = self._create_invoice(Invoice.PENDING)
+        fixed_now = timezone.datetime(2024, 5, 5, 15, 30, 0, tzinfo=timezone.get_current_timezone())
+        with patch("api.dte_cf_service.timezone.localtime", return_value=fixed_now):
+            result = transmit_invoice_dte(
+                invoice,
+                force_now_timestamp=True,
+                allow_generate_identifiers=True,
+                source="manual_resend",
+            )
+
+        self.assertTrue(result.record)
+        ident = result.record.request_payload["dte"]["identificacion"]
+        self.assertEqual(ident["numeroControl"], invoice.numero_control)
+        self.assertEqual(ident["codigoGeneracion"], invoice.codigo_generacion)
+        self.assertEqual(ident["fecEmi"], fixed_now.date().isoformat())
+        self.assertEqual(ident["horEmi"], fixed_now.strftime("%H:%M:%S"))
