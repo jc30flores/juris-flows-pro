@@ -86,7 +86,7 @@ def filter_invoices_queryset(queryset, params):
     if payment_method:
         queryset = queryset.filter(payment_method=payment_method)
     if dte_status:
-        queryset = queryset.filter(dte_status=dte_status)
+        queryset = queryset.filter(dte_status__iexact=dte_status)
 
     return queryset
 
@@ -231,8 +231,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 class ResendDTEView(APIView):
     permission_classes = [permissions.AllowAny]
 
-    def post(self, request):
-        invoice_id = request.data.get("invoice_id")
+    def post(self, request, invoice_id=None):
+        invoice_id = invoice_id or request.data.get("invoice_id")
         if not invoice_id:
             return Response(
                 {"detail": "invoice_id es requerido."},
@@ -247,8 +247,8 @@ class ResendDTEView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        current_status = (invoice.dte_status or "").upper()
-        if current_status in {"ACEPTADO", "APROBADO", "RECHAZADO"}:
+        current_status = (invoice.dte_status or invoice.estado_dte or "").upper()
+        if current_status in {"ACEPTADO", "RECHAZADO"}:
             return Response(
                 {"detail": "El DTE no puede reenviarse en el estado actual."},
                 status=status.HTTP_400_BAD_REQUEST,

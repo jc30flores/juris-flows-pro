@@ -40,6 +40,11 @@ urlpatterns = [
     path("emisor/rubros/", EmisorRubrosView.as_view(), name="emisor-rubros"),
     path("emisor/active-rubro/", EmisorActiveRubroView.as_view(), name="emisor-active-rubro"),
     path("emisor/active/", EmisorActiveView.as_view(), name="emisor-active"),
+    path(
+        "invoices/<int:invoice_id>/resend-dte/",
+        ResendDTEView.as_view(),
+        name="invoice-resend-dte",
+    ),
     path("resend-dte/", ResendDTEView.as_view(), name="resend-dte"),
     path("", include(router.urls)),
     path("status/connectivity/", ConnectivityStatusView.as_view(), name="connectivity-status"),

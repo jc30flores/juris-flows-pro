@@ -6,10 +6,8 @@ export type InvoiceDocType = "CF" | "CCF" | "SX";
 export type PaymentMethod = "Efectivo" | "Tarjeta" | "Transferencia" | "Cheque";
 
 export type DteStatus =
-  | "Aprobado"
-  | "Pendiente"
-  | "Rechazado"
   | "ACEPTADO"
+  | "PENDIENTE"
   | "RECHAZADO"
   | "ERROR";
 

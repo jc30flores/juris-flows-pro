@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { isAxiosError } from "axios";
-import { Ban, Copy, Download, FilePlus2, Filter, Mail, MessageCircle, Plus } from "lucide-react";
+import {
+  Ban,
+  Copy,
+  Download,
+  FilePlus2,
+  Filter,
+  Mail,
+  MessageCircle,
+  Plus,
+  RotateCcw,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -32,10 +42,10 @@ import { useRubro } from "@/contexts/RubroContext";
 
 const getDteBadgeStyle = (status: string | undefined) => {
   const normalized = status?.toUpperCase();
-  if (normalized === "ACEPTADO" || status === "Aprobado") {
+  if (normalized === "ACEPTADO") {
     return "bg-success/10 text-success";
   }
-  if (normalized === "RECHAZADO" || status === "Rechazado" || normalized === "ERROR") {
+  if (normalized === "RECHAZADO" || normalized === "ERROR") {
     return "bg-destructive/10 text-destructive";
   }
   return "bg-warning/10 text-warning";
@@ -45,7 +55,7 @@ const getDteDisplayStatus = (status: string | undefined) => {
   const normalized = status?.toUpperCase();
   if (normalized === "ACEPTADO") return "ACEPTADO";
   if (normalized === "RECHAZADO") return "RECHAZADO";
-  if (normalized === "PENDIENTE") return "Pendiente";
+  if (normalized === "PENDIENTE") return "PENDIENTE";
   return status || "";
 };
 
@@ -152,6 +162,7 @@ export default function POS() {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [selectedServices, setSelectedServices] = useState<SelectedServicePayload[]>([]);
+  const [resendingInvoiceId, setResendingInvoiceId] = useState<number | null>(null);
   const rubroSelectorRef = useRef<HTMLDivElement | null>(null);
   const { rubros, activeRubro, loading: loadingRubros, setActiveRubro } = useRubro();
 
@@ -194,7 +205,7 @@ export default function POS() {
         const invoice = response.data;
 
         const normalizedStatus = invoice.dte_status?.toUpperCase();
-        if (normalizedStatus === "ACEPTADO" || invoice.dte_status === "Aprobado") {
+        if (normalizedStatus === "ACEPTADO") {
           toast({
             title: "Factura creada",
             description:
@@ -202,7 +213,6 @@ export default function POS() {
           });
         } else if (
           normalizedStatus === "RECHAZADO" ||
-          invoice.dte_status === "Rechazado" ||
           normalizedStatus === "ERROR"
         ) {
           toast({
@@ -379,10 +389,39 @@ export default function POS() {
     );
   };
 
+  const handleResendDte = async (invoice: Invoice) => {
+    setResendingInvoiceId(invoice.id);
+    try {
+      const response = await api.post<Invoice>(`/invoices/${invoice.id}/resend-dte/`);
+      toast({
+        title: "Reenvío solicitado",
+        description:
+          response.data.dte_message ||
+          "Se ha reenviado el DTE pendiente. Revisa el estado actualizado.",
+      });
+      await fetchInitialData();
+    } catch (err) {
+      console.error("Error al reenviar DTE", err);
+      const detail =
+        isAxiosError(err) && err.response?.data?.detail
+          ? String(err.response.data.detail)
+          : null;
+      toast({
+        title: "No se pudo reenviar el DTE",
+        description: detail || "Intenta nuevamente en unos minutos.",
+        variant: "destructive",
+      });
+    } finally {
+      setResendingInvoiceId(null);
+    }
+  };
+
   const renderInvoiceActions = (invoice: Invoice) => {
     const codigo = getCodigoGeneracionRaw(invoice);
     const showInvalidar = isCFInvoice(invoice);
     const showNotaCredito = isCCFInvoice(invoice);
+    const normalizedStatus = invoice.dte_status?.toUpperCase();
+    const canResend = normalizedStatus === "PENDIENTE";
 
     return (
       <div className="flex items-center justify-end gap-2">
@@ -463,6 +502,25 @@ export default function POS() {
               </Button>
             </TooltipTrigger>
             <TooltipContent>Nota de crédito (solo CCF)</TooltipContent>
+          </Tooltip>
+        )}
+
+        {canResend && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Reenviar DTE"
+                  disabled={resendingInvoiceId === invoice.id}
+                  onClick={() => handleResendDte(invoice)}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>Reenviar DTE pendiente</TooltipContent>
           </Tooltip>
         )}
 
