@@ -19,7 +19,7 @@ El grafo de migraciones del app `api` referenciaba migraciones base ausentes
    - `python manage.py migrate`
 
 ## Verificación
-- Iniciar el servidor: `python manage.py runserver 127.0.0.1:8007`
+- Iniciar el servidor: `python manage.py runserver 127.0.0.1:8105`
 - Confirmar que no aparece `NodeNotFoundError` al iniciar.
 
 ## Nota

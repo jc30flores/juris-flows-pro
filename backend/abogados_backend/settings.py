@@ -7,13 +7,13 @@ SECRET_KEY = os.getenv("SECRET_KEY", "changeme")
 DEBUG = True
 
 ALLOWED_HOSTS = [
-    "cuska-juridico.cuskatech.com",
+    "zelaya-sport.cuskatech.com",
     "localhost",
     "127.0.0.1",
 ]
 
 CSRF_TRUSTED_ORIGINS = [
-    "https://cuska-juridico.cuskatech.com",
+    "https://zelaya-sport.cuskatech.com",
     "http://localhost:9007",
 ]
 
@@ -64,7 +64,7 @@ ASGI_APPLICATION = "abogados_backend.asgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME", "abogados"),
+        "NAME": os.getenv("DB_NAME", "zelayasdb"),
         "USER": os.getenv("DB_USER", "jarvis"),
         "PASSWORD": os.getenv("DB_PASSWORD", "diez2030"),
         "HOST": os.getenv("DB_HOST", "localhost"),
@@ -99,14 +99,14 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:8087",
+    "http://localhost:8185",
     "http://localhost:9007",
-    "https://cuska-juridico.cuskatech.com",
+    "https://zelaya-sport.cuskatech.com",
 ]
 REST_FRAMEWORK = {}
 
 INTERNET_HEALTH_URL = os.getenv("INTERNET_HEALTH_URL", "https://www.google.com/generate_204")
-API_HEALTH_URL = os.getenv("API_HEALTH_URL", "https://t12101304761012.cheros.dev/health")
+API_HEALTH_URL = os.getenv("API_HEALTH_URL", "https://t12152606851014.cheros.dev/health")
 CONNECTIVITY_CHECK_INTERVAL = int(os.getenv("CONNECTIVITY_CHECK_INTERVAL", "15"))
 CONNECTIVITY_CHECK_TIMEOUT = int(os.getenv("CONNECTIVITY_CHECK_TIMEOUT", "5"))
 

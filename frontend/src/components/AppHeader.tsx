@@ -13,7 +13,7 @@ import { useAuth } from "@/contexts/AuthContext";
 
 const menuItems = [
   { title: "FACTURADOR", url: "/pos", icon: Receipt },
-  { title: "SERVICIOS", url: "/servicios", icon: FileText },
+  { title: "PRODUCTOS", url: "/productos", icon: FileText },
   { title: "CLIENTES", url: "/clientes", icon: Users },
   { title: "GASTOS", url: "/gastos", icon: CreditCard },
   { title: "USUARIOS", url: "/usuarios", icon: UserCog },
@@ -29,7 +29,7 @@ export function AppHeader() {
         {/* Logo - oculto en móvil */}
         <div className="hidden md:flex items-center gap-2 flex-shrink-0">
           <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-navy-700 to-navy-500 bg-clip-text text-transparent dark:from-navy-500 dark:to-gold-400 whitespace-nowrap">
-            Cuska-OnOffice
+            Zelaya Sports Facturador
           </h1>
         </div>
 

@@ -94,18 +94,19 @@ export function ServiceSelectorModal({
         className="flex w-[95vw] max-w-md flex-col overflow-hidden rounded-2xl p-0 sm:max-w-lg md:max-w-xl max-h-[90vh]"
       >
         <DialogHeader className="sticky top-0 z-10 border-b border-border bg-background/95 px-6 py-4 backdrop-blur">
-          <DialogTitle>Seleccionar Servicios</DialogTitle>
+          <DialogTitle>Seleccionar Productos</DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 space-y-4 overflow-y-auto px-6 pb-6 pt-4 max-h-[calc(90vh-140px)]">
             <div className="space-y-2">
-              <Label htmlFor="searchService">Buscar servicio por nombre o texto</Label>
+              <Label htmlFor="searchService">Buscar producto por nombre o texto</Label>
               <Input
                 id="searchService"
-                placeholder="Buscar servicio por nombre o texto"
+                placeholder="Buscar producto por nombre o texto"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                className="shadow-inner"
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && filteredServices.length > 0) {
                     e.preventDefault();
@@ -167,7 +168,7 @@ export function ServiceSelectorModal({
                   </ul>
                 ) : (
                   <div className="p-4 text-sm text-muted-foreground">
-                    No se encontraron servicios
+                    No se encontraron productos
                   </div>
                 )}
               </div>
@@ -175,7 +176,7 @@ export function ServiceSelectorModal({
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold">Servicios seleccionados</p>
+                <p className="text-sm font-semibold">Productos seleccionados</p>
                 <span className="text-sm text-muted-foreground">
                   Total: ${subtotal.toFixed(2)}
                 </span>
@@ -187,7 +188,7 @@ export function ServiceSelectorModal({
                     <table className="w-full text-sm">
                       <thead className="bg-muted/50">
                         <tr>
-                          <th className="px-4 py-3 text-left font-medium">Servicio</th>
+                          <th className="px-4 py-3 text-left font-medium">Producto</th>
                           <th className="px-4 py-3 text-center font-medium">Cantidad</th>
                           <th className="px-4 py-3 text-right font-medium">Subtotal</th>
                         </tr>
@@ -235,7 +236,7 @@ export function ServiceSelectorModal({
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  No hay servicios seleccionados.
+                  No hay productos seleccionados.
                 </p>
               )}
             </div>

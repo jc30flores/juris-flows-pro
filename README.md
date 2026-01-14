@@ -1,4 +1,4 @@
-# Cuska-OnOffice
+# Zelaya Sports Facturador
 
 El repositorio está dividido en dos áreas principales:
 
@@ -34,6 +34,12 @@ python manage.py migrate
 ```
 
 El backend expone un endpoint básico de salud en `/api/health/` que responde `{"status": "ok"}`.
+
+## Prueba manual de override de precios
+
+1. **Caso OK (sin override)**: crear una factura sin modificar el precio de los servicios → debe responder 201.
+2. **Caso OK (override autorizado)**: desbloquear precio con el código válido, modificar el precio de un servicio y crear la factura → debe responder 201.
+3. **Caso FAIL (override no autorizado)**: modificar el precio sin validar el código o con token expirado → debe responder 403 con detalle claro.
 
 ## Documentación del sistema
 

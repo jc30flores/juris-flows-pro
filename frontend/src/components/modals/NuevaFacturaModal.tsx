@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Pencil, RotateCcw } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -33,9 +34,10 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { renderCellValue } from "@/lib/render";
 import { getElSalvadorDateString } from "@/lib/dates";
+import { api } from "@/lib/api";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const IVA_RATE = 0.13;
-const PRICE_OVERRIDE_ACCESS_CODE = "123";
 const AUTHORIZATION_WINDOW_MS = 5 * 60 * 1000;
 
 type ServiceLine = SelectedServicePayload & {
@@ -44,8 +46,7 @@ type ServiceLine = SelectedServicePayload & {
   original_unit_price: number;
   price_overridden: boolean;
   price_error?: string | null;
-  price_locked: boolean;
-  unlocked_until?: number | null;
+  isEditable: boolean;
 };
 
 const round2 = (value: number): number => {
@@ -100,17 +101,25 @@ const AccessCodeModal = ({
       <DialogHeader>
         <DialogTitle>Código de acceso requerido</DialogTitle>
       </DialogHeader>
-      <div className="space-y-3">
+      <form autoComplete="off" className="space-y-3">
         <Label htmlFor="accessCode">Código de acceso</Label>
         <Input
           id="accessCode"
+          name="access_code"
           type="password"
           placeholder="Ingresa el código"
           value={value}
           onChange={(event) => onChange(event.target.value)}
+          autoComplete="off"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          inputMode="numeric"
+          data-lpignore="true"
+          data-form-type="other"
         />
         {error && <p className="text-sm text-destructive">{error}</p>}
-      </div>
+      </form>
       <DialogFooter className="gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancelar
@@ -149,11 +158,11 @@ export function NuevaFacturaModal({
   const [clientOpen, setClientOpen] = useState(false);
   const [serviceLines, setServiceLines] = useState<ServiceLine[]>([]);
   const [authorizedUntil, setAuthorizedUntil] = useState<number | null>(null);
+  const [overrideToken, setOverrideToken] = useState<string | null>(null);
   const [accessModalOpen, setAccessModalOpen] = useState(false);
   const [accessCodeInput, setAccessCodeInput] = useState("");
   const [accessError, setAccessError] = useState<string | null>(null);
   const [selectedLineId, setSelectedLineId] = useState<number | null>(null);
-  const unlockTimersRef = useRef<Record<number, number>>({});
   const priceInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const dialogContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -194,7 +203,7 @@ export function NuevaFacturaModal({
     if (serviceLines.length === 0) {
       toast({
         title: "Error",
-        description: "Debe agregar al menos un servicio",
+        description: "Debe agregar al menos un producto",
         variant: "destructive",
       });
       return;
@@ -230,6 +239,19 @@ export function NuevaFacturaModal({
 
     setServiceLines(normalizedLines);
 
+    const hasOverride = normalizedLines.some((item) => item.price_overridden);
+    if (hasOverride) {
+      const now = Date.now();
+      if (!overrideToken || !authorizedUntil || now > authorizedUntil) {
+        toast({
+          title: "Autorización requerida",
+          description: "Debe autorizar la modificación de precio antes de guardar.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     const servicesPayload: SelectedServicePayload[] = normalizedLines.map((item) => {
       const price = Number(item.unit_price_applied);
       return {
@@ -241,7 +263,6 @@ export function NuevaFacturaModal({
         price_overridden: item.price_overridden,
         quantity: item.quantity,
         subtotal: Number((price * item.quantity).toFixed(2)),
-        ...(item.price_overridden ? { override_code: PRICE_OVERRIDE_ACCESS_CODE } : {}),
       };
     });
 
@@ -253,6 +274,7 @@ export function NuevaFacturaModal({
       total,
       observations: data.observations || "",
       services: servicesPayload,
+      ...(hasOverride && overrideToken ? { override_token: overrideToken } : {}),
     };
 
     try {
@@ -270,10 +292,7 @@ export function NuevaFacturaModal({
         observations: "",
       });
       setAuthorizedUntil(null);
-      Object.values(unlockTimersRef.current).forEach((timerId) => {
-        window.clearTimeout(timerId);
-      });
-      unlockTimersRef.current = {};
+      setOverrideToken(null);
       setSelectedLineId(null);
       onOpenChange(false);
     } catch (error) {
@@ -349,16 +368,12 @@ export function NuevaFacturaModal({
             price_overridden: priceOverridden,
             price_error: null,
             subtotal: Number((appliedPrice * item.quantity).toFixed(2)),
-            price_locked: true,
-            unlocked_until: null,
+            isEditable: false,
           };
         }),
       );
       setAuthorizedUntil(null);
-      Object.values(unlockTimersRef.current).forEach((timerId) => {
-        window.clearTimeout(timerId);
-      });
-      unlockTimersRef.current = {};
+      setOverrideToken(null);
       setAccessModalOpen(false);
       setAccessCodeInput("");
       setAccessError(null);
@@ -387,15 +402,6 @@ export function NuevaFacturaModal({
       setClientOpen(false);
     }
   }, [invoice, mode, open, form, selectedServices]);
-
-  useEffect(() => {
-    return () => {
-      Object.values(unlockTimersRef.current).forEach((timerId) => {
-        window.clearTimeout(timerId);
-      });
-      unlockTimersRef.current = {};
-    };
-  }, []);
 
   const updateServiceLine = (
     serviceId: number,
@@ -457,39 +463,44 @@ export function NuevaFacturaModal({
     applyOverrideValue(serviceId, target.original_unit_price);
   };
 
-  const handleAccessConfirm = () => {
-    if (accessCodeInput !== PRICE_OVERRIDE_ACCESS_CODE) {
-      setAccessError("Código incorrecto. Intenta nuevamente.");
+  const handleAccessConfirm = async () => {
+    if (!accessCodeInput.trim()) {
+      setAccessError("Ingresa un código válido.");
       return;
     }
 
-    const expiresAt = Date.now() + AUTHORIZATION_WINDOW_MS;
-    setAuthorizedUntil(expiresAt);
     if (selectedLineId === null) {
-      setAccessError("Selecciona un servicio para desbloquear.");
+      setAccessError("Selecciona un producto para desbloquear.");
       return;
     }
 
-    const prevTimer = unlockTimersRef.current[selectedLineId];
-    if (prevTimer) {
-      window.clearTimeout(prevTimer);
+    let expiresAt: number | null = null;
+    try {
+      const response = await api.post("/price-overrides/validate/", {
+        code: accessCodeInput.trim(),
+      });
+      const expiresIn =
+        typeof response.data?.expires_in === "number"
+          ? response.data.expires_in * 1000
+          : AUTHORIZATION_WINDOW_MS;
+      expiresAt = Date.now() + expiresIn;
+      setOverrideToken(response.data?.token ?? null);
+      setAuthorizedUntil(expiresAt);
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail || "Código incorrecto. Intenta nuevamente.";
+      setAccessError(message);
+      return;
     }
-    const timerId = window.setTimeout(() => {
-      setServiceLines((prev) =>
-        prev.map((item) =>
-          item.service_id === selectedLineId
-            ? { ...item, price_locked: true, unlocked_until: null }
-            : item,
-        ),
-      );
-      delete unlockTimersRef.current[selectedLineId];
-    }, AUTHORIZATION_WINDOW_MS);
-    unlockTimersRef.current[selectedLineId] = timerId;
+    if (!expiresAt) {
+      setAccessError("No se pudo determinar la expiración de la autorización.");
+      return;
+    }
 
     updateServiceLine(selectedLineId, (item) => ({
       ...item,
-      price_locked: false,
-      unlocked_until: expiresAt,
+      isEditable: true,
     }));
     setAccessModalOpen(false);
     setAccessError(null);
@@ -512,19 +523,17 @@ export function NuevaFacturaModal({
 
   const handleUnlockRequest = (serviceId: number) => {
     setSelectedLineId(serviceId);
+    setAccessCodeInput("");
     setAccessModalOpen(true);
   };
 
   const handleDialogChange = (value: boolean) => {
     if (!value) {
-      Object.values(unlockTimersRef.current).forEach((timerId) => {
-        window.clearTimeout(timerId);
-      });
-      unlockTimersRef.current = {};
       setServiceLines((prev) =>
-        prev.map((item) => ({ ...item, price_locked: true, unlocked_until: null })),
+        prev.map((item) => ({ ...item, isEditable: false })),
       );
       setAuthorizedUntil(null);
+      setOverrideToken(null);
       setAccessModalOpen(false);
       setSelectedLineId(null);
       onCancel();
@@ -690,7 +699,7 @@ export function NuevaFacturaModal({
 
             <div className="sm:col-span-2 space-y-4">
               <div className="flex items-center justify-between">
-                <Label>Resumen de servicios</Label>
+                <Label>Resumen de productos</Label>
                 <span className="text-sm text-muted-foreground">
                   Total: ${total.toFixed(2)}
                 </span>
@@ -702,7 +711,7 @@ export function NuevaFacturaModal({
                     <table className="w-full text-sm">
                       <thead className="bg-muted/50">
                         <tr>
-                          <th className="px-4 py-3 text-left font-medium">Servicio</th>
+                          <th className="px-4 py-3 text-left font-medium">Producto</th>
                           <th className="px-4 py-3 text-center font-medium">Cantidad</th>
                           <th className="px-4 py-3 text-left font-medium">Precio</th>
                           <th className="px-4 py-3 text-right font-medium">Subtotal</th>
@@ -734,9 +743,9 @@ export function NuevaFacturaModal({
                                     type="number"
                                     step="0.01"
                                     min="0"
-                                    className="w-32"
+                                    className="w-32 shadow-inner"
                                     value={servicio.unit_price_draft}
-                                    disabled={servicio.price_locked}
+                                    disabled={!servicio.isEditable}
                                     ref={(node) => {
                                       priceInputRefs.current[servicio.service_id] = node;
                                     }}
@@ -748,51 +757,50 @@ export function NuevaFacturaModal({
                                     }
                                     onBlur={() => handlePriceBlur(servicio.service_id)}
                                   />
-                                  {servicio.price_overridden && (
-                                    <span className="rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
-                                      Modificado
-                                    </span>
-                                  )}
-                                  {!servicio.price_locked ? (
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => {
-                                        updateServiceLine(servicio.service_id, (item) => ({
-                                          ...item,
-                                          price_locked: true,
-                                          unlocked_until: null,
-                                        }));
-                                        setAuthorizedUntil(null);
-                                        const timerId =
-                                          unlockTimersRef.current[servicio.service_id];
-                                        if (timerId) {
-                                          window.clearTimeout(timerId);
-                                          delete unlockTimersRef.current[servicio.service_id];
-                                        }
-                                      }}
-                                    >
-                                      Bloquear
-                                    </Button>
-                                  ) : (
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleUnlockRequest(servicio.service_id)}
-                                    >
-                                      Modificar
-                                    </Button>
-                                  )}
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleResetPrice(servicio.service_id)}
-                                  >
-                                    Restablecer
-                                  </Button>
+                                  <div className="flex items-center gap-1">
+                                    {!servicio.isEditable && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            aria-label="Editar precio"
+                                            onClick={() => handleUnlockRequest(servicio.service_id)}
+                                          >
+                                            <Pencil className="h-4 w-4" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Editar precio</TooltipContent>
+                                      </Tooltip>
+                                    )}
+                                    {(() => {
+                                      const money = (value: number | string) =>
+                                        Number((Number(value) || 0).toFixed(2));
+                                      const isPriceChanged =
+                                        money(servicio.unit_price_applied) !==
+                                        money(servicio.original_unit_price);
+                                      if (!isPriceChanged) {
+                                        return null;
+                                      }
+                                      return (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="icon"
+                                              aria-label="Restablecer precio"
+                                              onClick={() => handleResetPrice(servicio.service_id)}
+                                            >
+                                              <RotateCcw className="h-4 w-4" />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Restablecer precio</TooltipContent>
+                                        </Tooltip>
+                                      );
+                                    })()}
+                                  </div>
                                 </div>
                                 {servicio.price_error && (
                                   <p className="text-xs text-destructive">
@@ -839,7 +847,8 @@ export function NuevaFacturaModal({
                             step="0.01"
                             min="0"
                             value={servicio.unit_price_draft}
-                            disabled={servicio.price_locked}
+                            disabled={!servicio.isEditable}
+                            className="shadow-inner"
                             ref={(node) => {
                               priceInputRefs.current[servicio.service_id] = node;
                             }}
@@ -848,56 +857,55 @@ export function NuevaFacturaModal({
                             }
                             onBlur={() => handlePriceBlur(servicio.service_id)}
                           />
-                          {servicio.price_overridden && (
-                            <span className="inline-flex w-fit rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
-                              Modificado
-                            </span>
-                          )}
-                          {!servicio.price_locked ? (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                updateServiceLine(servicio.service_id, (item) => ({
-                                  ...item,
-                                  price_locked: true,
-                                  unlocked_until: null,
-                                }));
-                                setAuthorizedUntil(null);
-                                const timerId =
-                                  unlockTimersRef.current[servicio.service_id];
-                                if (timerId) {
-                                  window.clearTimeout(timerId);
-                                  delete unlockTimersRef.current[servicio.service_id];
-                                }
-                              }}
-                            >
-                              Bloquear
-                            </Button>
-                          ) : (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleUnlockRequest(servicio.service_id)}
-                            >
-                              Modificar
-                            </Button>
-                          )}
+                          <div className="flex items-center gap-1">
+                            {!servicio.isEditable && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label="Editar precio"
+                                    onClick={() => handleUnlockRequest(servicio.service_id)}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Editar precio</TooltipContent>
+                              </Tooltip>
+                            )}
+                            {(() => {
+                              const money = (value: number | string) =>
+                                Number((Number(value) || 0).toFixed(2));
+                              const isPriceChanged =
+                                money(servicio.unit_price_applied) !==
+                                money(servicio.original_unit_price);
+                              if (!isPriceChanged) {
+                                return null;
+                              }
+                              return (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      aria-label="Restablecer precio"
+                                      onClick={() => handleResetPrice(servicio.service_id)}
+                                    >
+                                      <RotateCcw className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Restablecer precio</TooltipContent>
+                                </Tooltip>
+                              );
+                            })()}
+                          </div>
                           {servicio.price_error && (
                             <p className="text-xs text-destructive">
                               {servicio.price_error}
                             </p>
                           )}
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleResetPrice(servicio.service_id)}
-                          >
-                            Restablecer
-                          </Button>
                         </div>
                         <div className="flex items-center justify-between text-sm">
                           <span>Subtotal:</span>
@@ -909,7 +917,7 @@ export function NuevaFacturaModal({
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  Selecciona servicios antes de crear la factura.
+                  Selecciona productos antes de crear la factura.
                 </p>
               )}
             </div>

@@ -1,7 +1,9 @@
 import csv
 from datetime import date, datetime, timedelta
 
+from django.conf import settings
 from django.contrib.auth.hashers import check_password
+from django.core import signing
 from django.db import models
 from django.db.models import Q
 from django.http import HttpResponse
@@ -36,6 +38,10 @@ from .serializers import (
     ServiceSerializer,
     StaffUserSerializer,
 )
+
+PRICE_OVERRIDE_ACCESS_CODE = getattr(settings, "PRICE_OVERRIDE_ACCESS_CODE", "123")
+PRICE_OVERRIDE_TOKEN_MAX_AGE = getattr(settings, "PRICE_OVERRIDE_TOKEN_MAX_AGE", 300)
+PRICE_OVERRIDE_TOKEN_SALT = "price-override"
 
 
 def filter_invoices_queryset(queryset, params):
@@ -164,6 +170,26 @@ class ConnectivityStatusView(APIView):
 
     def get(self, request):
         return Response(get_connectivity_status())
+
+
+class PriceOverrideValidationView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        code = request.data.get("code") or ""
+        if code != PRICE_OVERRIDE_ACCESS_CODE:
+            return Response(
+                {"detail": "Código de acceso inválido."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        token = signing.dumps(
+            {"authorized": True, "issued_at": timezone.now().isoformat()},
+            salt=PRICE_OVERRIDE_TOKEN_SALT,
+        )
+        return Response(
+            {"token": token, "expires_in": PRICE_OVERRIDE_TOKEN_MAX_AGE},
+            status=status.HTTP_200_OK,
+        )
 
 
 class ServiceViewSet(viewsets.ModelViewSet):
