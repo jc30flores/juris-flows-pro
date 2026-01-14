@@ -8,11 +8,7 @@ from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
-from .dte_cf_service import (
-    send_ccf_dte_for_invoice,
-    send_cf_dte_for_invoice,
-    send_se_dte_for_invoice,
-)
+from .dte_cf_service import transmit_invoice_dte
 from .models import (
     Activity,
     Client,
@@ -129,12 +125,12 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
         self._upsert_items(invoice, normalized_items, replace=True)
         try:
-            if invoice.doc_type == Invoice.CF:
-                send_cf_dte_for_invoice(invoice)
-            elif invoice.doc_type == Invoice.CCF:
-                send_ccf_dte_for_invoice(invoice)
-            elif invoice.doc_type == Invoice.SX:
-                send_se_dte_for_invoice(invoice)
+            transmit_invoice_dte(
+                invoice,
+                force_now_timestamp=False,
+                ensure_identifiers=True,
+                source="normal_send",
+            )
         except Exception as exc:  # noqa: BLE001
             logger.exception(
                 "Error sending DTE for invoice %s", invoice.id, exc_info=exc
@@ -299,6 +295,12 @@ class InvoiceSerializer(serializers.ModelSerializer):
             if "original_unit_price" not in item_data and "unit_price" in item_data:
                 item_data["original_unit_price"] = item_data["unit_price"]
             item_data.setdefault("price_overridden", False)
+            item_data.setdefault("override_reason", "")
+            item_data.setdefault("override_authorized_by", "")
+            item_data.setdefault("override_requested_by", "")
+            item_data.setdefault("override_code_used", "")
+            item_data.setdefault("override_active", False)
+            item_data.setdefault("override_expires_at", None)
 
             InvoiceItem.objects.create(invoice=invoice, **item_data)
 

@@ -3,7 +3,7 @@ import time
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from api.dte_cf_service import check_hacienda_online, resend_dte_for_invoice
+from api.dte_cf_service import check_hacienda_online, transmit_invoice_dte
 from api.models import Invoice
 
 
@@ -59,7 +59,12 @@ class Command(BaseCommand):
                     return
 
                 for invoice in pending_invoices:
-                    resend_dte_for_invoice(invoice)
+                    transmit_invoice_dte(
+                        invoice,
+                        force_now_timestamp=True,
+                        ensure_identifiers=True,
+                        source="auto_resend",
+                    )
 
             if len(pending_invoices) < batch_size:
                 return

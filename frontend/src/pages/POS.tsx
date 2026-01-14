@@ -220,13 +220,14 @@ export default function POS() {
       } else {
         const response = await api.post<Invoice>("/invoices/", payload);
         const invoice = response.data;
+        const uiMessage = invoice.ui_message || invoice.dte_message;
 
         const normalizedStatus = invoice.dte_status?.toUpperCase();
         if (normalizedStatus === "ACEPTADO" || invoice.dte_status === "Aprobado") {
           toast({
             title: "Factura creada",
             description:
-              invoice.dte_message || "Factura creada y DTE aceptado por Hacienda.",
+              uiMessage || "Factura creada y DTE aceptado por Hacienda.",
           });
         } else if (
           normalizedStatus === "RECHAZADO" ||
@@ -236,7 +237,7 @@ export default function POS() {
           toast({
             title: "DTE rechazado",
             description:
-              invoice.dte_message ||
+              uiMessage ||
               "Factura creada, pero el DTE fue rechazado por Hacienda. Revisa los datos.",
             variant: "destructive",
           });
@@ -244,8 +245,7 @@ export default function POS() {
           toast({
             title: "Factura creada",
             description:
-              invoice.dte_message ||
-              "DTE pendiente de envío o procesamiento.",
+              uiMessage || "DTE pendiente de envío o procesamiento.",
           });
         }
       }

@@ -53,6 +53,7 @@ export interface Invoice {
   payment_method: PaymentMethod;
   dte_status: DteStatus;
   dte_message?: string;
+  ui_message?: string;
   observations?: string;
   total: number | string;
   created_at: string;
