@@ -412,34 +412,41 @@ export default function POS() {
     setShowInvalidationModal(true);
   };
 
-  const resolveInvalidationMessage = (status: string | undefined) => {
+  const resolveInvalidationMessage = (status: string | undefined, message?: string) => {
     switch (status) {
+      case "INVALIDADO":
       case "ACEPTADO":
         return {
           title: "Invalidación aceptada",
-          description: "La factura fue invalidada correctamente.",
+          description: message || "La factura fue invalidada correctamente.",
         };
       case "RECHAZADO":
         return {
           title: "Invalidación rechazada",
-          description: "Hacienda rechazó la invalidación. Revisa los datos.",
+          description: message || "Hacienda rechazó la invalidación. Revisa los datos.",
           variant: "destructive" as const,
         };
       case "ERROR_PUENTE":
         return {
           title: "Error del puente",
-          description: "El puente devolvió un error. Intenta nuevamente.",
+          description: message || "El puente devolvió un error. Intenta nuevamente.",
           variant: "destructive" as const,
         };
       case "PENDIENTE":
         return {
           title: "Invalidación pendiente",
-          description: "La invalidación quedó pendiente por conexión.",
+          description: message || "La invalidación quedó pendiente por conexión.",
+        };
+      case "BLOQUEADO":
+        return {
+          title: "No se puede invalidar",
+          description: message || "La factura no cumple los requisitos para invalidar.",
+          variant: "destructive" as const,
         };
       default:
         return {
           title: "Estado de invalidación",
-          description: "La invalidación se procesó con estado desconocido.",
+          description: message || "La invalidación se procesó con estado desconocido.",
         };
     }
   };
@@ -457,13 +464,18 @@ export default function POS() {
       );
 
       const statusValue = String(response.data?.status || "").toUpperCase();
-      const toastInfo = resolveInvalidationMessage(statusValue);
+      const messageValue = response.data?.message || response.data?.detail;
+      const toastInfo = resolveInvalidationMessage(statusValue, messageValue);
       toast(toastInfo);
       await fetchInitialData();
       setShowInvalidationModal(false);
     } catch (err: any) {
       const statusValue = String(err?.response?.data?.status || "").toUpperCase();
-      const toastInfo = resolveInvalidationMessage(statusValue || "RECHAZADO");
+      const messageValue =
+        err?.response?.data?.message ||
+        err?.response?.data?.detail ||
+        "No se pudo invalidar el DTE.";
+      const toastInfo = resolveInvalidationMessage(statusValue || "RECHAZADO", messageValue);
       toast(toastInfo);
     } finally {
       setInvalidating(false);
@@ -852,7 +864,7 @@ export default function POS() {
           }
         }}
       >
-        <DialogContent className="flex w-[95vw] max-w-2xl flex-col overflow-hidden sm:max-w-3xl max-h-[85vh]">
+        <DialogContent className="flex w-[95vw] max-h-[85vh] max-w-3xl flex-col overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Invalidar DTE</DialogTitle>
           </DialogHeader>

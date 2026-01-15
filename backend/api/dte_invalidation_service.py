@@ -19,6 +19,22 @@ DEFAULT_INVALIDATION_TIMEOUT = int(getattr(settings, "DTE_INVALIDATION_TIMEOUT",
 DEFAULT_VERIFY_SSL = bool(getattr(settings, "DTE_INVALIDATION_VERIFY_SSL", True))
 
 
+def _coerce_payload(payload) -> dict:
+    if payload is None:
+        return {}
+    if isinstance(payload, dict):
+        return payload
+    if isinstance(payload, str):
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise ValueError("DTE payload corrupto/no parseable.") from exc
+        if isinstance(parsed, dict):
+            return parsed
+        return {}
+    return {}
+
+
 def _extract_payload_container(payload: dict) -> dict:
     if not isinstance(payload, dict):
         return {}
@@ -189,8 +205,8 @@ def build_invalidation_payload(
     motivo_anulacion: str = "",
     staff_user: StaffUser | None = None,
 ) -> dict:
-    request_payload = record.request_payload or {}
-    response_payload = record.response_payload or {}
+    request_payload = _coerce_payload(record.request_payload)
+    response_payload = _coerce_payload(record.response_payload)
     ident = _extract_identification(request_payload)
     resumen = _extract_resumen(request_payload)
     receptor = _extract_receptor(request_payload)
@@ -252,7 +268,8 @@ def build_invalidation_payload(
 
 
 def extract_invalidation_requirements(record: DTERecord) -> dict:
-    request_payload = record.request_payload or {}
+    request_payload = _coerce_payload(record.request_payload)
+    response_payload = _coerce_payload(record.response_payload)
     ident = _extract_identification(request_payload)
     fec_emi = ident.get("fecEmi") or ident.get("fec_emi")
     if not fec_emi and record.issue_date:
@@ -270,7 +287,7 @@ def extract_invalidation_requirements(record: DTERecord) -> dict:
             or record.control_number
             or ""
         ),
-        "sello_recibido": _extract_sello_recibido(record.response_payload or {}) or "",
+        "sello_recibido": _extract_sello_recibido(response_payload) or "",
         "fec_emi": fec_emi or "",
         "ambiente": ident.get("ambiente") or "01",
     }

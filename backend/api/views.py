@@ -52,6 +52,24 @@ PRICE_OVERRIDE_TOKEN_SALT = "price-override"
 
 logger = logging.getLogger(__name__)
 
+
+def _build_invalidation_response(
+    *,
+    ok: bool,
+    status_label: str,
+    message: str,
+    http_status: int,
+    details: dict | None = None,
+):
+    payload = {
+        "ok": ok,
+        "status": status_label,
+        "message": message,
+    }
+    if details:
+        payload["details"] = details
+    return Response(payload, status=http_status)
+
 def filter_invoices_queryset(queryset, params):
     search = params.get("search")
     date_filter = params.get("filter") or params.get("date_filter")
@@ -284,47 +302,67 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         invoice = self.get_object()
         normalized_status = str(invoice.dte_status or "").upper()
         if normalized_status == Invoice.INVALIDATED:
-            return Response(
-                {"detail": "La factura ya está invalidada."},
-                status=status.HTTP_409_CONFLICT,
+            return _build_invalidation_response(
+                ok=False,
+                status_label="BLOQUEADO",
+                message="La factura ya está invalidada.",
+                http_status=status.HTTP_409_CONFLICT,
             )
         if normalized_status != Invoice.APPROVED:
-            return Response(
-                {"detail": "Solo se permite invalidar DTEs en estado ACEPTADO."},
-                status=status.HTTP_409_CONFLICT,
+            return _build_invalidation_response(
+                ok=False,
+                status_label="BLOQUEADO",
+                message="Solo DTE ACEPTADO puede invalidarse.",
+                http_status=status.HTTP_409_CONFLICT,
             )
 
         record = invoice.dte_records.order_by("-created_at").first()
         if not record:
-            return Response(
-                {"detail": "No se encontró información DTE asociada a la factura."},
-                status=status.HTTP_409_CONFLICT,
+            return _build_invalidation_response(
+                ok=False,
+                status_label="BLOQUEADO",
+                message="No existe DTERecord para esta factura.",
+                http_status=status.HTTP_409_CONFLICT,
             )
 
-        requirements = extract_invalidation_requirements(record)
+        try:
+            requirements = extract_invalidation_requirements(record)
+        except ValueError as exc:
+            logger.exception(
+                "Invalidation payload parse failed invoice_id=%s", invoice.id, exc_info=exc
+            )
+            return _build_invalidation_response(
+                ok=False,
+                status_label="BLOQUEADO",
+                message=str(exc),
+                http_status=status.HTTP_409_CONFLICT,
+            )
         missing_fields = [
             field
             for field in ("codigo_generacion", "numero_control", "sello_recibido", "fec_emi")
             if not requirements.get(field)
         ]
         if missing_fields:
-            return Response(
-                {
-                    "detail": "Faltan datos requeridos para invalidar el DTE.",
-                    "missing_fields": missing_fields,
-                },
-                status=status.HTTP_409_CONFLICT,
+            return _build_invalidation_response(
+                ok=False,
+                status_label="BLOQUEADO",
+                message=f"Faltan datos para invalidar: {', '.join(missing_fields)}",
+                http_status=status.HTTP_409_CONFLICT,
+                details={"missing_fields": missing_fields},
             )
 
         logger.info(
-            "DTE invalidation request invoice_id=%s dte_status=%s has_codigo_generacion=%s "
-            "has_numero_control=%s has_sello_recibido=%s has_fec_emi=%s",
+            "DTE invalidation request invoice_id=%s dte_status=%s has_dte_record=%s "
+            "has_codigo_generacion=%s has_numero_control=%s has_sello_recibido=%s has_fec_emi=%s "
+            "ambiente=%s",
             invoice.id,
             normalized_status,
+            True,
             bool(requirements.get("codigo_generacion")),
             bool(requirements.get("numero_control")),
             bool(requirements.get("sello_recibido")),
             bool(requirements.get("fec_emi")),
+            requirements.get("ambiente"),
         )
 
         tipo_anulacion = request.data.get("tipoAnulacion") or request.data.get("tipo_anulacion")
@@ -352,27 +390,37 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 staff_user_id=staff_user_id,
             )
         except ValueError as exc:
-            return Response(
-                {"detail": str(exc)},
-                status=status.HTTP_400_BAD_REQUEST,
+            return _build_invalidation_response(
+                ok=False,
+                status_label="BLOQUEADO",
+                message=str(exc),
+                http_status=status.HTTP_409_CONFLICT,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Unexpected error invalidating invoice %s", invoice.id, exc_info=exc)
-            return Response(
-                {"detail": "Error interno al procesar la invalidación."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            return _build_invalidation_response(
+                ok=False,
+                status_label="ERROR_INTERNO",
+                message="Error interno al construir/enviar invalidación.",
+                http_status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        response_data = {
-            "status": result_status,
-            "detail": detail,
+        ok_value = result_status in {"ACEPTADO", "PENDIENTE", "INVALIDADO"}
+        details = {
             "invalidation_id": invalidation.id,
-            "response": response_payload,
+            "bridge": response_payload,
         }
         if bridge_error is not None:
-            response_data["bridge_error"] = bridge_error
+            details["bridge_error"] = bridge_error
 
-        return Response(response_data, status=http_status)
+        status_label = "INVALIDADO" if result_status == "ACEPTADO" else result_status
+        return _build_invalidation_response(
+            ok=ok_value,
+            status_label=status_label,
+            message=detail,
+            http_status=http_status,
+            details=details,
+        )
 
 
 class InvoiceItemViewSet(viewsets.ModelViewSet):
