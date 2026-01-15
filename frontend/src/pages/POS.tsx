@@ -170,7 +170,7 @@ export default function POS() {
   const [invalidationLoading, setInvalidationLoading] = useState(false);
   const [invalidationSubmitting, setInvalidationSubmitting] = useState(false);
   const [invalidationError, setInvalidationError] = useState("");
-  const [tipoAnulacion, setTipoAnulacion] = useState("1");
+  const [tipoAnulacion, setTipoAnulacion] = useState("error_datos");
   const [motivoAnulacion, setMotivoAnulacion] = useState("");
   const rubroSelectorRef = useRef<HTMLDivElement | null>(null);
   const { rubros, activeRubro, loading: loadingRubros, setActiveRubro } = useRubro();
@@ -331,7 +331,7 @@ export default function POS() {
     setInvalidationInvoice(invoice);
     setInvalidationPreview(null);
     setInvalidationError("");
-    setTipoAnulacion("1");
+    setTipoAnulacion("error_datos");
     setMotivoAnulacion("");
     setInvalidationLoading(true);
     setShowInvalidationModal(true);
@@ -358,7 +358,7 @@ export default function POS() {
     try {
       const response = await api.post("/dte/invalidate/", {
         invoice_id: invalidationInvoice.id,
-        tipo_anulacion: Number(tipoAnulacion),
+        tipo_anulacion: tipoAnulacion,
         motivo: motivoAnulacion,
       });
       const { status: invalidationStatus, message } = response.data || {};
@@ -1087,9 +1087,9 @@ export default function POS() {
                     <SelectValue placeholder="Selecciona tipo de anulación" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="1">Anulación por error en datos</SelectItem>
-                    <SelectItem value="2">Anulación por rescisión</SelectItem>
-                    <SelectItem value="3">Anulación por devolución</SelectItem>
+                    <SelectItem value="error_datos">Anulación por error en datos</SelectItem>
+                    <SelectItem value="duplicado">Anulación por documento duplicado</SelectItem>
+                    <SelectItem value="devolucion">Anulación por devolución</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

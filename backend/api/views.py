@@ -16,6 +16,7 @@ from rest_framework.views import APIView
 
 from .dte_cf_service import send_dte_for_invoice
 from .dte_invalidation_service import (
+    InvalidationValidationError,
     get_invalidation_preview,
     invalidate_dte_for_invoice,
 )
@@ -329,18 +330,6 @@ class DTEInvalidateView(APIView):
             )
 
         tipo_anulacion = request.data.get("tipo_anulacion") or request.data.get("tipoAnulacion")
-        if tipo_anulacion is None:
-            return Response(
-                {"ok": False, "message": "tipo_anulacion es requerido."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            tipo_anulacion_value = int(tipo_anulacion)
-        except (TypeError, ValueError):
-            return Response(
-                {"ok": False, "message": "tipo_anulacion debe ser numérico."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
         motivo = request.data.get("motivo") or request.data.get("motivo_anulacion") or ""
         staff_user = get_staff_user_from_request(request)
@@ -349,11 +338,19 @@ class DTEInvalidateView(APIView):
             invalidation, message = invalidate_dte_for_invoice(
                 invoice,
                 staff_user=staff_user,
-                tipo_anulacion=tipo_anulacion_value,
+                tipo_anulacion=tipo_anulacion,
                 motivo_anulacion=motivo,
             )
+        except InvalidationValidationError as exc:
+            return Response(
+                {"ok": False, "message": str(exc)},
+                status=getattr(exc, "status_code", status.HTTP_400_BAD_REQUEST),
+            )
         except ValueError as exc:
-            return Response({"ok": False, "message": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"ok": False, "message": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception:  # pragma: no cover - defensive
             logger.exception("Error invalidating DTE (invoice_id=%s)", invoice_id)
             return Response(

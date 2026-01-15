@@ -16,6 +16,22 @@ DEFAULT_INVALIDATION_URL = (
     or "https://p12172402231026.cheros.dev/api/v1/dte/invalidacion"
 )
 
+DEFAULT_AMBIENTE = getattr(settings, "DTE_AMBIENTE", "01")
+
+TIPO_ANULACION_MAPPING = {
+    "error_datos": 2,
+    "duplicado": 1,
+    "devolucion": 3,
+    "rescision": 2,
+}
+VALID_TIPO_ANULACION = {1, 2, 3}
+
+
+class InvalidationValidationError(ValueError):
+    def __init__(self, message: str, status_code: int = 400) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 def _extract_ident(payload: dict | None) -> dict:
     if not isinstance(payload, dict):
@@ -102,6 +118,11 @@ def _s(value) -> str:
     return str(value or "").strip()
 
 
+def _normalize_phone(value: str | None, fallback: str = "00000000") -> str:
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    return digits or fallback
+
+
 def _mask_headers(headers: dict) -> dict:
     masked = {}
     for key, value in (headers or {}).items():
@@ -119,6 +140,35 @@ def _truncate(value: str, limit: int = 2000) -> str:
     if len(value_str) <= limit:
         return value_str
     return f"{value_str[:limit]}... (truncado)"
+
+
+def _get_original_fec_emi(invoice: Invoice, record: DTERecord | None) -> str:
+    if record:
+        ident = _extract_ident(record.request_payload or {})
+        fec_emi = _s(ident.get("fecEmi") or ident.get("fec_emi"))
+        if fec_emi:
+            return fec_emi
+    if getattr(invoice, "date", None):
+        return _format_date(invoice.date)
+    if getattr(invoice, "created_at", None):
+        return _format_date(invoice.created_at.date())
+    return ""
+
+
+def _resolve_tipo_anulacion(raw_value) -> int:
+    if raw_value is None or raw_value == "":
+        return 2
+    if isinstance(raw_value, str) and raw_value in TIPO_ANULACION_MAPPING:
+        return TIPO_ANULACION_MAPPING[raw_value]
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise InvalidationValidationError(
+            "tipoAnulacion inválido.", status_code=422
+        ) from exc
+    if value not in VALID_TIPO_ANULACION:
+        raise InvalidationValidationError("tipoAnulacion inválido.", status_code=422)
+    return value
 
 
 def get_invalidation_preview(invoice: Invoice) -> dict:
@@ -162,11 +212,17 @@ def invalidate_dte_for_invoice(
 ) -> tuple[DTEInvalidation, str]:
     record: DTERecord | None = invoice.dte_records.order_by("-created_at").first()
     if not record:
-        raise ValueError("La factura no tiene un DTE registrado para invalidar.")
+        raise InvalidationValidationError(
+            "La factura no tiene un DTE registrado para invalidar.",
+            status_code=409,
+        )
 
     sello_recibido = _get_sello_recibido(record.response_payload or {})
     if not sello_recibido:
-        raise ValueError("No se encontró sello recibido para invalidar este DTE.")
+        raise InvalidationValidationError(
+            "No se encontró sello recibido para invalidar este DTE.",
+            status_code=409,
+        )
 
     ident = _extract_ident(record.request_payload or {})
     resumen = _extract_resumen(record.request_payload or {})
@@ -185,31 +241,59 @@ def invalidate_dte_for_invoice(
         or ""
     )
     if not codigo_original or not numero_control:
-        raise ValueError("Faltan datos mínimos del DTE para invalidar.")
+        raise InvalidationValidationError(
+            "Faltan datos mínimos del DTE para invalidar.",
+            status_code=409,
+        )
     tipo_dte = _resolve_tipo_dte(invoice, ident)
     if not tipo_dte:
-        raise ValueError("No se pudo identificar el tipo de DTE para invalidación.")
-    fec_emi = ident.get("fecEmi") or ident.get("fec_emi") or _format_date(invoice.date)
+        raise InvalidationValidationError(
+            "No se pudo identificar el tipo de DTE para invalidación.",
+            status_code=409,
+        )
+    fec_emi = _get_original_fec_emi(invoice, record)
+    if not fec_emi:
+        raise InvalidationValidationError(
+            "No se pudo determinar la fecha de emisión del DTE.",
+            status_code=409,
+        )
     monto_iva_raw = resumen.get("totalIva") or resumen.get("total_iva")
     monto_iva = (
         Decimal(str(monto_iva_raw)) if monto_iva_raw not in (None, "") else Decimal("0")
     )
 
+    tipo_anulacion_value = _resolve_tipo_anulacion(tipo_anulacion)
+
     receptor_payload = _extract_receptor(record.request_payload or {})
-    receptor_nombre = _s(receptor_payload.get("nombre")) or "CONSUMIDOR FINAL FRECUENTE"
+    client = getattr(invoice, "client", None)
+    receptor_nombre = (
+        _s(receptor_payload.get("nombre"))
+        or _s(getattr(client, "company_name", None))
+        or _s(getattr(client, "full_name", None))
+        or "CONSUMIDOR FINAL"
+    )
     receptor_doc = (
         _s(receptor_payload.get("numDocumento"))
         or _s(receptor_payload.get("nit"))
         or _s(receptor_payload.get("dui"))
+        or _s(getattr(client, "nit", None))
+        or _s(getattr(client, "dui", None))
         or "00000000-0"
     )
     receptor_tipo_doc = _s(receptor_payload.get("tipoDocumento")) or "13"
-    receptor_telefono = _s(receptor_payload.get("telefono")) or "77777777"
-    receptor_correo = _s(receptor_payload.get("correo")) or "facturacioncji@gmail.com"
+    receptor_telefono = _normalize_phone(
+        _s(receptor_payload.get("telefono")) or _s(getattr(client, "phone", None)),
+        fallback="00000000",
+    )
+    receptor_correo = (
+        _s(receptor_payload.get("correo"))
+        or _s(getattr(client, "email", None))
+        or None
+    )
 
     now_local = timezone.localtime()
     codigo_generacion = str(uuid.uuid4()).upper()
-    ambiente = ident.get("ambiente") or "01"
+    ambiente = _s(ident.get("ambiente")) or _s(DEFAULT_AMBIENTE) or "01"
 
     emitter_info, _, _ = _resolve_emitter_info(staff_user)
     emisor_nombre = _s(emitter_info.get("nombre"))
@@ -230,7 +314,7 @@ def invalidate_dte_for_invoice(
     responsable_doc = emisor_nit or "00000000-0"
     motivo_anulacion_text = _s(motivo_anulacion) or "Rescindir de la operación realizada"
     motivo_payload = {
-        "tipoAnulacion": int(tipo_anulacion or 2),
+        "tipoAnulacion": int(tipo_anulacion_value),
         "motivoAnulacion": motivo_anulacion_text,
         "nombreResponsable": responsable_nombre,
         "tipDocResponsable": "36",
@@ -274,7 +358,7 @@ def invalidate_dte_for_invoice(
                 "numDocumento": receptor_doc,
                 "nombre": receptor_nombre,
                 "telefono": receptor_telefono,
-                "correo": receptor_correo,
+                "correo": receptor_correo or emisor_correo or None,
             },
             "motivo": motivo_payload,
         }
@@ -309,7 +393,7 @@ def invalidate_dte_for_invoice(
         requested_by=staff_user,
         status=DTEInvalidation.SENDING,
         codigo_generacion=_s(codigo_generacion),
-        tipo_anulacion=int(tipo_anulacion or 2),
+        tipo_anulacion=int(tipo_anulacion_value),
         motivo_anulacion=motivo_anulacion_text,
         solicita_nombre=solicita_nombre,
         solicita_tipo_doc=solicita_tipo_doc,
