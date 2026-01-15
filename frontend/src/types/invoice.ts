@@ -10,6 +10,7 @@ export type DteStatus =
   | "Pendiente"
   | "Rechazado"
   | "ACEPTADO"
+  | "PENDIENTE"
   | "RECHAZADO"
   | "ERROR";
 

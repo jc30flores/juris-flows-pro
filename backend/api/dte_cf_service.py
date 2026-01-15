@@ -1,6 +1,7 @@
 import json
 import logging
 import uuid
+from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Tuple
 
@@ -27,9 +28,7 @@ logger = logging.getLogger(__name__)
 IVA_RATE = Decimal("0.13")
 ONE = Decimal("1")
 CONTROL_NUMBER_WIDTH = 15
-PENDING_DTE_MESSAGE = (
-    "Hacienda no disponible. DTE quedó pendiente y se enviará automáticamente al restablecer conexión."
-)
+PENDING_DTE_MESSAGE = "Hacienda no disponible. DTE pendiente; se enviará automáticamente."
 DEFAULT_HACIENDA_HEALTH_URL = getattr(
     settings,
     "API_HEALTH_URL",
@@ -182,8 +181,9 @@ def _apply_invoice_send_update(
     error_code: str | None = None,
     mark_api_down: bool = False,
 ) -> None:
-    invoice.dte_status = status_value
-    invoice.estado_dte = status_value
+    normalized_status = (status_value or "").upper()
+    invoice.dte_status = normalized_status
+    invoice.estado_dte = normalized_status
     if error_message is None:
         invoice.last_dte_error = None
     else:
@@ -214,6 +214,140 @@ def _should_treat_as_api_down(response: requests.Response | None) -> bool:
         return True
     status_code = response.status_code
     return status_code >= 500
+
+
+def _dispatch_dte_payload(
+    *,
+    invoice: Invoice,
+    record: DTERecord,
+    payload: dict,
+    url: str,
+    ambiente: str,
+    tipo_dte: str,
+    emision_date,
+    est_code: str,
+    pv_code: str,
+    control_number_value: int | None,
+    log_context: str,
+    rubro_code: str,
+    rubro_name: str,
+    staff_user: StaffUser | None,
+) -> DTERecord:
+    print(f'\nENDPOINT DTE: "{url}"\n')
+    print("\nJSON DTE ENVIO:\n")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+    logger.info(
+        "Enviando DTE %s con rubro %s (%s) para usuario %s",
+        log_context,
+        rubro_code,
+        rubro_name,
+        staff_user.id if staff_user else "anonimo",
+    )
+    headers = {
+        "Authorization": "Bearer api_key_cliente_12172402231026",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        _bump_invoice_send_attempt(invoice)
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+    except requests.exceptions.RequestException as exc:
+        print("Error sending DTE:", exc)
+
+        record.response_payload = {
+            "success": None,
+            "error": {
+                "type": "network_error",
+                "message": str(exc),
+            },
+        }
+        record.hacienda_state = "SIN_RESPUESTA"
+        record.status = "PENDIENTE"
+        record.save(update_fields=["response_payload", "hacienda_state", "status"])
+
+        _apply_invoice_send_update(
+            invoice,
+            "PENDIENTE",
+            PENDING_DTE_MESSAGE,
+            error_message=str(exc),
+            error_code="network_error",
+            mark_api_down=True,
+        )
+
+        return record
+
+    try:
+        if _should_treat_as_api_down(response):
+            record.response_payload = {
+                "success": None,
+                "error": {
+                    "type": "api_unavailable",
+                    "message": response.text,
+                    "status_code": response.status_code,
+                },
+            }
+            record.hacienda_state = "SIN_RESPUESTA"
+            record.status = "PENDIENTE"
+            record.save(update_fields=["response_payload", "hacienda_state", "status"])
+
+            _apply_invoice_send_update(
+                invoice,
+                "PENDIENTE",
+                PENDING_DTE_MESSAGE,
+                error_message=response.text,
+                error_code=str(response.status_code),
+                mark_api_down=True,
+            )
+
+            return record
+        try:
+            response_data = response.json()
+        except ValueError:
+            response_data = {"raw_text": response.text}
+
+        print("\nJSON API RESPUESTA:\n")
+        print(json.dumps(response_data, indent=2, ensure_ascii=False))
+
+        record.response_payload = response_data
+        record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
+        estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
+        record.hacienda_state = estado_hacienda
+        record.status = estado_interno
+        record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
+
+        if estado_hacienda == "PROCESADO" and control_number_value:
+            _mark_control_number_processed(
+                ambiente,
+                tipo_dte,
+                emision_date,
+                est_code,
+                pv_code,
+                control_number_value,
+            )
+
+        _apply_invoice_send_update(
+            invoice,
+            estado_interno,
+            user_message,
+            error_message=None,
+            error_code=None,
+        )
+        return record
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Error sending %s DTE", log_context, exc_info=exc)
+        record.response_payload = {"error": str(exc)}
+        record.status = "PENDIENTE"
+        record.hacienda_state = "SIN_RESPUESTA"
+        record.save(update_fields=["response_payload", "status", "hacienda_state"])
+        _apply_invoice_send_update(
+            invoice,
+            "PENDIENTE",
+            "El DTE se ha dejado en estado PENDIENTE por un error inesperado.",
+            error_message=str(exc),
+            error_code="unexpected_error",
+        )
+        return record
 
 
 UNIDADES = [
@@ -486,7 +620,12 @@ def _resolve_receiver_doc_for_extension(client, context_label: str) -> str:
     return default_doc
 
 
-def send_cf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTERecord:
+def send_cf_dte_for_invoice(
+    invoice,
+    staff_user: StaffUser | None = None,
+    *,
+    now_local=None,
+) -> DTERecord:
     """
     Construye el JSON DTE para tipo CF a partir de la factura y sus items,
     lo envía al endpoint externo y registra el request/response en DTERecord.
@@ -504,7 +643,7 @@ def send_cf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTE
     est_code = emitter_info["codEstable"]
     pv_code = emitter_info["codPuntoVenta"]
 
-    now_local = timezone.localtime()
+    now_local = now_local or timezone.localtime()
     emision_date = now_local.date()
     fec_emi = emision_date.isoformat()
     hor_emi = now_local.strftime("%H:%M:%S")
@@ -647,10 +786,6 @@ def send_cf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTE
 
     url = "https://p12172402231026.cheros.dev/api/v1/dte/factura"
 
-    print(f'\nENDPOINT DTE: "{url}"\n')
-    print("\nJSON DTE ENVIO:\n")
-    print(json.dumps(payload, indent=2, ensure_ascii=False))
-
     record = DTERecord.objects.create(
         invoice=invoice,
         dte_type="CF",
@@ -663,119 +798,30 @@ def send_cf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTE
         total_amount=invoice.total,
         request_payload=payload,
     )
-    logger.info(
-        "Enviando DTE CF con rubro %s (%s) para usuario %s",
-        rubro_code,
-        rubro_name,
-        staff_user.id if staff_user else "anonimo",
+    return _dispatch_dte_payload(
+        invoice=invoice,
+        record=record,
+        payload=payload,
+        url=url,
+        ambiente=ambiente,
+        tipo_dte="01",
+        emision_date=emision_date,
+        est_code=est_code,
+        pv_code=pv_code,
+        control_number_value=control_number_value,
+        log_context="CF",
+        rubro_code=rubro_code,
+        rubro_name=rubro_name,
+        staff_user=staff_user,
     )
-    headers = {
-        "Authorization": "Bearer api_key_cliente_12172402231026",
-        "Content-Type": "application/json",
-    }
-
-    try:
-        _bump_invoice_send_attempt(invoice)
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
-    except requests.exceptions.RequestException as exc:
-        print("Error sending DTE:", exc)
-
-        record.response_payload = {
-            "success": None,
-            "error": {
-                "type": "network_error",
-                "message": str(exc),
-            },
-        }
-        record.hacienda_state = "SIN_RESPUESTA"
-        record.status = "PENDIENTE"
-        record.save(update_fields=["response_payload", "hacienda_state", "status"])
-
-        _apply_invoice_send_update(
-            invoice,
-            "PENDIENTE",
-            PENDING_DTE_MESSAGE,
-            error_message=str(exc),
-            error_code="network_error",
-            mark_api_down=True,
-        )
-
-        return record
-
-    try:
-        if _should_treat_as_api_down(response):
-            record.response_payload = {
-                "success": None,
-                "error": {
-                    "type": "api_unavailable",
-                    "message": response.text,
-                    "status_code": response.status_code,
-                },
-            }
-            record.hacienda_state = "SIN_RESPUESTA"
-            record.status = "PENDIENTE"
-            record.save(update_fields=["response_payload", "hacienda_state", "status"])
-
-            _apply_invoice_send_update(
-                invoice,
-                "PENDIENTE",
-                PENDING_DTE_MESSAGE,
-                error_message=response.text,
-                error_code=str(response.status_code),
-                mark_api_down=True,
-            )
-
-            return record
-        try:
-            response_data = response.json()
-        except ValueError:
-            response_data = {"raw_text": response.text}
-
-        print("\nJSON API RESPUESTA:\n")
-        print(json.dumps(response_data, indent=2, ensure_ascii=False))
-
-        record.response_payload = response_data
-        record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
-        estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
-        record.hacienda_state = estado_hacienda
-        record.status = estado_interno
-        record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
-
-        if estado_hacienda == "PROCESADO" and control_number_value:
-            _mark_control_number_processed(
-                ambiente,
-                "01",
-                emision_date,
-                est_code,
-                pv_code,
-                control_number_value,
-            )
-
-        _apply_invoice_send_update(
-            invoice,
-            estado_interno,
-            user_message,
-            error_message=None,
-            error_code=None,
-        )
-        return record
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Error sending CF DTE", exc_info=exc)
-        record.response_payload = {"error": str(exc)}
-        record.status = "PENDIENTE"
-        record.hacienda_state = "SIN_RESPUESTA"
-        record.save(update_fields=["response_payload", "status", "hacienda_state"])
-        _apply_invoice_send_update(
-            invoice,
-            "PENDIENTE",
-            "El DTE se ha dejado en estado PENDIENTE por un error inesperado.",
-            error_message=str(exc),
-            error_code="unexpected_error",
-        )
-        return record
 
 
-def send_ccf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTERecord:
+def send_ccf_dte_for_invoice(
+    invoice,
+    staff_user: StaffUser | None = None,
+    *,
+    now_local=None,
+) -> DTERecord:
     """
     Construye el JSON DTE para tipo CCF (03) a partir de la factura y sus items,
     lo envía al endpoint externo y registra el request/response en DTERecord.
@@ -793,7 +839,7 @@ def send_ccf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DT
     est_code = emitter_info["codEstable"]
     pv_code = emitter_info["codPuntoVenta"]
 
-    now_local = timezone.localtime()
+    now_local = now_local or timezone.localtime()
     emision_date = now_local.date()
     fec_emi = emision_date.isoformat()
     hor_emi = now_local.strftime("%H:%M:%S")
@@ -991,10 +1037,6 @@ def send_ccf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DT
 
     url = "https://p12172402231026.cheros.dev/api/v1/dte/credito-fiscal"
 
-    print(f'\nENDPOINT DTE: "{url}"\n')
-    print("\nJSON DTE ENVIO:\n")
-    print(json.dumps(payload, indent=2, ensure_ascii=False))
-
     record = DTERecord.objects.create(
         invoice=invoice,
         dte_type="CCF",
@@ -1007,119 +1049,30 @@ def send_ccf_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DT
         total_amount=_to_decimal(total_operacion),
         request_payload=payload,
     )
-    logger.info(
-        "Enviando DTE CCF con rubro %s (%s) para usuario %s",
-        rubro_code,
-        rubro_name,
-        staff_user.id if staff_user else "anonimo",
+    return _dispatch_dte_payload(
+        invoice=invoice,
+        record=record,
+        payload=payload,
+        url=url,
+        ambiente=ambiente,
+        tipo_dte="03",
+        emision_date=emision_date,
+        est_code=est_code,
+        pv_code=pv_code,
+        control_number_value=control_number_value,
+        log_context="CCF",
+        rubro_code=rubro_code,
+        rubro_name=rubro_name,
+        staff_user=staff_user,
     )
-    headers = {
-        "Authorization": "Bearer api_key_cliente_12172402231026",
-        "Content-Type": "application/json",
-    }
-
-    try:
-        _bump_invoice_send_attempt(invoice)
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
-    except requests.exceptions.RequestException as exc:
-        print("Error sending DTE:", exc)
-
-        record.response_payload = {
-            "success": None,
-            "error": {
-                "type": "network_error",
-                "message": str(exc),
-            },
-        }
-        record.hacienda_state = "SIN_RESPUESTA"
-        record.status = "PENDIENTE"
-        record.save(update_fields=["response_payload", "hacienda_state", "status"])
-
-        _apply_invoice_send_update(
-            invoice,
-            "PENDIENTE",
-            PENDING_DTE_MESSAGE,
-            error_message=str(exc),
-            error_code="network_error",
-            mark_api_down=True,
-        )
-
-        return record
-
-    try:
-        if _should_treat_as_api_down(response):
-            record.response_payload = {
-                "success": None,
-                "error": {
-                    "type": "api_unavailable",
-                    "message": response.text,
-                    "status_code": response.status_code,
-                },
-            }
-            record.hacienda_state = "SIN_RESPUESTA"
-            record.status = "PENDIENTE"
-            record.save(update_fields=["response_payload", "hacienda_state", "status"])
-
-            _apply_invoice_send_update(
-                invoice,
-                "PENDIENTE",
-                PENDING_DTE_MESSAGE,
-                error_message=response.text,
-                error_code=str(response.status_code),
-                mark_api_down=True,
-            )
-
-            return record
-        try:
-            response_data = response.json()
-        except ValueError:
-            response_data = {"raw_text": response.text}
-
-        print("\nJSON API RESPUESTA:\n")
-        print(json.dumps(response_data, indent=2, ensure_ascii=False))
-
-        record.response_payload = response_data
-        record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
-        estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
-        record.hacienda_state = estado_hacienda
-        record.status = estado_interno
-        record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
-
-        if estado_hacienda == "PROCESADO" and control_number_value:
-            _mark_control_number_processed(
-                ambiente,
-                "03",
-                emision_date,
-                est_code,
-                pv_code,
-                control_number_value,
-            )
-
-        _apply_invoice_send_update(
-            invoice,
-            estado_interno,
-            user_message,
-            error_message=None,
-            error_code=None,
-        )
-        return record
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Error sending CCF DTE", exc_info=exc)
-        record.response_payload = {"error": str(exc)}
-        record.status = "PENDIENTE"
-        record.hacienda_state = "SIN_RESPUESTA"
-        record.save(update_fields=["response_payload", "status", "hacienda_state"])
-        _apply_invoice_send_update(
-            invoice,
-            "PENDIENTE",
-            "El DTE se ha dejado en estado PENDIENTE por un error inesperado.",
-            error_message=str(exc),
-            error_code="unexpected_error",
-        )
-        return record
 
 
-def send_se_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTERecord:
+def send_se_dte_for_invoice(
+    invoice,
+    staff_user: StaffUser | None = None,
+    *,
+    now_local=None,
+) -> DTERecord:
     """
     Construye el JSON DTE para tipo Sujeto Excluido (14) a partir de la factura y sus items,
     lo envía al endpoint externo y registra el request/response en DTERecord.
@@ -1137,7 +1090,7 @@ def send_se_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTE
     est_code = emitter_info["codEstable"]
     pv_code = emitter_info["codPuntoVenta"]
 
-    now_local = timezone.localtime()
+    now_local = now_local or timezone.localtime()
     emision_date = now_local.date()
     fec_emi = emision_date.isoformat()
     hor_emi = now_local.strftime("%H:%M:%S")
@@ -1274,10 +1227,6 @@ def send_se_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTE
 
     url = "https://p12172402231026.cheros.dev/api/v1/dte/sujeto-excluido"
 
-    print(f'\nENDPOINT DTE: "{url}"\n')
-    print("\nJSON DTE ENVIO:\n")
-    print(json.dumps(payload, indent=2, ensure_ascii=False))
-
     record = DTERecord.objects.create(
         invoice=invoice,
         dte_type="SE",
@@ -1290,141 +1239,69 @@ def send_se_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTE
         total_amount=_to_decimal(total_pagar),
         request_payload=payload,
     )
-    logger.info(
-        "Enviando DTE SE con rubro %s (%s) para usuario %s",
-        rubro_code,
-        rubro_name,
-        staff_user.id if staff_user else "anonimo",
+    return _dispatch_dte_payload(
+        invoice=invoice,
+        record=record,
+        payload=payload,
+        url=url,
+        ambiente=ambiente,
+        tipo_dte="14",
+        emision_date=emision_date,
+        est_code=est_code,
+        pv_code=pv_code,
+        control_number_value=control_number_value,
+        log_context="SE",
+        rubro_code=rubro_code,
+        rubro_name=rubro_name,
+        staff_user=staff_user,
     )
-    headers = {
-        "Authorization": "Bearer api_key_cliente_12172402231026",
-        "Content-Type": "application/json",
-    }
-
-    try:
-        _bump_invoice_send_attempt(invoice)
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
-    except requests.exceptions.RequestException as exc:
-        print("Error sending DTE:", exc)
-
-        record.response_payload = {
-            "success": None,
-            "error": {
-                "type": "network_error",
-                "message": str(exc),
-            },
-        }
-        record.hacienda_state = "SIN_RESPUESTA"
-        record.status = "PENDIENTE"
-        record.save(update_fields=["response_payload", "hacienda_state", "status"])
-
-        _apply_invoice_send_update(
-            invoice,
-            "PENDIENTE",
-            PENDING_DTE_MESSAGE,
-            error_message=str(exc),
-            error_code="network_error",
-            mark_api_down=True,
-        )
-
-        return record
-
-    try:
-        if _should_treat_as_api_down(response):
-            record.response_payload = {
-                "success": None,
-                "error": {
-                    "type": "api_unavailable",
-                    "message": response.text,
-                    "status_code": response.status_code,
-                },
-            }
-            record.hacienda_state = "SIN_RESPUESTA"
-            record.status = "PENDIENTE"
-            record.save(update_fields=["response_payload", "hacienda_state", "status"])
-
-            _apply_invoice_send_update(
-                invoice,
-                "PENDIENTE",
-                PENDING_DTE_MESSAGE,
-                error_message=response.text,
-                error_code=str(response.status_code),
-                mark_api_down=True,
-            )
-
-            return record
-        try:
-            response_data = response.json()
-        except ValueError:
-            response_data = {"raw_text": response.text}
-
-        print("\nJSON API RESPUESTA:\n")
-        print(json.dumps(response_data, indent=2, ensure_ascii=False))
-
-        record.response_payload = response_data
-        record.hacienda_uuid = response_data.get("uuid", "") if isinstance(response_data, dict) else ""
-        estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
-        record.hacienda_state = estado_hacienda
-        record.status = estado_interno
-        record.save(update_fields=["response_payload", "hacienda_uuid", "hacienda_state", "status"])
-
-        if estado_hacienda == "PROCESADO" and control_number_value:
-            _mark_control_number_processed(
-                ambiente,
-                "14",
-                emision_date,
-                est_code,
-                pv_code,
-                control_number_value,
-            )
-
-        _apply_invoice_send_update(
-            invoice,
-            estado_interno,
-            user_message,
-            error_message=None,
-            error_code=None,
-        )
-        return record
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Error sending SE DTE", exc_info=exc)
-        record.response_payload = {"error": str(exc)}
-        record.status = "PENDIENTE"
-        record.hacienda_state = "SIN_RESPUESTA"
-        record.save(update_fields=["response_payload", "status", "hacienda_state"])
-        _apply_invoice_send_update(
-            invoice,
-            "PENDIENTE",
-            "El DTE se ha dejado en estado PENDIENTE por un error inesperado.",
-            error_message=str(exc),
-            error_code="unexpected_error",
-        )
-        return record
 
 
-def send_dte_for_invoice(invoice, staff_user: StaffUser | None = None) -> DTERecord | None:
+def send_dte_for_invoice(
+    invoice,
+    staff_user: StaffUser | None = None,
+    *,
+    force_now_timestamp: bool = False,
+) -> DTERecord | None:
+    now_local = timezone.localtime() if force_now_timestamp else None
     if invoice.doc_type == Invoice.CF:
-        return send_cf_dte_for_invoice(invoice, staff_user=staff_user)
+        return send_cf_dte_for_invoice(
+            invoice,
+            staff_user=staff_user,
+            now_local=now_local,
+        )
     if invoice.doc_type == Invoice.CCF:
-        return send_ccf_dte_for_invoice(invoice, staff_user=staff_user)
+        return send_ccf_dte_for_invoice(
+            invoice,
+            staff_user=staff_user,
+            now_local=now_local,
+        )
     if invoice.doc_type == Invoice.SX:
-        return send_se_dte_for_invoice(invoice, staff_user=staff_user)
+        return send_se_dte_for_invoice(
+            invoice,
+            staff_user=staff_user,
+            now_local=now_local,
+        )
     return None
+
+
+def _calculate_resend_backoff_seconds(attempts: int | None) -> int:
+    if not attempts or attempts <= 0:
+        return 0
+    capped_attempts = min(attempts, 6)
+    return min(300, 10 * (2 ** (capped_attempts - 1)))
 
 
 def resend_pending_dtes(limit: int = 50) -> int:
     resent = 0
+    now = timezone.now()
     with transaction.atomic():
         pending_invoices = list(
             Invoice.objects.select_for_update(skip_locked=True)
             .filter(
                 models.Q(dte_status__iexact="pendiente")
-                | models.Q(estado_dte__iexact="pendiente"),
-                numero_control__isnull=False,
-                codigo_generacion__isnull=False,
+                | models.Q(estado_dte__iexact="pendiente")
             )
-            .exclude(numero_control="")
-            .exclude(codigo_generacion="")
             .order_by("id")[:limit]
         )
 
@@ -1432,6 +1309,15 @@ def resend_pending_dtes(limit: int = 50) -> int:
             status_label = (invoice.dte_status or "").upper()
             if status_label in {"ACEPTADO", "RECHAZADO"}:
                 continue
-            send_dte_for_invoice(invoice, staff_user=None)
+            backoff_seconds = _calculate_resend_backoff_seconds(invoice.dte_send_attempts)
+            last_sent = invoice.last_dte_sent_at
+            if backoff_seconds and last_sent:
+                if now - last_sent < timedelta(seconds=backoff_seconds):
+                    continue
+            send_dte_for_invoice(
+                invoice,
+                staff_user=None,
+                force_now_timestamp=True,
+            )
             resent += 1
     return resent

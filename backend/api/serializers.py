@@ -7,11 +7,7 @@ from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
-from .dte_cf_service import (
-    send_ccf_dte_for_invoice,
-    send_cf_dte_for_invoice,
-    send_se_dte_for_invoice,
-)
+from .dte_cf_service import send_dte_for_invoice
 from .models import (
     Activity,
     Client,
@@ -128,8 +124,12 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
         if not validated_data.get("dte_status"):
             validated_data["dte_status"] = Invoice.PENDING
+        else:
+            validated_data["dte_status"] = self._normalize_status(validated_data["dte_status"])
         if not validated_data.get("estado_dte"):
             validated_data["estado_dte"] = Invoice.PENDING
+        else:
+            validated_data["estado_dte"] = self._normalize_status(validated_data["estado_dte"])
 
         validated_data.setdefault("has_credit_note", False)
 
@@ -140,12 +140,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
         self._upsert_items(invoice, normalized_items, replace=True)
         try:
-            if invoice.doc_type == Invoice.CF:
-                send_cf_dte_for_invoice(invoice, staff_user=staff_user)
-            elif invoice.doc_type == Invoice.CCF:
-                send_ccf_dte_for_invoice(invoice, staff_user=staff_user)
-            elif invoice.doc_type == Invoice.SX:
-                send_se_dte_for_invoice(invoice, staff_user=staff_user)
+            send_dte_for_invoice(invoice, staff_user=staff_user)
         except Exception as exc:  # noqa: BLE001
             logger.exception(
                 "Error sending DTE for invoice %s", invoice.id, exc_info=exc
@@ -215,8 +210,12 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
         if not validated_data.get("dte_status"):
             validated_data["dte_status"] = instance.dte_status or Invoice.PENDING
+        else:
+            validated_data["dte_status"] = self._normalize_status(validated_data["dte_status"])
         if not validated_data.get("estado_dte"):
             validated_data["estado_dte"] = instance.estado_dte or Invoice.PENDING
+        else:
+            validated_data["estado_dte"] = self._normalize_status(validated_data["estado_dte"])
 
         normalized_items = None
         if services_data is not None:
@@ -233,6 +232,9 @@ class InvoiceSerializer(serializers.ModelSerializer):
             self._upsert_items(invoice, normalized_items, replace=True)
 
         return invoice
+
+    def _normalize_status(self, value: str) -> str:
+        return str(value or "").upper()
 
     def _generate_number(self) -> str:
         timestamp = timezone.now().strftime("%Y%m%d%H%M%S")
@@ -380,6 +382,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
                 item_data["original_unit_price"] = item_data["unit_price"]
             item_data.setdefault("price_overridden", False)
             item_data.setdefault("is_no_sujeta", False)
+            item_data.setdefault("override_authorized_by", None)
+            item_data.setdefault("override_authorized_at", None)
 
             InvoiceItem.objects.create(invoice=invoice, **item_data)
 
