@@ -26,3 +26,15 @@ El grafo de migraciones del app `api` referenciaba migraciones base ausentes
 Si faltan campos reales en la base de datos, crear una migración nueva
 (por ejemplo `0010_add_missing_invoice_fields.py`) con `AddField`, pero
 no incluir cambios destructivos en los stubs.
+
+## DuplicateColumn en migración puntual
+Si una migración falla por `DuplicateColumn` (por ejemplo,
+`api.0010_invoice_item_override_audit` con `override_authorized_at`) y la
+columna ya existe exactamente como la define la migración, se puede
+aplicar solo esa migración con fake selectivo:
+
+1. Confirmar en la base de datos que la columna existe con el mismo tipo.
+2. Ejecutar: `python manage.py migrate api 0010_invoice_item_override_audit --fake`
+3. Ejecutar: `python manage.py migrate`
+
+No usar `--fake` si el esquema real no coincide.
