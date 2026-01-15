@@ -10,6 +10,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.timezone import localtime
 from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -86,9 +87,32 @@ def filter_invoices_queryset(queryset, params):
     if payment_method:
         queryset = queryset.filter(payment_method=payment_method)
     if dte_status:
-        queryset = queryset.filter(dte_status=dte_status)
+        queryset = queryset.filter(dte_status__iexact=dte_status)
 
     return queryset
+
+
+def _resend_invoice_dte(invoice: Invoice, staff_user: StaffUser | None) -> Response:
+    current_status = (invoice.dte_status or "").upper()
+    if current_status != "PENDIENTE":
+        return Response(
+            {"detail": "El DTE solo puede reenviarse cuando está en PENDIENTE."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    send_dte_for_invoice(invoice, staff_user=staff_user, force_now_timestamp=True)
+    invoice.refresh_from_db()
+
+    data = InvoiceSerializer(invoice).data
+    dte_message = getattr(invoice, "_dte_message", None)
+    if dte_message:
+        data["dte_message"] = dte_message
+
+    response_status = status.HTTP_200_OK
+    if getattr(invoice, "_dte_pending_due_to_api_down", False):
+        response_status = status.HTTP_202_ACCEPTED
+
+    return Response(data, status=response_status)
 
 
 class InvoiceExportAllCSVAPIView(APIView):
@@ -227,6 +251,12 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
         return Response(data, status=response_status, headers=headers)
 
+    @action(detail=True, methods=["post"], url_path="resend-dte")
+    def resend_dte(self, request, pk=None):
+        staff_user = get_staff_user_from_request(request)
+        invoice = self.get_object()
+        return _resend_invoice_dte(invoice, staff_user)
+
 
 class ResendDTEView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -247,27 +277,8 @@ class ResendDTEView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        current_status = (invoice.dte_status or "").upper()
-        if current_status in {"ACEPTADO", "APROBADO", "RECHAZADO"}:
-            return Response(
-                {"detail": "El DTE no puede reenviarse en el estado actual."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         staff_user = get_staff_user_from_request(request)
-        send_dte_for_invoice(invoice, staff_user=staff_user)
-        invoice.refresh_from_db()
-
-        data = InvoiceSerializer(invoice).data
-        dte_message = getattr(invoice, "_dte_message", None)
-        if dte_message:
-            data["dte_message"] = dte_message
-
-        response_status = status.HTTP_200_OK
-        if getattr(invoice, "_dte_pending_due_to_api_down", False):
-            response_status = status.HTTP_202_ACCEPTED
-
-        return Response(data, status=response_status)
+        return _resend_invoice_dte(invoice, staff_user)
 
 
 class EmisorRubrosView(APIView):

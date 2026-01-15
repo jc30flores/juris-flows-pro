@@ -49,6 +49,7 @@ class ConnectivitySentinel:
         self.timeout = timeout
         self._started = False
         self._thread: threading.Thread | None = None
+        self._last_api_ok: bool | None = CONNECTIVITY_STATUS["api"]["ok"]
 
     @property
     def started(self) -> bool:
@@ -84,6 +85,19 @@ class ConnectivitySentinel:
         self._mark_status("internet", internet_ok, internet_reason if not internet_ok else "none")
         api_ok, api_reason = self._check_target("api", self.api_url)
         self._mark_status("api", api_ok, api_reason if not api_ok else "none")
+        self._handle_api_transition(api_ok)
+
+    def _handle_api_transition(self, api_ok: bool) -> None:
+        previous = self._last_api_ok
+        self._last_api_ok = api_ok
+        if previous is False and api_ok:
+            try:
+                from .dte_cf_service import resend_pending_dtes
+
+                resent = resend_pending_dtes(limit=50)
+                logger.info("Connectivity recovery detected. Autoresend triggered (%s).", resent)
+            except Exception:  # pragma: no cover - defensive
+                logger.exception("Autoresend failed after connectivity recovery")
 
     def _loop(self) -> None:
         while True:
@@ -98,7 +112,6 @@ class ConnectivitySentinel:
         if self._started:
             return
         self._started = True
-        self.run_once()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
