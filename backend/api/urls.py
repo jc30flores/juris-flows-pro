@@ -5,6 +5,7 @@ from .views import (
     ActivityViewSet,
     ConnectivityStatusView,
     ClientViewSet,
+    DTEInvalidateView,
     ExpenseViewSet,
     EmisorActiveRubroView,
     EmisorActiveView,
@@ -40,6 +41,7 @@ urlpatterns = [
     path("emisor/rubros/", EmisorRubrosView.as_view(), name="emisor-rubros"),
     path("emisor/active-rubro/", EmisorActiveRubroView.as_view(), name="emisor-active-rubro"),
     path("emisor/active/", EmisorActiveView.as_view(), name="emisor-active"),
+    path("dte/invalidate/", DTEInvalidateView.as_view(), name="dte-invalidate"),
     path(
         "invoices/<int:invoice_id>/resend-dte/",
         ResendDTEView.as_view(),

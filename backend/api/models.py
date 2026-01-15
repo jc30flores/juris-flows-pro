@@ -78,10 +78,12 @@ class Invoice(models.Model):
     APPROVED = "ACEPTADO"
     PENDING = "PENDIENTE"
     REJECTED = "RECHAZADO"
+    INVALIDATED = "INVALIDADO"
     DTE_STATUS_CHOICES = [
         (APPROVED, "Aprobado"),
         (PENDING, "Pendiente"),
         (REJECTED, "Rechazado"),
+        (INVALIDATED, "Invalidado"),
     ]
 
     number = models.CharField(max_length=50, unique=True)
@@ -178,6 +180,65 @@ class DTEControlCounter(models.Model):
             f"{self.ambiente}-{self.tipo_dte}-{self.anio_emision}-"
             f"{self.est_code}{self.pv_code}"
         )
+
+
+class DTEInvalidation(models.Model):
+    invoice = models.ForeignKey(
+        "Invoice",
+        on_delete=models.CASCADE,
+        related_name="dte_invalidations",
+    )
+    dte_record = models.ForeignKey(
+        "DTERecord",
+        on_delete=models.SET_NULL,
+        related_name="invalidations",
+        null=True,
+        blank=True,
+    )
+    requested_by = models.ForeignKey(
+        "StaffUser",
+        on_delete=models.SET_NULL,
+        related_name="dte_invalidations",
+        null=True,
+        blank=True,
+    )
+    status = models.CharField(max_length=20, default="ENVIANDO")
+    codigo_generacion = models.CharField(max_length=64)
+    tipo_anulacion = models.IntegerField()
+    motivo_anulacion = models.TextField(blank=True, default="")
+    solicita_nombre = models.CharField(max_length=255, blank=True, default="")
+    solicita_tipo_doc = models.CharField(max_length=10, blank=True, default="")
+    solicita_num_doc = models.CharField(max_length=50, blank=True, default="")
+    responsable_nombre = models.CharField(max_length=255, blank=True, default="")
+    responsable_tipo_doc = models.CharField(max_length=10, blank=True, default="")
+    responsable_num_doc = models.CharField(max_length=50, blank=True, default="")
+    original_codigo_generacion = models.CharField(max_length=64, blank=True, default="")
+    original_numero_control = models.CharField(max_length=100, blank=True, default="")
+    original_sello_recibido = models.CharField(max_length=100, blank=True, default="")
+    original_tipo_dte = models.CharField(max_length=5, blank=True, default="")
+    original_fec_emi = models.CharField(max_length=20, blank=True, default="")
+    original_monto_iva = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    request_payload = models.JSONField()
+    response_payload = models.JSONField(null=True, blank=True)
+    hacienda_state = models.CharField(max_length=50, blank=True, default="")
+    error_message = models.TextField(null=True, blank=True)
+    error_code = models.CharField(max_length=50, null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "api_dte_invalidation"
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["codigo_generacion"]),
+            models.Index(fields=["original_codigo_generacion"]),
+            models.Index(fields=["original_numero_control"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Invalidacion {self.codigo_generacion} ({self.status})"
 
 
 class InvoiceItem(models.Model):

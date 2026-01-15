@@ -13,6 +13,7 @@ from .connectivity import get_connectivity_status as _connectivity_status_snapsh
 from .models import (
     Activity,
     DTEControlCounter,
+    DTEInvalidation,
     DTERecord,
     Invoice,
     InvoiceItem,
@@ -32,6 +33,11 @@ DEFAULT_HACIENDA_HEALTH_URL = getattr(
     settings,
     "API_HEALTH_URL",
     "https://p12172402231026.cheros.dev/health",
+)
+DEFAULT_DTE_INVALIDATION_URL = getattr(
+    settings,
+    "API_DTE_INVALIDATION_URL",
+    "https://p12172402231026.cheros.dev/api/v1/dte/invalidacion",
 )
 
 
@@ -215,6 +221,13 @@ def _should_treat_as_api_down(response: requests.Response | None) -> bool:
     return status_code >= 500
 
 
+def _build_dte_headers() -> dict[str, str]:
+    return {
+        "Authorization": "Bearer api_key_cliente_12172402231026",
+        "Content-Type": "application/json",
+    }
+
+
 UNIDADES = [
     "CERO",
     "UNO",
@@ -358,6 +371,174 @@ def interpret_dte_response(response_data: dict) -> Tuple[str, str, str]:
     return "PENDIENTE", "SIN_RESPUESTA", "DTE en estado PENDIENTE: la respuesta de la API no se pudo interpretar."
 
 
+def interpret_dte_invalidation_response(response_data: dict) -> Tuple[str, str, str]:
+    success = response_data.get("success", None)
+    if success is False:
+        error = response_data.get("error") or {}
+        hresp = error.get("respuesta_hacienda") or error.get("hacienda_response") or {}
+        estado_h = hresp.get("estado")
+        desc = hresp.get("descripcionMsg") or error.get("message")
+        if estado_h or desc:
+            desc = desc or "La invalidación fue rechazada por Hacienda."
+            msg = f"Invalidación rechazada: {desc}"
+            return "RECHAZADO", estado_h or "RECHAZADO", msg
+        return "PENDIENTE", "SIN_RESPUESTA", "Invalidación pendiente: sin respuesta confirmada."
+
+    if success is True:
+        hresp = response_data.get("respuesta_hacienda") or response_data.get("hacienda_response") or {}
+        estado_h = hresp.get("estado", "")
+        desc = hresp.get("descripcionMsg", "")
+        if estado_h in ("PROCESADO", "RECIBIDO") or desc.upper().strip() == "RECIBIDO":
+            msg = "Invalidación aceptada por Hacienda (RECIBIDO)."
+            return "ACEPTADO", estado_h or "RECIBIDO", msg
+        msg = (
+            "Invalidación enviada, en espera de confirmación de Hacienda "
+            f"(estado='{estado_h or 'DESCONOCIDO'}')."
+        )
+        return "PENDIENTE", estado_h or "DESCONOCIDO", msg
+
+    return (
+        "PENDIENTE",
+        "SIN_RESPUESTA",
+        "Invalidación pendiente: la respuesta de la API no se pudo interpretar.",
+    )
+
+
+def _extract_invoice_identification(invoice: Invoice) -> dict:
+    record = invoice.dte_records.order_by("-created_at").first()
+    if record:
+        payload = record.request_payload or {}
+        dte = payload.get("dte", {})
+        if isinstance(dte, dict) and "identificacion" in dte:
+            return dte.get("identificacion") or {}
+        if "identificacion" in payload:
+            return payload.get("identificacion") or {}
+    return {}
+
+
+def _extract_invoice_resumen(invoice: Invoice) -> dict:
+    record = invoice.dte_records.order_by("-created_at").first()
+    if record:
+        payload = record.request_payload or {}
+        dte = payload.get("dte", {})
+        if isinstance(dte, dict) and "resumen" in dte:
+            return dte.get("resumen") or {}
+        if "resumen" in payload:
+            return payload.get("resumen") or {}
+    return {}
+
+
+def _extract_invoice_sello(invoice: Invoice) -> str:
+    record = invoice.dte_records.order_by("-created_at").first()
+    if not record:
+        return ""
+    response_payload = record.response_payload or {}
+    if isinstance(response_payload, dict):
+        if response_payload.get("selloRecibido"):
+            return response_payload.get("selloRecibido") or ""
+        hresp = response_payload.get("respuesta_hacienda") or response_payload.get("hacienda_response") or {}
+        if isinstance(hresp, dict):
+            return hresp.get("selloRecibido") or hresp.get("sello_recibido") or ""
+    return ""
+
+
+def _resolve_invalidation_people(
+    staff_user: StaffUser | None, emitter_info: dict
+) -> tuple[dict, dict]:
+    default_name = (
+        getattr(staff_user, "full_name", "") or getattr(staff_user, "username", "") or emitter_info.get("nombre", "")
+    )
+    default_doc = emitter_info.get("nit", "")
+    default_doc_type = "36" if default_doc else ""
+    solicita = {
+        "nombre": default_name,
+        "tipo_doc": default_doc_type,
+        "num_doc": default_doc,
+    }
+    responsable = {
+        "nombre": default_name,
+        "tipo_doc": default_doc_type,
+        "num_doc": default_doc,
+    }
+    return solicita, responsable
+
+
+def _build_invalidation_payload(
+    invoice: Invoice,
+    staff_user: StaffUser | None,
+    tipo_anulacion: int,
+    motivo: str,
+) -> tuple[dict, dict]:
+    identificacion = _extract_invoice_identification(invoice)
+    resumen = _extract_invoice_resumen(invoice)
+    record = invoice.dte_records.order_by("-created_at").first()
+    emitter_info, rubro_code, rubro_name = _resolve_emitter_info(staff_user)
+    sello_recibido = _extract_invoice_sello(invoice)
+    codigo_generacion_original = identificacion.get("codigoGeneracion") or invoice.codigo_generacion or ""
+    numero_control_original = identificacion.get("numeroControl") or invoice.numero_control or ""
+    tipo_dte_original = identificacion.get("tipoDte") or invoice.doc_type or ""
+    fec_emi_original = identificacion.get("fecEmi") or str(invoice.date)
+    monto_iva = resumen.get("totalIva") if isinstance(resumen, dict) else None
+    if monto_iva is None and resumen.get("totalIVA") is not None:
+        monto_iva = resumen.get("totalIVA")
+
+    solicita, responsable = _resolve_invalidation_people(staff_user, emitter_info)
+    now_local = timezone.localtime()
+    payload = {
+        "invalidacion": {
+            "identificacion": {
+                "version": 1,
+                "ambiente": identificacion.get("ambiente", "01"),
+                "codigoGeneracion": str(uuid.uuid4()).upper(),
+                "fecAnula": now_local.date().isoformat(),
+                "horAnula": now_local.strftime("%H:%M:%S"),
+            },
+            "emisor": {
+                "nit": emitter_info.get("nit", ""),
+                "nombre": emitter_info.get("nombre", ""),
+                "nombreComercial": emitter_info.get("nombreComercial", ""),
+                "telefono": emitter_info.get("telefono", ""),
+                "correo": emitter_info.get("correo", ""),
+                "codEstable": emitter_info.get("codEstable", ""),
+                "codPuntoVenta": emitter_info.get("codPuntoVenta", ""),
+                "tipoEstablecimiento": emitter_info.get("tipoEstablecimiento", ""),
+            },
+            "documento": {
+                "tipoDte": tipo_dte_original,
+                "codigoGeneracion": codigo_generacion_original,
+                "numeroControl": numero_control_original,
+                "selloRecibido": sello_recibido,
+                "fecEmi": fec_emi_original,
+                "montoIva": monto_iva or 0,
+            },
+            "motivo": {
+                "tipoAnulacion": int(tipo_anulacion),
+                "motivoAnulacion": motivo or "",
+                "nombreSolicita": solicita["nombre"],
+                "tipDocSolicita": solicita["tipo_doc"],
+                "numDocSolicita": solicita["num_doc"],
+                "nombreResponsable": responsable["nombre"],
+                "tipDocResponsable": responsable["tipo_doc"],
+                "numDocResponsable": responsable["num_doc"],
+            },
+        }
+    }
+
+    metadata = {
+        "record": record,
+        "emitter_info": emitter_info,
+        "rubro_code": rubro_code,
+        "rubro_name": rubro_name,
+        "codigo_generacion_original": codigo_generacion_original,
+        "numero_control_original": numero_control_original,
+        "tipo_dte_original": tipo_dte_original,
+        "fec_emi_original": fec_emi_original,
+        "sello_recibido": sello_recibido,
+        "monto_iva": monto_iva,
+    }
+    return payload, metadata
+
+
 def _send_dte_payload(
     *,
     invoice: Invoice,
@@ -402,10 +583,7 @@ def _send_dte_payload(
         rubro_name,
         staff_user.id if staff_user else "anonimo",
     )
-    headers = {
-        "Authorization": "Bearer api_key_cliente_12172402231026",
-        "Content-Type": "application/json",
-    }
+    headers = _build_dte_headers()
 
     try:
         _bump_invoice_send_attempt(invoice)
@@ -1263,3 +1441,155 @@ def resend_pending_dtes(limit: int = 50) -> int:
             send_dte_for_invoice(invoice, staff_user=None)
             resent += 1
     return resent
+
+
+def send_dte_invalidation(
+    invoice: Invoice,
+    *,
+    staff_user: StaffUser | None,
+    tipo_anulacion: int,
+    motivo: str = "",
+) -> DTEInvalidation:
+    payload, metadata = _build_invalidation_payload(invoice, staff_user, tipo_anulacion, motivo)
+    invalidacion = payload.get("invalidacion", {})
+    identificacion = invalidacion.get("identificacion", {})
+    documento = invalidacion.get("documento", {})
+    codigo_generacion = identificacion.get("codigoGeneracion") or str(uuid.uuid4()).upper()
+
+    record = metadata.get("record")
+    invalidation_record = DTEInvalidation.objects.create(
+        invoice=invoice,
+        dte_record=record,
+        requested_by=staff_user,
+        status="ENVIANDO",
+        codigo_generacion=codigo_generacion,
+        tipo_anulacion=int(tipo_anulacion),
+        motivo_anulacion=motivo or "",
+        solicita_nombre=invalidacion.get("motivo", {}).get("nombreSolicita", ""),
+        solicita_tipo_doc=invalidacion.get("motivo", {}).get("tipDocSolicita", ""),
+        solicita_num_doc=invalidacion.get("motivo", {}).get("numDocSolicita", ""),
+        responsable_nombre=invalidacion.get("motivo", {}).get("nombreResponsable", ""),
+        responsable_tipo_doc=invalidacion.get("motivo", {}).get("tipDocResponsable", ""),
+        responsable_num_doc=invalidacion.get("motivo", {}).get("numDocResponsable", ""),
+        original_codigo_generacion=documento.get("codigoGeneracion", "") or "",
+        original_numero_control=documento.get("numeroControl", "") or "",
+        original_sello_recibido=documento.get("selloRecibido", "") or "",
+        original_tipo_dte=documento.get("tipoDte", "") or "",
+        original_fec_emi=documento.get("fecEmi", "") or "",
+        original_monto_iva=metadata.get("monto_iva"),
+        request_payload=payload,
+        sent_at=timezone.now(),
+    )
+
+    url = DEFAULT_DTE_INVALIDATION_URL
+    print(f'\nENDPOINT DTE: "{url}"\n')
+    print("\nJSON DTE INVALIDACION:\n")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+    headers = _build_dte_headers()
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+    except requests.exceptions.RequestException as exc:
+        invalidation_record.response_payload = {
+            "success": None,
+            "error": {"type": "network_error", "message": str(exc)},
+        }
+        invalidation_record.hacienda_state = "SIN_RESPUESTA"
+        invalidation_record.status = "PENDIENTE"
+        invalidation_record.error_message = str(exc)
+        invalidation_record.error_code = "network_error"
+        invalidation_record.save(
+            update_fields=[
+                "response_payload",
+                "hacienda_state",
+                "status",
+                "error_message",
+                "error_code",
+                "updated_at",
+            ]
+        )
+        invoice._dte_message = PENDING_DTE_MESSAGE
+        return invalidation_record
+
+    try:
+        if _should_treat_as_api_down(response):
+            invalidation_record.response_payload = {
+                "success": None,
+                "error": {
+                    "type": "api_unavailable",
+                    "message": response.text,
+                    "status_code": response.status_code,
+                },
+            }
+            invalidation_record.hacienda_state = "SIN_RESPUESTA"
+            invalidation_record.status = "PENDIENTE"
+            invalidation_record.error_message = response.text
+            invalidation_record.error_code = str(response.status_code)
+            invalidation_record.save(
+                update_fields=[
+                    "response_payload",
+                    "hacienda_state",
+                    "status",
+                    "error_message",
+                    "error_code",
+                    "updated_at",
+                ]
+            )
+            invoice._dte_message = PENDING_DTE_MESSAGE
+            return invalidation_record
+
+        try:
+            response_data = response.json()
+        except ValueError:
+            response_data = {"raw_text": response.text}
+
+        print("\nJSON API RESPUESTA:\n")
+        print(json.dumps(response_data, indent=2, ensure_ascii=False))
+
+        invalidation_record.response_payload = response_data
+        estado_interno, estado_hacienda, user_message = interpret_dte_invalidation_response(
+            response_data
+        )
+        invalidation_record.hacienda_state = estado_hacienda
+        invalidation_record.status = estado_interno
+        invalidation_record.processed_at = timezone.now()
+        invalidation_record.error_message = None
+        invalidation_record.error_code = None
+        invalidation_record.save(
+            update_fields=[
+                "response_payload",
+                "hacienda_state",
+                "status",
+                "processed_at",
+                "error_message",
+                "error_code",
+                "updated_at",
+            ]
+        )
+        invoice._dte_message = user_message
+        if estado_interno == "ACEPTADO":
+            invoice.dte_status = Invoice.INVALIDATED
+            invoice.estado_dte = Invoice.INVALIDATED
+            invoice.save(update_fields=["dte_status", "estado_dte"])
+        return invalidation_record
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Error sending DTE invalidation", exc_info=exc)
+        invalidation_record.response_payload = {"error": str(exc)}
+        invalidation_record.hacienda_state = "SIN_RESPUESTA"
+        invalidation_record.status = "PENDIENTE"
+        invalidation_record.error_message = str(exc)
+        invalidation_record.error_code = "unexpected_error"
+        invalidation_record.save(
+            update_fields=[
+                "response_payload",
+                "hacienda_state",
+                "status",
+                "error_message",
+                "error_code",
+                "updated_at",
+            ]
+        )
+        invoice._dte_message = (
+            "La invalidación se dejó en estado PENDIENTE por un error inesperado."
+        )
+        return invalidation_record

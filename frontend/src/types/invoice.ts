@@ -7,6 +7,7 @@ export type PaymentMethod = "Efectivo" | "Tarjeta" | "Transferencia" | "Cheque";
 
 export type DteStatus =
   | "ACEPTADO"
+  | "INVALIDADO"
   | "PENDIENTE"
   | "RECHAZADO"
   | "ERROR";
