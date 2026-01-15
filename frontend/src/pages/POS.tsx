@@ -382,8 +382,8 @@ export default function POS() {
     } catch (err) {
       console.error("Error al invalidar DTE", err);
       const detail =
-        isAxiosError(err) && err.response?.data?.detail
-          ? String(err.response.data.detail)
+        isAxiosError(err) && err.response?.data
+          ? String(err.response.data.message || err.response.data.detail || "")
           : null;
       toast({
         title: "No se pudo invalidar el DTE",

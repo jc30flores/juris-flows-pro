@@ -365,17 +365,20 @@ class DTEInvalidateView(APIView):
             )
 
         response_data = {
-            "ok": True,
+            "ok": invalidation.status != "RECHAZADO",
             "invalidation_id": invalidation.id,
             "status": invalidation.status,
             "hacienda_state": invalidation.hacienda_state,
             "message": message,
             "codigo_generacion": invalidation.codigo_generacion,
         }
-        response_status = status.HTTP_200_OK
+        if invalidation.status == "RECHAZADO":
+            response_data["details"] = invalidation.response_payload
+            return Response(response_data, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
         if invalidation.status == "PENDIENTE":
-            response_status = status.HTTP_202_ACCEPTED
-        return Response(response_data, status=response_status)
+            response_data["retry"] = True
+            return Response(response_data, status=status.HTTP_202_ACCEPTED)
+        return Response(response_data, status=status.HTTP_200_OK)
 
 
 class EmisorRubrosView(APIView):

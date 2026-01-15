@@ -1,3 +1,4 @@
+import json
 import uuid
 from decimal import Decimal
 
@@ -9,10 +10,10 @@ from .dte_cf_service import interpret_dte_response, _resolve_emitter_info
 from .models import DTEInvalidation, DTERecord, Invoice, StaffUser
 
 
-DEFAULT_INVALIDATION_URL = getattr(
-    settings,
-    "DTE_INVALIDATION_URL",
-    "https://p12172402231026.cheros.dev/api/v1/dte/invalidacion",
+DEFAULT_INVALIDATION_URL = (
+    getattr(settings, "API_DTE_INVALIDATION_URL", None)
+    or getattr(settings, "DTE_INVALIDATION_URL", None)
+    or "https://p12172402231026.cheros.dev/api/v1/dte/invalidacion"
 )
 
 
@@ -88,6 +89,24 @@ def _format_date(value) -> str:
 
 def _s(value) -> str:
     return str(value or "").strip()
+
+def _mask_headers(headers: dict) -> dict:
+    masked = {}
+    for key, value in (headers or {}).items():
+        if key.lower() == "authorization" and value:
+            masked[key] = "Bearer ***"
+        else:
+            masked[key] = value
+    return masked
+
+
+def _truncate(value: str, limit: int = 2000) -> str:
+    if value is None:
+        return ""
+    value_str = str(value)
+    if len(value_str) <= limit:
+        return value_str
+    return f"{value_str[:limit]}... (truncado)"
 
 
 def get_invalidation_preview(invoice: Invoice) -> dict:
@@ -265,10 +284,21 @@ def invalidate_dte_for_invoice(
         "Content-Type": "application/json",
     }
     target_url = url or DEFAULT_INVALIDATION_URL
+    if not target_url:
+        raise ValueError("No se configuró el endpoint de invalidación.")
+
+    print(f"[INVALIDATION] invoice_id={invoice.id}")
+    print(f"[INVALIDATION] url={target_url}")
+    print(f"[INVALIDATION] headers={_mask_headers(headers)}")
+    print("[INVALIDATION] payload=")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
 
     try:
         response = requests.post(target_url, json=payload, headers=headers, timeout=30)
+        print(f"[INVALIDATION] http_status={response.status_code}")
+        print(f"[INVALIDATION] http_text={_truncate(response.text)}")
     except requests.RequestException as exc:
+        print(f"[INVALIDATION] request_exception={repr(exc)}")
         invalidation.response_payload = {
             "success": None,
             "error": {
@@ -323,6 +353,38 @@ def invalidate_dte_for_invoice(
         response_data = response.json()
     except ValueError:
         response_data = {"raw_text": response.text}
+
+    if 400 <= response.status_code < 500:
+        hacienda_resp = _extract_hacienda_response(response_data)
+        estado_hacienda = (
+            hacienda_resp.get("estado", "RECHAZADO")
+            if isinstance(hacienda_resp, dict)
+            else "RECHAZADO"
+        )
+        descripcion = ""
+        if isinstance(hacienda_resp, dict):
+            descripcion = hacienda_resp.get("descripcionMsg") or ""
+        error_payload = response_data.get("error") if isinstance(response_data, dict) else {}
+        if isinstance(error_payload, dict) and not descripcion:
+            descripcion = error_payload.get("message") or ""
+        descripcion = descripcion or _truncate(response.text)
+        invalidation.response_payload = response_data
+        invalidation.status = DTEInvalidation.REJECTED
+        invalidation.hacienda_state = estado_hacienda
+        invalidation.error_message = descripcion
+        invalidation.error_code = str(response.status_code)
+        invalidation.processed_at = timezone.now()
+        invalidation.save(
+            update_fields=[
+                "response_payload",
+                "status",
+                "hacienda_state",
+                "error_message",
+                "error_code",
+                "processed_at",
+            ]
+        )
+        return invalidation, f"Invalidación rechazada: {descripcion}"
 
     invalidation.response_payload = response_data
     estado_interno, estado_hacienda, user_message = interpret_dte_response(response_data)
