@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from decimal import Decimal
 
@@ -121,6 +122,15 @@ def _s(value) -> str:
 def _normalize_phone(value: str | None, fallback: str = "00000000") -> str:
     digits = "".join(ch for ch in str(value or "") if ch.isdigit())
     return digits or fallback
+
+
+def _normalize_phone_8(value: str | None) -> str:
+    digits = re.sub(r"\D+", "", value or "")
+    if not digits:
+        return "00000000"
+    if len(digits) >= 8:
+        return digits[-8:]
+    return digits.zfill(8)
 
 
 def _mask_headers(headers: dict) -> dict:
@@ -324,6 +334,21 @@ def invalidate_dte_for_invoice(
         "numDocSolicita": responsable_doc,
     }
 
+    emisor_payload = {
+        "nit": emisor_nit,
+        "nombre": emisor_nombre,
+        "tipoEstablecimiento": _s(emitter_info.get("tipoEstablecimiento")),
+        "nomEstablecimiento": nom_establecimiento or "ESTABLECIMIENTO",
+        "codEstableMH": _s(emitter_info.get("codEstableMH"))
+        or _s(emitter_info.get("codEstable")),
+        "codEstable": _s(emitter_info.get("codEstable")),
+        "codPuntoVentaMH": _s(emitter_info.get("codPuntoVentaMH"))
+        or _s(emitter_info.get("codPuntoVenta")),
+        "codPuntoVenta": _s(emitter_info.get("codPuntoVenta")),
+        "telefono": _normalize_phone_8(emisor_telefono),
+        "correo": emisor_correo,
+    }
+
     payload = {
         "invalidacion": {
             "identificacion": {
@@ -333,19 +358,7 @@ def invalidate_dte_for_invoice(
                 "fecAnula": now_local.strftime("%Y-%m-%d"),
                 "horAnula": now_local.strftime("%H:%M:%S"),
             },
-            "emisor": {
-                **emitter_info,
-                "nit": emisor_nit,
-                "nombre": emisor_nombre,
-                "tipoEstablecimiento": _s(emitter_info.get("tipoEstablecimiento")),
-                "nomEstablecimiento": nom_establecimiento,
-                "codEstableMH": _s(emitter_info.get("codEstableMH")),
-                "codEstable": _s(emitter_info.get("codEstable")),
-                "codPuntoVentaMH": _s(emitter_info.get("codPuntoVentaMH")),
-                "codPuntoVenta": _s(emitter_info.get("codPuntoVenta")),
-                "telefono": emisor_telefono,
-                "correo": emisor_correo,
-            },
+            "emisor": emisor_payload,
             "documento": {
                 "tipoDte": tipo_dte,
                 "codigoGeneracion": codigo_original,
@@ -357,7 +370,7 @@ def invalidate_dte_for_invoice(
                 "tipoDocumento": receptor_tipo_doc,
                 "numDocumento": receptor_doc,
                 "nombre": receptor_nombre,
-                "telefono": receptor_telefono,
+                "telefono": _normalize_phone_8(receptor_telefono),
                 "correo": receptor_correo or emisor_correo or None,
             },
             "motivo": motivo_payload,
