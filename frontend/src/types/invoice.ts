@@ -6,12 +6,13 @@ export type InvoiceDocType = "CF" | "CCF" | "SX";
 export type PaymentMethod = "Efectivo" | "Tarjeta" | "Transferencia" | "Cheque";
 
 export type DteStatus =
+  | "ACEPTADO"
+  | "PENDIENTE"
+  | "RECHAZADO"
+  | "ERROR"
   | "Aprobado"
   | "Pendiente"
-  | "Rechazado"
-  | "ACEPTADO"
-  | "RECHAZADO"
-  | "ERROR";
+  | "Rechazado";
 
 export interface InvoiceItem {
   id: number;
