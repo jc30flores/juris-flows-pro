@@ -1,9 +1,11 @@
 import json
 import logging
+import time
 import uuid
 from decimal import Decimal
 
 import requests
+from django.conf import settings
 from django.utils import timezone
 
 from .dte_cf_service import EMITTER_INFO
@@ -11,8 +13,10 @@ from .models import DTEInvalidation, DTERecord, Invoice, StaffUser
 
 logger = logging.getLogger(__name__)
 
-INVALIDATION_URL = "https://t12152606851014.cheros.dev/api/v1/dte/invalidacion"
 INVALIDATION_AUTH_TOKEN = "api_key_cliente_12152606851014"
+INVALIDATION_PATH = "/api/v1/dte/invalidacion"
+DEFAULT_INVALIDATION_TIMEOUT = int(getattr(settings, "DTE_INVALIDATION_TIMEOUT", 30))
+DEFAULT_VERIFY_SSL = bool(getattr(settings, "DTE_INVALIDATION_VERIFY_SSL", True))
 
 
 def _extract_payload_container(payload: dict) -> dict:
@@ -127,6 +131,12 @@ def _resolve_receiver_email(receptor: dict, invoice: Invoice) -> str:
     if client and client.email:
         return client.email
     return ""
+
+
+def _truncate_text(value: str, limit: int = 1000) -> str:
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]}...[truncated]"
 
 
 def _build_emisor_payload() -> dict:
@@ -244,6 +254,9 @@ def build_invalidation_payload(
 def extract_invalidation_requirements(record: DTERecord) -> dict:
     request_payload = record.request_payload or {}
     ident = _extract_identification(request_payload)
+    fec_emi = ident.get("fecEmi") or ident.get("fec_emi")
+    if not fec_emi and record.issue_date:
+        fec_emi = record.issue_date.isoformat()
     return {
         "codigo_generacion": (
             ident.get("codigoGeneracion")
@@ -258,7 +271,7 @@ def extract_invalidation_requirements(record: DTERecord) -> dict:
             or ""
         ),
         "sello_recibido": _extract_sello_recibido(record.response_payload or {}) or "",
-        "fec_emi": ident.get("fecEmi") or ident.get("fec_emi") or "",
+        "fec_emi": fec_emi or "",
         "ambiente": ident.get("ambiente") or "01",
     }
 
@@ -269,10 +282,15 @@ def send_dte_invalidation(
     tipo_anulacion: int = 2,
     motivo_anulacion: str = "",
     staff_user_id: int | None = None,
-) -> tuple[DTEInvalidation, dict | str, int, str]:
+) -> tuple[DTEInvalidation, dict | str, int, str, str, str | None]:
     record = invoice.dte_records.order_by("-created_at").first()
     if not record:
         raise ValueError("No se encontró un DTERecord asociado a la factura.")
+
+    base_url = str(getattr(settings, "DTE_API_BASE_URL", "") or "").strip()
+    if base_url:
+        base_url = base_url.rstrip("/")
+    invalidation_url = f"{base_url}{INVALIDATION_PATH}" if base_url else ""
 
     payload = build_invalidation_payload(
         invoice,
@@ -280,13 +298,6 @@ def send_dte_invalidation(
         tipo_anulacion=tipo_anulacion,
         motivo_anulacion=motivo_anulacion,
         staff_user=_resolve_staff_user(staff_user_id),
-    )
-
-    logger.info(
-        "Sending DTE invalidation invoice_id=%s url=%s headers=Bearer *** payload=%s",
-        invoice.id,
-        INVALIDATION_URL,
-        json.dumps(payload, indent=2, ensure_ascii=False),
     )
 
     invalidation = DTEInvalidation.objects.create(
@@ -297,19 +308,45 @@ def send_dte_invalidation(
         response_payload=None,
     )
 
+    if not invalidation_url:
+        detail = "DTE_API_BASE_URL no configurada."
+        invalidation.response_payload = {"success": None, "error": {"type": "config", "message": detail}}
+        invalidation.hacienda_state = "ERROR_CONFIG"
+        invalidation.status = "ERROR_CONFIG"
+        invalidation.save(update_fields=["response_payload", "hacienda_state", "status"])
+        return invalidation, invalidation.response_payload, 500, "ERROR_CONFIG", detail, None
+
+    logger.info(
+        "Sending DTE invalidation invoice_id=%s url=%s timeout=%s verify_ssl=%s payload=%s",
+        invoice.id,
+        invalidation_url,
+        DEFAULT_INVALIDATION_TIMEOUT,
+        DEFAULT_VERIFY_SSL,
+        json.dumps(payload, indent=2, ensure_ascii=False),
+    )
+
     headers = {
         "Authorization": f"Bearer {INVALIDATION_AUTH_TOKEN}",
         "Content-Type": "application/json",
     }
 
+    started_at = time.monotonic()
     try:
         response = requests.post(
-            INVALIDATION_URL,
+            invalidation_url,
             json=payload,
             headers=headers,
-            timeout=30,
+            timeout=DEFAULT_INVALIDATION_TIMEOUT,
+            verify=DEFAULT_VERIFY_SSL,
         )
     except requests.exceptions.RequestException as exc:
+        elapsed_ms = int((time.monotonic() - started_at) * 1000)
+        logger.warning(
+            "DTE invalidation request failed invoice_id=%s elapsed_ms=%s error=%s",
+            invoice.id,
+            elapsed_ms,
+            exc,
+        )
         invalidation.response_payload = {
             "success": None,
             "error": {"type": "network_error", "message": str(exc)},
@@ -317,7 +354,8 @@ def send_dte_invalidation(
         invalidation.hacienda_state = "SIN_RESPUESTA"
         invalidation.status = "PENDIENTE"
         invalidation.save(update_fields=["response_payload", "hacienda_state", "status"])
-        return invalidation, invalidation.response_payload, 202, "PENDIENTE"
+        detail = "Sin conexión al puente; se reintentará."
+        return invalidation, invalidation.response_payload, 202, "PENDIENTE", detail, None
 
     try:
         try:
@@ -327,18 +365,38 @@ def send_dte_invalidation(
 
         invalidation.response_payload = response_data
         status_code = response.status_code
+        elapsed_ms = int((time.monotonic() - started_at) * 1000)
+        response_text = ""
+        try:
+            response_text = response.text or ""
+        except Exception:  # pragma: no cover - defensive
+            response_text = ""
+        logger.info(
+            "DTE invalidation response invoice_id=%s status_code=%s elapsed_ms=%s body=%s",
+            invoice.id,
+            status_code,
+            elapsed_ms,
+            _truncate_text(response_text),
+        )
 
         if status_code >= 500:
+            bridge_error = (
+                response_data
+                if isinstance(response_data, dict)
+                else {"raw_text": _truncate_text(response_text)}
+            )
             invalidation.hacienda_state = "ERROR_PUENTE"
             invalidation.status = "ERROR_PUENTE"
             invalidation.save(update_fields=["response_payload", "hacienda_state", "status"])
-            return invalidation, response_data, 502, "ERROR_PUENTE"
+            detail = "El puente respondió con error 5xx."
+            return invalidation, response_data, 502, "ERROR_PUENTE", detail, bridge_error
 
         if status_code >= 400:
             invalidation.hacienda_state = "RECHAZADO"
             invalidation.status = "RECHAZADO"
             invalidation.save(update_fields=["response_payload", "hacienda_state", "status"])
-            return invalidation, response_data, 422, "RECHAZADO"
+            detail = "La invalidación fue rechazada por el puente."
+            return invalidation, response_data, 422, "RECHAZADO", detail, None
 
         success = response_data.get("success") if isinstance(response_data, dict) else None
         hresp = (
@@ -357,22 +415,26 @@ def send_dte_invalidation(
             invalidation.save(update_fields=["response_payload", "hacienda_state", "status"])
             invoice.dte_status = Invoice.INVALIDATED
             invoice.save(update_fields=["dte_status"])
-            return invalidation, response_data, 200, "ACEPTADO"
+            detail = "La invalidación fue aceptada por Hacienda."
+            return invalidation, response_data, 200, "ACEPTADO", detail, None
 
         if success is False:
             invalidation.hacienda_state = estado_hacienda or "RECHAZADO"
             invalidation.status = "RECHAZADO"
             invalidation.save(update_fields=["response_payload", "hacienda_state", "status"])
-            return invalidation, response_data, 422, "RECHAZADO"
+            detail = "La invalidación fue rechazada por Hacienda."
+            return invalidation, response_data, 422, "RECHAZADO", detail, None
 
         invalidation.hacienda_state = estado_hacienda or "DESCONOCIDO"
         invalidation.status = "PENDIENTE"
         invalidation.save(update_fields=["response_payload", "hacienda_state", "status"])
-        return invalidation, response_data, 200, "PENDIENTE"
+        detail = "La invalidación quedó en estado pendiente."
+        return invalidation, response_data, 200, "PENDIENTE", detail, None
     except Exception as exc:  # noqa: BLE001
         logger.exception("Error sending DTE invalidation", exc_info=exc)
         invalidation.response_payload = {"error": str(exc)}
         invalidation.hacienda_state = "SIN_RESPUESTA"
         invalidation.status = "PENDIENTE"
         invalidation.save(update_fields=["response_payload", "hacienda_state", "status"])
-        return invalidation, invalidation.response_payload, 500, "PENDIENTE"
+        detail = "Error interno al procesar la invalidación."
+        return invalidation, invalidation.response_payload, 500, "PENDIENTE", detail, None

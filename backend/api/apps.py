@@ -28,6 +28,8 @@ class ApiConfig(AppConfig):
             }
             if any(command in sys.argv for command in skip_commands):
                 return
+            if "runserver" not in sys.argv:
+                return
             if "runserver" in sys.argv and os.environ.get("RUN_MAIN") != "true":
                 return
 

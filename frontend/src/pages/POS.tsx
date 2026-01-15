@@ -852,55 +852,69 @@ export default function POS() {
           }
         }}
       >
-        <DialogContent className="max-w-xl">
+        <DialogContent className="flex w-[95vw] max-w-2xl flex-col overflow-hidden sm:max-w-3xl max-h-[85vh]">
           <DialogHeader>
             <DialogTitle>Invalidar DTE</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="flex-1 space-y-4 overflow-y-auto py-2">
             <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
               <p className="font-semibold">No se puede deshacer.</p>
             </div>
-            <div className="grid gap-3 text-sm sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <div>
                 <p className="text-muted-foreground">Número de control</p>
-                <p className="font-medium">
-                  {invalidationInvoice ? getNumeroControlUpper(invalidationInvoice) : "—"}
-                </p>
+                <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <p className="break-all whitespace-pre-wrap font-medium">
+                    {invalidationInvoice ? getNumeroControlUpper(invalidationInvoice) : "—"}
+                  </p>
+                </div>
               </div>
               <div>
                 <p className="text-muted-foreground">Código de generación</p>
-                <p className="font-medium">
-                  {invalidationInvoice ? getCodigoGeneracionUpper(invalidationInvoice) : "—"}
-                </p>
+                <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <p className="break-all whitespace-pre-wrap font-medium">
+                    {invalidationInvoice ? getCodigoGeneracionUpper(invalidationInvoice) : "—"}
+                  </p>
+                </div>
               </div>
               <div>
                 <p className="text-muted-foreground">Cliente</p>
-                <p className="font-medium">
-                  {invalidationInvoice
-                    ? clientLookup[resolveClientId(invalidationInvoice.client) ?? -1] ||
-                      "Sin cliente"
-                    : "—"}
-                </p>
+                <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <p className="break-all whitespace-pre-wrap font-medium">
+                    {invalidationInvoice
+                      ? clientLookup[resolveClientId(invalidationInvoice.client) ?? -1] ||
+                        "Sin cliente"
+                      : "—"}
+                  </p>
+                </div>
               </div>
               <div>
                 <p className="text-muted-foreground">Fecha emisión (fecEmi)</p>
-                <p className="font-medium">
-                  {invalidationInvoice?.fec_emi ||
-                    invalidationInvoice?.issue_date ||
-                    (invalidationInvoice ? getInvoiceDateLabel(invalidationInvoice) : "—")}
-                </p>
+                <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <p className="break-all whitespace-pre-wrap font-medium">
+                    {invalidationInvoice?.fec_emi ||
+                      invalidationInvoice?.issue_date ||
+                      (invalidationInvoice ? getInvoiceDateLabel(invalidationInvoice) : "—")}
+                  </p>
+                </div>
               </div>
               <div>
                 <p className="text-muted-foreground">Tipo DTE</p>
-                <p className="font-medium">
-                  {invalidationInvoice ? getInvoiceTipo(invalidationInvoice) : "—"}
-                </p>
+                <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <p className="break-all whitespace-pre-wrap font-medium">
+                    {invalidationInvoice ? getInvoiceTipo(invalidationInvoice) : "—"}
+                  </p>
+                </div>
               </div>
               <div>
                 <p className="text-muted-foreground">Sello recibido</p>
-                <p className="font-medium">
-                  {invalidationInvoice?.sello_recibido || "—"}
-                </p>
+                <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <div className="overflow-x-auto">
+                    <p className="break-all whitespace-pre-wrap font-medium">
+                      {invalidationInvoice?.sello_recibido || "—"}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
             <div className="space-y-2">
@@ -925,7 +939,7 @@ export default function POS() {
               />
             </div>
           </div>
-          <DialogFooter className="gap-2">
+          <DialogFooter className="sticky bottom-0 gap-2 border-t border-border bg-background/80 p-4 backdrop-blur">
             <Button
               variant="outline"
               onClick={() => setShowInvalidationModal(false)}

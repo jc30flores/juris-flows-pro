@@ -99,6 +99,7 @@ class ConnectivitySentinel:
             logger.exception("Failed to autoresend pending DTE after API recovery")
 
     def _loop(self) -> None:
+        self.run_once()
         while True:
             try:
                 self.run_once()
@@ -111,7 +112,6 @@ class ConnectivitySentinel:
         if self._started:
             return
         self._started = True
-        self.run_once()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 

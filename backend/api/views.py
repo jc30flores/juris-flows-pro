@@ -1,4 +1,5 @@
 import csv
+import logging
 from datetime import date, datetime, timedelta
 
 from django.conf import settings
@@ -49,6 +50,7 @@ PRICE_OVERRIDE_ACCESS_CODE = getattr(settings, "PRICE_OVERRIDE_ACCESS_CODE", "12
 PRICE_OVERRIDE_TOKEN_MAX_AGE = getattr(settings, "PRICE_OVERRIDE_TOKEN_MAX_AGE", 300)
 PRICE_OVERRIDE_TOKEN_SALT = "price-override"
 
+logger = logging.getLogger(__name__)
 
 def filter_invoices_queryset(queryset, params):
     search = params.get("search")
@@ -302,7 +304,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         requirements = extract_invalidation_requirements(record)
         missing_fields = [
             field
-            for field in ("codigo_generacion", "numero_control", "sello_recibido")
+            for field in ("codigo_generacion", "numero_control", "sello_recibido", "fec_emi")
             if not requirements.get(field)
         ]
         if missing_fields:
@@ -313,6 +315,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_409_CONFLICT,
             )
+
+        logger.info(
+            "DTE invalidation request invoice_id=%s dte_status=%s has_codigo_generacion=%s "
+            "has_numero_control=%s has_sello_recibido=%s has_fec_emi=%s",
+            invoice.id,
+            normalized_status,
+            bool(requirements.get("codigo_generacion")),
+            bool(requirements.get("numero_control")),
+            bool(requirements.get("sello_recibido")),
+            bool(requirements.get("fec_emi")),
+        )
 
         tipo_anulacion = request.data.get("tipoAnulacion") or request.data.get("tipo_anulacion")
         motivo_anulacion = request.data.get("motivoAnulacion") or request.data.get(
@@ -325,7 +338,14 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             staff_user_id = None
 
         try:
-            invalidation, response_payload, http_status, result_status = send_dte_invalidation(
+            (
+                invalidation,
+                response_payload,
+                http_status,
+                result_status,
+                detail,
+                bridge_error,
+            ) = send_dte_invalidation(
                 invoice,
                 tipo_anulacion=int(tipo_anulacion) if tipo_anulacion else 2,
                 motivo_anulacion=motivo_anulacion or "",
@@ -336,16 +356,23 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 {"detail": str(exc)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Unexpected error invalidating invoice %s", invoice.id, exc_info=exc)
+            return Response(
+                {"detail": "Error interno al procesar la invalidación."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
-        return Response(
-            {
-                "status": result_status,
-                "detail": result_status,
-                "invalidation_id": invalidation.id,
-                "response": response_payload,
-            },
-            status=http_status,
-        )
+        response_data = {
+            "status": result_status,
+            "detail": detail,
+            "invalidation_id": invalidation.id,
+            "response": response_payload,
+        }
+        if bridge_error is not None:
+            response_data["bridge_error"] = bridge_error
+
+        return Response(response_data, status=http_status)
 
 
 class InvoiceItemViewSet(viewsets.ModelViewSet):
