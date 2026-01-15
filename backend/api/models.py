@@ -76,10 +76,12 @@ class Invoice(models.Model):
     APPROVED = "ACEPTADO"
     PENDING = "PENDIENTE"
     REJECTED = "RECHAZADO"
+    INVALIDATED = "INVALIDADO"
     DTE_STATUS_CHOICES = [
         (APPROVED, "Aprobado"),
         (PENDING, "Pendiente"),
         (REJECTED, "Rechazado"),
+        (INVALIDATED, "Invalidado"),
     ]
 
     number = models.CharField(max_length=50, unique=True)
@@ -170,6 +172,31 @@ class DTEControlCounter(models.Model):
             f"{self.ambiente}-{self.tipo_dte}-{self.anio_emision}-"
             f"{self.est_code}{self.pv_code}"
         )
+
+
+class DTEInvalidation(models.Model):
+    invoice = models.ForeignKey(
+        "Invoice",
+        on_delete=models.CASCADE,
+        related_name="dte_invalidations",
+    )
+    status = models.CharField(max_length=20, default="ENVIANDO")
+    hacienda_state = models.CharField(max_length=50, blank=True, default="")
+    request_payload = models.JSONField()
+    response_payload = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "api_dte_invalidation"
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["hacienda_state"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self):
+        return f"Invalidacion DTE {self.id} - {self.status}"
 
 
 class InvoiceItem(models.Model):

@@ -9,10 +9,12 @@ export type DteStatus =
   | "ACEPTADO"
   | "PENDIENTE"
   | "RECHAZADO"
+  | "INVALIDADO"
   | "ERROR"
   | "Aprobado"
   | "Pendiente"
-  | "Rechazado";
+  | "Rechazado"
+  | "Invalidado";
 
 export interface InvoiceItem {
   id: number;
@@ -51,6 +53,8 @@ export interface Invoice {
   codigoGeneracion?: string;
   numero_control?: string;
   numeroControl?: string;
+  sello_recibido?: string | null;
+  fec_emi?: string | null;
   payment_method: PaymentMethod;
   dte_status: DteStatus;
   dte_message?: string;

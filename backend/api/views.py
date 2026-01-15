@@ -28,6 +28,10 @@ from .models import (
 )
 from .connectivity import get_connectivity_status
 from .dte_cf_service import send_dte_for_invoice
+from .dte_invalidation_service import (
+    extract_invalidation_requirements,
+    send_dte_invalidation,
+)
 from .serializers import (
     ActivitySerializer,
     ClientSerializer,
@@ -272,6 +276,76 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         if dte_message:
             data["dte_message"] = dte_message
         return Response(data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="invalidate-dte")
+    def invalidate_dte(self, request, pk=None):
+        invoice = self.get_object()
+        normalized_status = str(invoice.dte_status or "").upper()
+        if normalized_status == Invoice.INVALIDATED:
+            return Response(
+                {"detail": "La factura ya está invalidada."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if normalized_status != Invoice.APPROVED:
+            return Response(
+                {"detail": "Solo se permite invalidar DTEs en estado ACEPTADO."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        record = invoice.dte_records.order_by("-created_at").first()
+        if not record:
+            return Response(
+                {"detail": "No se encontró información DTE asociada a la factura."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        requirements = extract_invalidation_requirements(record)
+        missing_fields = [
+            field
+            for field in ("codigo_generacion", "numero_control", "sello_recibido")
+            if not requirements.get(field)
+        ]
+        if missing_fields:
+            return Response(
+                {
+                    "detail": "Faltan datos requeridos para invalidar el DTE.",
+                    "missing_fields": missing_fields,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        tipo_anulacion = request.data.get("tipoAnulacion") or request.data.get("tipo_anulacion")
+        motivo_anulacion = request.data.get("motivoAnulacion") or request.data.get(
+            "motivo_anulacion"
+        )
+        staff_user_id = request.data.get("staff_user_id")
+        try:
+            staff_user_id = int(staff_user_id) if staff_user_id is not None else None
+        except (TypeError, ValueError):
+            staff_user_id = None
+
+        try:
+            invalidation, response_payload, http_status, result_status = send_dte_invalidation(
+                invoice,
+                tipo_anulacion=int(tipo_anulacion) if tipo_anulacion else 2,
+                motivo_anulacion=motivo_anulacion or "",
+                staff_user_id=staff_user_id,
+            )
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "status": result_status,
+                "detail": result_status,
+                "invalidation_id": invalidation.id,
+                "response": response_payload,
+            },
+            status=http_status,
+        )
 
 
 class InvoiceItemViewSet(viewsets.ModelViewSet):

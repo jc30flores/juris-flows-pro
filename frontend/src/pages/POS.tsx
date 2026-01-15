@@ -42,6 +42,9 @@ const getDteBadgeStyle = (status: string | undefined) => {
   if (normalized === "ACEPTADO") {
     return "bg-success/10 text-success";
   }
+  if (normalized === "INVALIDADO") {
+    return "bg-muted text-muted-foreground";
+  }
   if (normalized === "RECHAZADO" || normalized === "ERROR") {
     return "bg-destructive/10 text-destructive";
   }
@@ -51,6 +54,7 @@ const getDteBadgeStyle = (status: string | undefined) => {
 const getDteDisplayStatus = (status: string | undefined) => {
   const normalized = status?.toUpperCase();
   if (normalized === "ACEPTADO") return "ACEPTADO";
+  if (normalized === "INVALIDADO") return "INVALIDADO";
   if (normalized === "RECHAZADO") return "RECHAZADO";
   if (normalized === "PENDIENTE") return "Pendiente";
   return status || "";
@@ -58,6 +62,10 @@ const getDteDisplayStatus = (status: string | undefined) => {
 
 const isPendingStatus = (status: string | undefined) => {
   return status?.toUpperCase() === "PENDIENTE";
+};
+
+const isAcceptedStatus = (status: string | undefined) => {
+  return status?.toUpperCase() === "ACEPTADO";
 };
 
 const getInvoiceTipo = (invoice: Invoice): string => {
@@ -84,11 +92,6 @@ const getCodigoGeneracionRaw = (invoice: Invoice): string | null => {
 const getCodigoGeneracionUpper = (invoice: Invoice): string => {
   const value = getCodigoGeneracionRaw(invoice);
   return value ? value.toUpperCase() : "—";
-};
-
-const isCFInvoice = (invoice: Invoice): boolean => {
-  const tipo = getInvoiceTipo(invoice);
-  return tipo === "CF" || tipo === "01";
 };
 
 const isCCFInvoice = (invoice: Invoice): boolean => {
@@ -155,6 +158,11 @@ export default function POS() {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [selectedServices, setSelectedServices] = useState<SelectedServicePayload[]>([]);
+  const [showInvalidationModal, setShowInvalidationModal] = useState(false);
+  const [invalidationInvoice, setInvalidationInvoice] = useState<Invoice | null>(null);
+  const [tipoAnulacion, setTipoAnulacion] = useState("2");
+  const [motivoAnulacion, setMotivoAnulacion] = useState("");
+  const [invalidating, setInvalidating] = useState(false);
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -284,6 +292,9 @@ export default function POS() {
 
   const totalInvoicesAmount = useMemo(() => {
     return filteredInvoices.reduce((sum, invoice) => {
+      if (!isAcceptedStatus(invoice.dte_status)) {
+        return sum;
+      }
       const total = Number(invoice.total) || 0;
       return sum + total;
     }, 0);
@@ -394,9 +405,74 @@ export default function POS() {
     }
   };
 
+  const handleOpenInvalidation = (invoice: Invoice) => {
+    setInvalidationInvoice(invoice);
+    setTipoAnulacion("2");
+    setMotivoAnulacion("");
+    setShowInvalidationModal(true);
+  };
+
+  const resolveInvalidationMessage = (status: string | undefined) => {
+    switch (status) {
+      case "ACEPTADO":
+        return {
+          title: "Invalidación aceptada",
+          description: "La factura fue invalidada correctamente.",
+        };
+      case "RECHAZADO":
+        return {
+          title: "Invalidación rechazada",
+          description: "Hacienda rechazó la invalidación. Revisa los datos.",
+          variant: "destructive" as const,
+        };
+      case "ERROR_PUENTE":
+        return {
+          title: "Error del puente",
+          description: "El puente devolvió un error. Intenta nuevamente.",
+          variant: "destructive" as const,
+        };
+      case "PENDIENTE":
+        return {
+          title: "Invalidación pendiente",
+          description: "La invalidación quedó pendiente por conexión.",
+        };
+      default:
+        return {
+          title: "Estado de invalidación",
+          description: "La invalidación se procesó con estado desconocido.",
+        };
+    }
+  };
+
+  const handleConfirmInvalidation = async () => {
+    if (!invalidationInvoice) return;
+    setInvalidating(true);
+    try {
+      const response = await api.post(
+        `/invoices/${invalidationInvoice.id}/invalidate-dte/`,
+        {
+          tipoAnulacion: Number(tipoAnulacion) || 2,
+          motivoAnulacion: motivoAnulacion.trim(),
+        },
+      );
+
+      const statusValue = String(response.data?.status || "").toUpperCase();
+      const toastInfo = resolveInvalidationMessage(statusValue);
+      toast(toastInfo);
+      await fetchInitialData();
+      setShowInvalidationModal(false);
+    } catch (err: any) {
+      const statusValue = String(err?.response?.data?.status || "").toUpperCase();
+      const toastInfo = resolveInvalidationMessage(statusValue || "RECHAZADO");
+      toast(toastInfo);
+    } finally {
+      setInvalidating(false);
+    }
+  };
+
   const renderInvoiceActions = (invoice: Invoice) => {
     const codigo = getCodigoGeneracionRaw(invoice);
-    const showInvalidar = isCFInvoice(invoice);
+    const showInvalidar = isAcceptedStatus(invoice.dte_status);
     const showNotaCredito = isCCFInvoice(invoice);
     const showResend = isPendingStatus(invoice.dte_status);
 
@@ -446,18 +522,13 @@ export default function POS() {
               <Button
                 variant="ghost"
                 size="icon"
-                aria-label="Invalidar (solo CF)"
-                onClick={() =>
-                  handlePlaceholderAction(
-                    "Próximamente",
-                    "Invalidar CF (pendiente).",
-                  )
-                }
+                aria-label="Invalidar DTE"
+                onClick={() => handleOpenInvalidation(invoice)}
               >
                 <Ban className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Invalidar (solo CF)</TooltipContent>
+            <TooltipContent>Invalidar</TooltipContent>
           </Tooltip>
         )}
 
@@ -771,6 +842,103 @@ export default function POS() {
         selectedServices={selectedServices}
         onCancel={handleCancelSelection}
       />
+
+      <Dialog
+        open={showInvalidationModal}
+        onOpenChange={(open) => {
+          setShowInvalidationModal(open);
+          if (!open) {
+            setInvalidationInvoice(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Invalidar DTE</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
+              <p className="font-semibold">No se puede deshacer.</p>
+            </div>
+            <div className="grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <p className="text-muted-foreground">Número de control</p>
+                <p className="font-medium">
+                  {invalidationInvoice ? getNumeroControlUpper(invalidationInvoice) : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Código de generación</p>
+                <p className="font-medium">
+                  {invalidationInvoice ? getCodigoGeneracionUpper(invalidationInvoice) : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Cliente</p>
+                <p className="font-medium">
+                  {invalidationInvoice
+                    ? clientLookup[resolveClientId(invalidationInvoice.client) ?? -1] ||
+                      "Sin cliente"
+                    : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Fecha emisión (fecEmi)</p>
+                <p className="font-medium">
+                  {invalidationInvoice?.fec_emi ||
+                    invalidationInvoice?.issue_date ||
+                    (invalidationInvoice ? getInvoiceDateLabel(invalidationInvoice) : "—")}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Tipo DTE</p>
+                <p className="font-medium">
+                  {invalidationInvoice ? getInvoiceTipo(invalidationInvoice) : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Sello recibido</p>
+                <p className="font-medium">
+                  {invalidationInvoice?.sello_recibido || "—"}
+                </p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Tipo de anulación</Label>
+              <Select value={tipoAnulacion} onValueChange={setTipoAnulacion}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">1 - Error en la información</SelectItem>
+                  <SelectItem value="2">2 - Rescindir operación</SelectItem>
+                  <SelectItem value="3">3 - Otro</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Motivo (opcional)</Label>
+              <Input
+                value={motivoAnulacion}
+                onChange={(e) => setMotivoAnulacion(e.target.value)}
+                placeholder="Describe el motivo de la anulación"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowInvalidationModal(false)}
+              disabled={invalidating}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleConfirmInvalidation} disabled={invalidating}>
+              {invalidating ? "Enviando..." : "Confirmar invalidación"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showExportModal} onOpenChange={setShowExportModal}>
         <DialogContent className="max-w-md">
