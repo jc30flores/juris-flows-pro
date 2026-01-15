@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { NuevaFacturaModal } from "@/components/modals/NuevaFacturaModal";
@@ -32,6 +33,9 @@ import { useRubro } from "@/contexts/RubroContext";
 
 const getDteBadgeStyle = (status: string | undefined) => {
   const normalized = status?.toUpperCase();
+  if (normalized === "INVALIDADO") {
+    return "bg-muted/60 text-muted-foreground";
+  }
   if (normalized === "ACEPTADO" || status === "Aprobado") {
     return "bg-success/10 text-success";
   }
@@ -43,10 +47,20 @@ const getDteBadgeStyle = (status: string | undefined) => {
 
 const getDteDisplayStatus = (status: string | undefined) => {
   const normalized = status?.toUpperCase();
+  if (normalized === "INVALIDADO") return "INVALIDADO";
   if (normalized === "ACEPTADO") return "ACEPTADO";
   if (normalized === "RECHAZADO") return "RECHAZADO";
   if (normalized === "PENDIENTE") return "Pendiente";
   return status || "";
+};
+
+type InvalidationPreview = {
+  numero_control?: string | null;
+  codigo_generacion?: string | null;
+  cliente?: string | null;
+  fecha_emision?: string | null;
+  tipo_dte?: string | null;
+  sello_recibido?: string | null;
 };
 
 const getInvoiceTipo = (invoice: Invoice): string => {
@@ -73,11 +87,6 @@ const getCodigoGeneracionRaw = (invoice: Invoice): string | null => {
 const getCodigoGeneracionUpper = (invoice: Invoice): string => {
   const value = getCodigoGeneracionRaw(invoice);
   return value ? value.toUpperCase() : "—";
-};
-
-const isCFInvoice = (invoice: Invoice): boolean => {
-  const tipo = getInvoiceTipo(invoice);
-  return tipo === "CF" || tipo === "01";
 };
 
 const isCCFInvoice = (invoice: Invoice): boolean => {
@@ -153,6 +162,16 @@ export default function POS() {
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [selectedServices, setSelectedServices] = useState<SelectedServicePayload[]>([]);
   const [resendingInvoiceId, setResendingInvoiceId] = useState<number | null>(null);
+  const [showInvalidationModal, setShowInvalidationModal] = useState(false);
+  const [invalidationInvoice, setInvalidationInvoice] = useState<Invoice | null>(null);
+  const [invalidationPreview, setInvalidationPreview] = useState<InvalidationPreview | null>(
+    null,
+  );
+  const [invalidationLoading, setInvalidationLoading] = useState(false);
+  const [invalidationSubmitting, setInvalidationSubmitting] = useState(false);
+  const [invalidationError, setInvalidationError] = useState("");
+  const [tipoAnulacion, setTipoAnulacion] = useState("error_datos");
+  const [motivoAnulacion, setMotivoAnulacion] = useState("");
   const rubroSelectorRef = useRef<HTMLDivElement | null>(null);
   const { rubros, activeRubro, loading: loadingRubros, setActiveRubro } = useRubro();
 
@@ -308,6 +327,74 @@ export default function POS() {
     }
   };
 
+  const handleOpenInvalidation = async (invoice: Invoice) => {
+    setInvalidationInvoice(invoice);
+    setInvalidationPreview(null);
+    setInvalidationError("");
+    setTipoAnulacion("error_datos");
+    setMotivoAnulacion("");
+    setInvalidationLoading(true);
+    setShowInvalidationModal(true);
+    try {
+      const response = await api.get<InvalidationPreview>(
+        `/invoices/${invoice.id}/invalidation-preview/`,
+      );
+      setInvalidationPreview(response.data);
+    } catch (err) {
+      console.error("Error al cargar el preview de invalidación", err);
+      const detail =
+        isAxiosError(err) && err.response?.data?.detail
+          ? String(err.response.data.detail)
+          : null;
+      setInvalidationError(detail || "No se pudo cargar la información de invalidación.");
+    } finally {
+      setInvalidationLoading(false);
+    }
+  };
+
+  const handleConfirmInvalidation = async () => {
+    if (!invalidationInvoice) return;
+    setInvalidationSubmitting(true);
+    try {
+      const response = await api.post("/dte/invalidate/", {
+        invoice_id: invalidationInvoice.id,
+        tipo_anulacion: tipoAnulacion,
+        motivo: motivoAnulacion,
+      });
+      const { status: invalidationStatus, message } = response.data || {};
+      toast({
+        title:
+          invalidationStatus === "ACEPTADO"
+            ? "DTE invalidado"
+            : invalidationStatus === "RECHAZADO"
+              ? "Invalidación rechazada"
+              : "Invalidación en proceso",
+        description:
+          message ||
+          (invalidationStatus === "ACEPTADO"
+            ? "El DTE fue invalidado ante Hacienda."
+            : "La invalidación quedó registrada."),
+        variant: invalidationStatus === "RECHAZADO" ? "destructive" : undefined,
+      });
+      await fetchInitialData();
+      setShowInvalidationModal(false);
+      setInvalidationInvoice(null);
+    } catch (err) {
+      console.error("Error al invalidar DTE", err);
+      const detail =
+        isAxiosError(err) && err.response?.data
+          ? String(err.response.data.message || err.response.data.detail || "")
+          : null;
+      toast({
+        title: "No se pudo invalidar el DTE",
+        description: detail || "Intenta nuevamente en unos segundos.",
+        variant: "destructive",
+      });
+    } finally {
+      setInvalidationSubmitting(false);
+    }
+  };
+
   const clientLookup = useMemo(() => {
     return clients.reduce<Record<number, string>>((acc, client) => {
       acc[client.id] = client.company_name || client.full_name;
@@ -338,6 +425,10 @@ export default function POS() {
 
   const totalInvoicesAmount = useMemo(() => {
     return filteredInvoices.reduce((sum, invoice) => {
+      const status = String(invoice.dte_status || "").toUpperCase();
+      if (status !== "ACEPTADO") {
+        return sum;
+      }
       const total = Number(invoice.total) || 0;
       return sum + total;
     }, 0);
@@ -429,9 +520,15 @@ export default function POS() {
 
   const renderInvoiceActions = (invoice: Invoice) => {
     const codigo = getCodigoGeneracionRaw(invoice);
-    const showInvalidar = isCFInvoice(invoice);
+    const normalizedStatus = invoice.dte_status?.toUpperCase();
+    const isInvalidated = normalizedStatus === "INVALIDADO";
+    const isApproved =
+      normalizedStatus === "ACEPTADO" ||
+      normalizedStatus === "RECIBIDO" ||
+      normalizedStatus === "PROCESADO";
+    const showInvalidar = !isInvalidated;
     const showNotaCredito = isCCFInvoice(invoice);
-    const isPending = invoice.dte_status?.toUpperCase() === "PENDIENTE";
+    const isPending = normalizedStatus === "PENDIENTE";
 
     return (
       <div className="flex items-center justify-end gap-2">
@@ -476,21 +573,23 @@ export default function POS() {
         {showInvalidar && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Invalidar (solo CF)"
-                onClick={() =>
-                  handlePlaceholderAction(
-                    "Próximamente",
-                    "Invalidar CF (pendiente).",
-                  )
-                }
-              >
-                <Ban className="h-4 w-4" />
-              </Button>
+              <span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Invalidar DTE"
+                  disabled={!isApproved}
+                  onClick={() => handleOpenInvalidation(invoice)}
+                >
+                  <Ban className="h-4 w-4" />
+                </Button>
+              </span>
             </TooltipTrigger>
-            <TooltipContent>Invalidar (solo CF)</TooltipContent>
+            <TooltipContent>
+              {isApproved
+                ? "Invalidar DTE"
+                : "Disponible solo para DTE aceptados"}
+            </TooltipContent>
           </Tooltip>
         )}
 
@@ -911,6 +1010,124 @@ export default function POS() {
               Cancelar
             </Button>
             <Button onClick={handleDownload}>Descargar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={showInvalidationModal}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowInvalidationModal(false);
+            setInvalidationInvoice(null);
+            setInvalidationPreview(null);
+            setInvalidationError("");
+          } else {
+            setShowInvalidationModal(true);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Confirmar invalidación de DTE</DialogTitle>
+          </DialogHeader>
+          {invalidationLoading && (
+            <div className="text-sm text-muted-foreground">Cargando información...</div>
+          )}
+          {!invalidationLoading && invalidationError && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+              {invalidationError}
+            </div>
+          )}
+          {!invalidationLoading && !invalidationError && (
+            <div className="space-y-4">
+              <div className="grid gap-3 text-sm">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="text-muted-foreground">Número de control</div>
+                  <div className="font-medium">
+                    {invalidationPreview?.numero_control || "—"}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="text-muted-foreground">Código de generación</div>
+                  <div className="font-medium break-all">
+                    {invalidationPreview?.codigo_generacion || "—"}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="text-muted-foreground">Cliente</div>
+                  <div className="font-medium">
+                    {invalidationPreview?.cliente || "—"}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="text-muted-foreground">Fecha emisión</div>
+                  <div className="font-medium">
+                    {invalidationPreview?.fecha_emision || "—"}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="text-muted-foreground">Tipo DTE</div>
+                  <div className="font-medium">
+                    {invalidationPreview?.tipo_dte || "—"}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="text-muted-foreground">Sello recibido</div>
+                  <div className="font-medium break-all">
+                    {invalidationPreview?.sello_recibido || "—"}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
+                Esta acción invalidará el DTE ante Hacienda y no se puede deshacer.
+              </div>
+
+              <div className="space-y-2">
+                <Label>Tipo de anulación</Label>
+                <Select value={tipoAnulacion} onValueChange={setTipoAnulacion}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona tipo de anulación" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="error_datos">Anulación por error en datos</SelectItem>
+                    <SelectItem value="duplicado">Anulación por documento duplicado</SelectItem>
+                    <SelectItem value="devolucion">Anulación por devolución</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Motivo</Label>
+                <Textarea
+                  value={motivoAnulacion}
+                  onChange={(event) => setMotivoAnulacion(event.target.value)}
+                  placeholder="Describe el motivo de la invalidación (opcional)"
+                  rows={3}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowInvalidationModal(false)}
+              disabled={invalidationSubmitting}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleConfirmInvalidation}
+              disabled={
+                invalidationSubmitting ||
+                invalidationLoading ||
+                Boolean(invalidationError) ||
+                !invalidationPreview
+              }
+            >
+              {invalidationSubmitting ? "Enviando..." : "Confirmar invalidación"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

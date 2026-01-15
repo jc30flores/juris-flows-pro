@@ -12,6 +12,7 @@ export type DteStatus =
   | "ACEPTADO"
   | "PENDIENTE"
   | "RECHAZADO"
+  | "INVALIDADO"
   | "ERROR";
 
 export interface InvoiceItem {

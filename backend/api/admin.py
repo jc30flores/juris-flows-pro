@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
     Client,
+    DTEInvalidation,
     DTERecord,
     Expense,
     Invoice,
@@ -39,3 +40,18 @@ class DTERecordAdmin(admin.ModelAdmin):
         "receiver_nit",
         "receiver_name",
     )
+
+
+@admin.register(DTEInvalidation)
+class DTEInvalidationAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "invoice",
+        "status",
+        "codigo_generacion",
+        "original_numero_control",
+        "hacienda_state",
+        "created_at",
+    )
+    list_filter = ("status", "hacienda_state", "created_at")
+    search_fields = ("codigo_generacion", "original_numero_control")

@@ -15,6 +15,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .dte_cf_service import send_dte_for_invoice
+from .dte_invalidation_service import (
+    InvalidationValidationError,
+    get_invalidation_preview,
+    invalidate_dte_for_invoice,
+)
 from .models import (
     Activity,
     Client,
@@ -257,6 +262,15 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         invoice = self.get_object()
         return _resend_invoice_dte(invoice, staff_user)
 
+    @action(detail=True, methods=["get"], url_path="invalidation-preview")
+    def invalidation_preview(self, request, pk=None):
+        invoice = self.get_object()
+        try:
+            preview = get_invalidation_preview(invoice)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(preview)
+
 
 class ResendDTEView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -279,6 +293,91 @@ class ResendDTEView(APIView):
 
         staff_user = get_staff_user_from_request(request)
         return _resend_invoice_dte(invoice, staff_user)
+
+
+class DTEInvalidateView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        invoice_id = request.data.get("invoice_id")
+        if not invoice_id:
+            return Response(
+                {"ok": False, "message": "invoice_id es requerido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            invoice = Invoice.objects.select_related("client").get(id=invoice_id)
+        except Invoice.DoesNotExist:
+            return Response(
+                {"ok": False, "message": "Factura no encontrada."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        current_status = (invoice.dte_status or "").upper()
+        if current_status == Invoice.INVALIDATED:
+            return Response(
+                {"ok": False, "message": "La factura ya está invalidada."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if current_status != Invoice.APPROVED:
+            return Response(
+                {
+                    "ok": False,
+                    "message": "Solo se puede invalidar un DTE aceptado por Hacienda.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        tipo_anulacion = request.data.get("tipo_anulacion") or request.data.get("tipoAnulacion")
+
+        motivo = request.data.get("motivo") or request.data.get("motivo_anulacion") or ""
+        staff_user = get_staff_user_from_request(request)
+
+        try:
+            invalidation, message = invalidate_dte_for_invoice(
+                invoice,
+                staff_user=staff_user,
+                tipo_anulacion=tipo_anulacion,
+                motivo_anulacion=motivo,
+            )
+        except InvalidationValidationError as exc:
+            return Response(
+                {"ok": False, "message": str(exc)},
+                status=getattr(exc, "status_code", status.HTTP_400_BAD_REQUEST),
+            )
+        except ValueError as exc:
+            return Response(
+                {"ok": False, "message": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("Error invalidating DTE (invoice_id=%s)", invoice_id)
+            return Response(
+                {
+                    "ok": False,
+                    "message": "Ocurrió un error inesperado al invalidar el DTE.",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        response_data = {
+            "ok": invalidation.status != "RECHAZADO",
+            "invalidation_id": invalidation.id,
+            "status": invalidation.status,
+            "hacienda_state": invalidation.hacienda_state,
+            "message": message,
+            "codigo_generacion": invalidation.codigo_generacion,
+        }
+        if invalidation.status == "RECHAZADO":
+            response_data["details"] = invalidation.response_payload
+            if (invalidation.error_code or "").startswith("bridge_"):
+                return Response(response_data, status=status.HTTP_502_BAD_GATEWAY)
+            return Response(response_data, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        if invalidation.status == "PENDIENTE":
+            response_data["retry"] = True
+            return Response(response_data, status=status.HTTP_202_ACCEPTED)
+        return Response(response_data, status=status.HTTP_200_OK)
 
 
 class EmisorRubrosView(APIView):
