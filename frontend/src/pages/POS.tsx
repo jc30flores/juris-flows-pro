@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Ban, Copy, Download, FilePlus2, Filter, Mail, MessageCircle, Plus } from "lucide-react";
+import {
+  Ban,
+  Copy,
+  Download,
+  FilePlus2,
+  Filter,
+  Mail,
+  MessageCircle,
+  Plus,
+  RefreshCw,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -29,10 +39,10 @@ import { toast } from "@/hooks/use-toast";
 
 const getDteBadgeStyle = (status: string | undefined) => {
   const normalized = status?.toUpperCase();
-  if (normalized === "ACEPTADO" || status === "Aprobado") {
+  if (normalized === "ACEPTADO") {
     return "bg-success/10 text-success";
   }
-  if (normalized === "RECHAZADO" || status === "Rechazado" || normalized === "ERROR") {
+  if (normalized === "RECHAZADO" || normalized === "ERROR") {
     return "bg-destructive/10 text-destructive";
   }
   return "bg-warning/10 text-warning";
@@ -44,6 +54,10 @@ const getDteDisplayStatus = (status: string | undefined) => {
   if (normalized === "RECHAZADO") return "RECHAZADO";
   if (normalized === "PENDIENTE") return "Pendiente";
   return status || "";
+};
+
+const isPendingStatus = (status: string | undefined) => {
+  return status?.toUpperCase() === "PENDIENTE";
 };
 
 const getInvoiceTipo = (invoice: Invoice): string => {
@@ -181,7 +195,7 @@ export default function POS() {
         const invoice = response.data;
 
         const normalizedStatus = invoice.dte_status?.toUpperCase();
-        if (normalizedStatus === "ACEPTADO" || invoice.dte_status === "Aprobado") {
+        if (normalizedStatus === "ACEPTADO") {
           toast({
             title: "Factura creada",
             description:
@@ -189,7 +203,6 @@ export default function POS() {
           });
         } else if (
           normalizedStatus === "RECHAZADO" ||
-          invoice.dte_status === "Rechazado" ||
           normalizedStatus === "ERROR"
         ) {
           toast({
@@ -202,7 +215,7 @@ export default function POS() {
         } else {
           toast({
             title: "Factura creada",
-            description: "DTE pendiente de envío o procesamiento.",
+            description: invoice.dte_message || "DTE pendiente de envío o procesamiento.",
           });
         }
       }
@@ -360,10 +373,32 @@ export default function POS() {
     );
   };
 
+  const handleResendDte = async (invoice: Invoice) => {
+    try {
+      const response = await api.post<Invoice>(`/invoices/${invoice.id}/resend-dte/`);
+      const updatedInvoice = response.data;
+      toast({
+        title: "Reenvío iniciado",
+        description:
+          updatedInvoice.dte_message ||
+          "El DTE pendiente se está reenviando automáticamente.",
+      });
+      await fetchInitialData();
+    } catch (err) {
+      console.error("Error al reenviar DTE", err);
+      toast({
+        title: "No se pudo reenviar el DTE",
+        description: "Intenta nuevamente en unos momentos.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const renderInvoiceActions = (invoice: Invoice) => {
     const codigo = getCodigoGeneracionRaw(invoice);
     const showInvalidar = isCFInvoice(invoice);
     const showNotaCredito = isCCFInvoice(invoice);
+    const showResend = isPendingStatus(invoice.dte_status);
 
     return (
       <div className="flex items-center justify-end gap-2">
@@ -444,6 +479,22 @@ export default function POS() {
               </Button>
             </TooltipTrigger>
             <TooltipContent>Nota de crédito (solo CCF)</TooltipContent>
+          </Tooltip>
+        )}
+
+        {showResend && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Reenviar DTE pendiente"
+                onClick={() => handleResendDte(invoice)}
+              >
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Reenviar DTE pendiente</TooltipContent>
           </Tooltip>
         )}
 

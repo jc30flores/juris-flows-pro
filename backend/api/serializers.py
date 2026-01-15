@@ -8,11 +8,7 @@ from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
-from .dte_cf_service import (
-    send_ccf_dte_for_invoice,
-    send_cf_dte_for_invoice,
-    send_se_dte_for_invoice,
-)
+from .dte_cf_service import send_dte_for_invoice
 from .models import (
     Activity,
     Client,
@@ -81,6 +77,26 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
         fields = "__all__"
         extra_kwargs = {"invoice": {"required": False}}
 
+    def create(self, validated_data):
+        if "original_unit_price" not in validated_data:
+            validated_data["original_unit_price"] = validated_data.get("unit_price") or 0
+        if validated_data.get("price_overridden") is None:
+            validated_data["price_overridden"] = False
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if "original_unit_price" not in validated_data:
+            validated_data["original_unit_price"] = (
+                getattr(instance, "original_unit_price", None)
+                or validated_data.get("unit_price")
+                or 0
+            )
+        if "price_overridden" not in validated_data or validated_data.get("price_overridden") is None:
+            validated_data["price_overridden"] = (
+                getattr(instance, "price_overridden", False) or False
+            )
+        return super().update(instance, validated_data)
+
 
 class InvoiceServiceInputSerializer(serializers.Serializer):
     service_id = serializers.IntegerField(required=False)
@@ -109,6 +125,11 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "dte_status": {"required": False},
         }
 
+    def validate_dte_status(self, value):
+        if value is None:
+            return value
+        return str(value).upper()
+
     def create(self, validated_data):
         items_data = validated_data.pop("items", None)
         services_data = validated_data.pop("services", None)
@@ -116,6 +137,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
         if not validated_data.get("dte_status"):
             validated_data["dte_status"] = Invoice.PENDING
+        else:
+            validated_data["dte_status"] = str(validated_data["dte_status"]).upper()
 
         validated_data.setdefault("has_credit_note", False)
 
@@ -139,12 +162,10 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
         self._upsert_items(invoice, normalized_items, replace=True)
         try:
-            if invoice.doc_type == Invoice.CF:
-                send_cf_dte_for_invoice(invoice)
-            elif invoice.doc_type == Invoice.CCF:
-                send_ccf_dte_for_invoice(invoice)
-            elif invoice.doc_type == Invoice.SX:
-                send_se_dte_for_invoice(invoice)
+            send_dte_for_invoice(
+                invoice,
+                ensure_identifiers=True,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.exception(
                 "Error sending DTE for invoice %s", invoice.id, exc_info=exc
@@ -208,6 +229,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
         if not validated_data.get("dte_status"):
             validated_data["dte_status"] = instance.dte_status or Invoice.PENDING
+        else:
+            validated_data["dte_status"] = str(validated_data["dte_status"]).upper()
 
         if services_data is not None:
             normalized_items = self._normalize_services(

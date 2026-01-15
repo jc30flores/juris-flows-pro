@@ -10,6 +10,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.timezone import localtime
 from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -26,6 +27,7 @@ from .models import (
     StaffUser,
 )
 from .connectivity import get_connectivity_status
+from .dte_cf_service import send_dte_for_invoice
 from .serializers import (
     ActivitySerializer,
     ClientSerializer,
@@ -85,7 +87,7 @@ def filter_invoices_queryset(queryset, params):
     if payment_method:
         queryset = queryset.filter(payment_method=payment_method)
     if dte_status:
-        queryset = queryset.filter(dte_status=dte_status)
+        queryset = queryset.filter(dte_status__iexact=dte_status)
 
     return queryset
 
@@ -237,6 +239,39 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             data["dte_message"] = dte_message
 
         return Response(data, status=status.HTTP_201_CREATED, headers=headers)
+
+    @action(detail=True, methods=["post"], url_path="resend-dte")
+    def resend_dte(self, request, pk=None):
+        invoice = self.get_object()
+        if str(invoice.dte_status).upper() != Invoice.PENDING:
+            return Response(
+                {"detail": "Solo se permite reenviar DTEs en estado PENDIENTE."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if invoice.dte_is_sending:
+            return Response(
+                {"detail": "El DTE ya está siendo enviado."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        invoice.dte_is_sending = True
+        invoice.save(update_fields=["dte_is_sending"])
+        try:
+            send_dte_for_invoice(
+                invoice,
+                force_now_timestamp=True,
+                ensure_identifiers=True,
+            )
+        finally:
+            invoice.dte_is_sending = False
+            invoice.save(update_fields=["dte_is_sending"])
+
+        serializer = self.get_serializer(invoice)
+        data = serializer.data
+        dte_message = getattr(invoice, "_dte_message", None)
+        if dte_message:
+            data["dte_message"] = dte_message
+        return Response(data, status=status.HTTP_200_OK)
 
 
 class InvoiceItemViewSet(viewsets.ModelViewSet):

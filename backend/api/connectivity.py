@@ -49,6 +49,7 @@ class ConnectivitySentinel:
         self.timeout = timeout
         self._started = False
         self._thread: threading.Thread | None = None
+        self._last_api_ok: bool | None = None
 
     @property
     def started(self) -> bool:
@@ -84,6 +85,18 @@ class ConnectivitySentinel:
         self._mark_status("internet", internet_ok, internet_reason if not internet_ok else "none")
         api_ok, api_reason = self._check_target("api", self.api_url)
         self._mark_status("api", api_ok, api_reason if not api_ok else "none")
+        if api_ok and self._last_api_ok is not True:
+            self._handle_api_recovered()
+        self._last_api_ok = api_ok
+
+    def _handle_api_recovered(self) -> None:
+        try:
+            from .dte_autoresend import autoresend_pending_invoices
+
+            total = autoresend_pending_invoices()
+            print(f"[CONNECTIVITY] API disponible. Autoresend DTE pendientes: {total}.")
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("Failed to autoresend pending DTE after API recovery")
 
     def _loop(self) -> None:
         while True:

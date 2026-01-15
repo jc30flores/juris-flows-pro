@@ -4,7 +4,7 @@ from unittest.mock import patch
 from django.test import TestCase
 from django.utils import timezone
 
-from api.dte_cf_service import send_cf_dte_for_invoice
+from api.dte_cf_service import send_dte_for_invoice
 from api.models import Client, Invoice, InvoiceItem, Service, ServiceCategory
 
 
@@ -12,6 +12,7 @@ class DummyResponse:
     def __init__(self, payload):
         self._payload = payload
         self.text = json.dumps(payload)
+        self.status_code = 200
 
     def json(self):
         return self._payload
@@ -67,7 +68,7 @@ class SendCFDteTests(TestCase):
             }
         )
 
-        record = send_cf_dte_for_invoice(self.invoice)
+        record = send_dte_for_invoice(self.invoice, ensure_identifiers=True)
 
         payload = record.request_payload
         self.assertEqual(
