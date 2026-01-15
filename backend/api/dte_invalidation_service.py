@@ -86,6 +86,10 @@ def _format_date(value) -> str:
     return str(value)
 
 
+def _s(value) -> str:
+    return str(value or "").strip()
+
+
 def get_invalidation_preview(invoice: Invoice) -> dict:
     record = invoice.dte_records.order_by("-created_at").first()
     if not record:
@@ -149,7 +153,11 @@ def invalidate_dte_for_invoice(
         or record.control_number
         or ""
     )
+    if not codigo_original or not numero_control:
+        raise ValueError("Faltan datos mínimos del DTE para invalidar.")
     tipo_dte = _resolve_tipo_dte(invoice, ident)
+    if not tipo_dte:
+        raise ValueError("No se pudo identificar el tipo de DTE para invalidación.")
     fec_emi = ident.get("fecEmi") or ident.get("fec_emi") or _format_date(invoice.date)
     monto_iva_raw = resumen.get("totalIva") or resumen.get("total_iva")
     monto_iva = Decimal(str(monto_iva_raw)) if monto_iva_raw not in (None, "") else None
@@ -169,7 +177,7 @@ def invalidate_dte_for_invoice(
     responsable_doc = emitter_info.get("nit", "")
     motivo_payload = {
         "tipoAnulacion": int(tipo_anulacion),
-        "motivoAnulacion": motivo_anulacion or "",
+        "motivoAnulacion": _s(motivo_anulacion),
         "nombreResponsable": responsable_nombre,
         "tipDocResponsable": "36" if responsable_doc else "",
         "numDocResponsable": responsable_doc or "",
@@ -201,22 +209,54 @@ def invalidate_dte_for_invoice(
             "motivo": motivo_payload,
         }
     }
+    motivo_payload = payload["invalidacion"].get("motivo") or {}
+    emisor_payload = payload["invalidacion"].get("emisor") or {}
+    fallback_name = (
+        _s(getattr(staff_user, "full_name", None))
+        or _s(getattr(staff_user, "username", None))
+        or _s(emisor_payload.get("nombreComercial"))
+        or _s(emisor_payload.get("nombre"))
+        or "EMISOR"
+    )
+    fallback_doc = (
+        _s(motivo_payload.get("numDocSolicita"))
+        or _s(emisor_payload.get("nit"))
+        or "00000000-0"
+    )
+    fallback_doc_type = (
+        _s(motivo_payload.get("tipDocSolicita"))
+        or ("36" if _s(emisor_payload.get("nit")) else "")
+        or "13"
+    )
+    solicita_nombre = _s(motivo_payload.get("nombreSolicitante")) or fallback_name
+    solicita_tipo_doc = _s(motivo_payload.get("tipDocSolicitante")) or fallback_doc_type
+    solicita_num_doc = _s(motivo_payload.get("numDocSolicitante")) or fallback_doc
+    responsable_nombre = _s(motivo_payload.get("nombreResponsable")) or solicita_nombre
+    responsable_tipo_doc = _s(motivo_payload.get("tipDocResponsable")) or solicita_tipo_doc
+    responsable_num_doc = _s(motivo_payload.get("numDocResponsable")) or solicita_num_doc
 
     invalidation = DTEInvalidation.objects.create(
         invoice=invoice,
         dte_record=record,
         requested_by=staff_user,
         status=DTEInvalidation.SENDING,
-        codigo_generacion=codigo_generacion,
+        codigo_generacion=_s(codigo_generacion),
         tipo_anulacion=int(tipo_anulacion),
-        motivo_anulacion=motivo_anulacion or "",
-        original_codigo_generacion=codigo_original or "",
-        original_numero_control=numero_control or "",
-        original_sello_recibido=sello_recibido or "",
-        original_tipo_dte=tipo_dte or "",
-        original_fec_emi=fec_emi or "",
+        motivo_anulacion=_s(motivo_anulacion),
+        solicita_nombre=solicita_nombre,
+        solicita_tipo_doc=solicita_tipo_doc,
+        solicita_num_doc=solicita_num_doc,
+        responsable_nombre=responsable_nombre,
+        responsable_tipo_doc=responsable_tipo_doc,
+        responsable_num_doc=responsable_num_doc,
+        original_codigo_generacion=_s(codigo_original),
+        original_numero_control=_s(numero_control),
+        original_sello_recibido=_s(sello_recibido),
+        original_tipo_dte=_s(tipo_dte),
+        original_fec_emi=_s(fec_emi),
         original_monto_iva=monto_iva,
         request_payload=payload,
+        hacienda_state="",
         sent_at=timezone.now(),
     )
 

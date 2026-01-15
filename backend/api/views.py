@@ -301,7 +301,7 @@ class DTEInvalidateView(APIView):
         invoice_id = request.data.get("invoice_id")
         if not invoice_id:
             return Response(
-                {"detail": "invoice_id es requerido."},
+                {"ok": False, "message": "invoice_id es requerido."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -309,33 +309,36 @@ class DTEInvalidateView(APIView):
             invoice = Invoice.objects.select_related("client").get(id=invoice_id)
         except Invoice.DoesNotExist:
             return Response(
-                {"detail": "Factura no encontrada."},
+                {"ok": False, "message": "Factura no encontrada."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
         current_status = (invoice.dte_status or "").upper()
         if current_status == Invoice.INVALIDATED:
             return Response(
-                {"detail": "La factura ya está invalidada."},
-                status=status.HTTP_400_BAD_REQUEST,
+                {"ok": False, "message": "La factura ya está invalidada."},
+                status=status.HTTP_409_CONFLICT,
             )
         if current_status != Invoice.APPROVED:
             return Response(
-                {"detail": "Solo se puede invalidar un DTE aceptado por Hacienda."},
+                {
+                    "ok": False,
+                    "message": "Solo se puede invalidar un DTE aceptado por Hacienda.",
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         tipo_anulacion = request.data.get("tipo_anulacion") or request.data.get("tipoAnulacion")
         if tipo_anulacion is None:
             return Response(
-                {"detail": "tipo_anulacion es requerido."},
+                {"ok": False, "message": "tipo_anulacion es requerido."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
             tipo_anulacion_value = int(tipo_anulacion)
         except (TypeError, ValueError):
             return Response(
-                {"detail": "tipo_anulacion debe ser numérico."},
+                {"ok": False, "message": "tipo_anulacion debe ser numérico."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -350,16 +353,24 @@ class DTEInvalidateView(APIView):
                 motivo_anulacion=motivo,
             )
         except ValueError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"ok": False, "message": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("Error invalidating DTE (invoice_id=%s)", invoice_id)
+            return Response(
+                {
+                    "ok": False,
+                    "message": "Ocurrió un error inesperado al invalidar el DTE.",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         response_data = {
+            "ok": True,
+            "invalidation_id": invalidation.id,
             "status": invalidation.status,
             "hacienda_state": invalidation.hacienda_state,
             "message": message,
-            "invalidation": {
-                "id": invalidation.id,
-                "codigo_generacion": invalidation.codigo_generacion,
-            },
+            "codigo_generacion": invalidation.codigo_generacion,
         }
         response_status = status.HTTP_200_OK
         if invalidation.status == "PENDIENTE":
