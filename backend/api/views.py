@@ -374,6 +374,8 @@ class DTEInvalidateView(APIView):
         }
         if invalidation.status == "RECHAZADO":
             response_data["details"] = invalidation.response_payload
+            if (invalidation.error_code or "").startswith("bridge_"):
+                return Response(response_data, status=status.HTTP_502_BAD_GATEWAY)
             return Response(response_data, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
         if invalidation.status == "PENDIENTE":
             response_data["retry"] = True

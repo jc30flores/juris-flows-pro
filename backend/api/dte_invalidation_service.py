@@ -79,6 +79,17 @@ def _resolve_tipo_dte(invoice: Invoice, ident: dict) -> str:
     return mapping.get(invoice.doc_type, "")
 
 
+def _extract_receptor(payload: dict | None) -> dict:
+    if not isinstance(payload, dict):
+        return {}
+    dte_payload = payload.get("dte")
+    if isinstance(dte_payload, dict):
+        receptor = dte_payload.get("receptor")
+        if isinstance(receptor, dict):
+            return receptor
+    return {}
+
+
 def _format_date(value) -> str:
     if not value:
         return ""
@@ -89,6 +100,7 @@ def _format_date(value) -> str:
 
 def _s(value) -> str:
     return str(value or "").strip()
+
 
 def _mask_headers(headers: dict) -> dict:
     masked = {}
@@ -179,36 +191,59 @@ def invalidate_dte_for_invoice(
         raise ValueError("No se pudo identificar el tipo de DTE para invalidación.")
     fec_emi = ident.get("fecEmi") or ident.get("fec_emi") or _format_date(invoice.date)
     monto_iva_raw = resumen.get("totalIva") or resumen.get("total_iva")
-    monto_iva = Decimal(str(monto_iva_raw)) if monto_iva_raw not in (None, "") else None
+    monto_iva = (
+        Decimal(str(monto_iva_raw)) if monto_iva_raw not in (None, "") else Decimal("0")
+    )
+
+    receptor_payload = _extract_receptor(record.request_payload or {})
+    receptor_nombre = _s(receptor_payload.get("nombre")) or "CONSUMIDOR FINAL FRECUENTE"
+    receptor_doc = (
+        _s(receptor_payload.get("numDocumento"))
+        or _s(receptor_payload.get("nit"))
+        or _s(receptor_payload.get("dui"))
+        or "00000000-0"
+    )
+    receptor_tipo_doc = _s(receptor_payload.get("tipoDocumento")) or "13"
+    receptor_telefono = _s(receptor_payload.get("telefono")) or "77777777"
+    receptor_correo = _s(receptor_payload.get("correo")) or "facturacioncji@gmail.com"
 
     now_local = timezone.localtime()
     codigo_generacion = str(uuid.uuid4()).upper()
     ambiente = ident.get("ambiente") or "01"
 
     emitter_info, _, _ = _resolve_emitter_info(staff_user)
-    responsable_nombre = (
-        staff_user.full_name
-        if staff_user and staff_user.full_name
-        else staff_user.username
-        if staff_user and staff_user.username
-        else emitter_info.get("nombre", "")
+    emisor_nombre = _s(emitter_info.get("nombre"))
+    emisor_nombre_comercial = _s(emitter_info.get("nombreComercial"))
+    emisor_nit = _s(emitter_info.get("nit"))
+    emisor_telefono = _s(emitter_info.get("telefono"))
+    emisor_correo = _s(emitter_info.get("correo"))
+    nom_establecimiento = (
+        _s(emitter_info.get("nomEstablecimiento"))
+        or emisor_nombre_comercial
+        or emisor_nombre
     )
-    responsable_doc = emitter_info.get("nit", "")
+    responsable_nombre = (
+        _s(getattr(staff_user, "full_name", None))
+        or _s(getattr(staff_user, "username", None))
+        or emisor_nombre
+    )
+    responsable_doc = emisor_nit or "00000000-0"
+    motivo_anulacion_text = _s(motivo_anulacion) or "Rescindir de la operación realizada"
     motivo_payload = {
-        "tipoAnulacion": int(tipo_anulacion),
-        "motivoAnulacion": _s(motivo_anulacion),
+        "tipoAnulacion": int(tipo_anulacion or 2),
+        "motivoAnulacion": motivo_anulacion_text,
         "nombreResponsable": responsable_nombre,
-        "tipDocResponsable": "36" if responsable_doc else "",
-        "numDocResponsable": responsable_doc or "",
-        "nombreSolicitante": responsable_nombre,
-        "tipDocSolicitante": "36" if responsable_doc else "",
-        "numDocSolicitante": responsable_doc or "",
+        "tipDocResponsable": "36",
+        "numDocResponsable": responsable_doc,
+        "nombreSolicita": responsable_nombre,
+        "tipDocSolicita": "36",
+        "numDocSolicita": responsable_doc,
     }
 
     payload = {
         "invalidacion": {
             "identificacion": {
-                "version": 1,
+                "version": 2,
                 "ambiente": ambiente,
                 "codigoGeneracion": codigo_generacion,
                 "fecAnula": now_local.strftime("%Y-%m-%d"),
@@ -216,6 +251,16 @@ def invalidate_dte_for_invoice(
             },
             "emisor": {
                 **emitter_info,
+                "nit": emisor_nit,
+                "nombre": emisor_nombre,
+                "tipoEstablecimiento": _s(emitter_info.get("tipoEstablecimiento")),
+                "nomEstablecimiento": nom_establecimiento,
+                "codEstableMH": _s(emitter_info.get("codEstableMH")),
+                "codEstable": _s(emitter_info.get("codEstable")),
+                "codPuntoVentaMH": _s(emitter_info.get("codPuntoVentaMH")),
+                "codPuntoVenta": _s(emitter_info.get("codPuntoVenta")),
+                "telefono": emisor_telefono,
+                "correo": emisor_correo,
             },
             "documento": {
                 "tipoDte": tipo_dte,
@@ -223,7 +268,13 @@ def invalidate_dte_for_invoice(
                 "numeroControl": numero_control,
                 "selloRecibido": sello_recibido,
                 "fecEmi": fec_emi,
-                "montoIva": float(monto_iva) if monto_iva is not None else None,
+                "montoIva": float(monto_iva),
+                "codigoGeneracionR": None,
+                "tipoDocumento": receptor_tipo_doc,
+                "numDocumento": receptor_doc,
+                "nombre": receptor_nombre,
+                "telefono": receptor_telefono,
+                "correo": receptor_correo,
             },
             "motivo": motivo_payload,
         }
@@ -233,7 +284,6 @@ def invalidate_dte_for_invoice(
     fallback_name = (
         _s(getattr(staff_user, "full_name", None))
         or _s(getattr(staff_user, "username", None))
-        or _s(emisor_payload.get("nombreComercial"))
         or _s(emisor_payload.get("nombre"))
         or "EMISOR"
     )
@@ -244,12 +294,11 @@ def invalidate_dte_for_invoice(
     )
     fallback_doc_type = (
         _s(motivo_payload.get("tipDocSolicita"))
-        or ("36" if _s(emisor_payload.get("nit")) else "")
-        or "13"
+        or "36"
     )
-    solicita_nombre = _s(motivo_payload.get("nombreSolicitante")) or fallback_name
-    solicita_tipo_doc = _s(motivo_payload.get("tipDocSolicitante")) or fallback_doc_type
-    solicita_num_doc = _s(motivo_payload.get("numDocSolicitante")) or fallback_doc
+    solicita_nombre = _s(motivo_payload.get("nombreSolicita")) or fallback_name
+    solicita_tipo_doc = _s(motivo_payload.get("tipDocSolicita")) or fallback_doc_type
+    solicita_num_doc = _s(motivo_payload.get("numDocSolicita")) or fallback_doc
     responsable_nombre = _s(motivo_payload.get("nombreResponsable")) or solicita_nombre
     responsable_tipo_doc = _s(motivo_payload.get("tipDocResponsable")) or solicita_tipo_doc
     responsable_num_doc = _s(motivo_payload.get("numDocResponsable")) or solicita_num_doc
@@ -260,8 +309,8 @@ def invalidate_dte_for_invoice(
         requested_by=staff_user,
         status=DTEInvalidation.SENDING,
         codigo_generacion=_s(codigo_generacion),
-        tipo_anulacion=int(tipo_anulacion),
-        motivo_anulacion=_s(motivo_anulacion),
+        tipo_anulacion=int(tipo_anulacion or 2),
+        motivo_anulacion=motivo_anulacion_text,
         solicita_nombre=solicita_nombre,
         solicita_tipo_doc=solicita_tipo_doc,
         solicita_num_doc=solicita_num_doc,
@@ -332,10 +381,10 @@ def invalidate_dte_for_invoice(
                 "status_code": response.status_code,
             },
         }
-        invalidation.status = DTEInvalidation.PENDING
+        invalidation.status = DTEInvalidation.REJECTED
         invalidation.hacienda_state = "SIN_RESPUESTA"
         invalidation.error_message = response.text
-        invalidation.error_code = str(response.status_code)
+        invalidation.error_code = f"bridge_{response.status_code}"
         invalidation.processed_at = timezone.now()
         invalidation.save(
             update_fields=[
@@ -347,7 +396,10 @@ def invalidate_dte_for_invoice(
                 "processed_at",
             ]
         )
-        return invalidation, "Hacienda no disponible. La invalidación quedó pendiente."
+        return (
+            invalidation,
+            "Error interno del puente de Hacienda. Intente nuevamente más tarde.",
+        )
 
     try:
         response_data = response.json()
