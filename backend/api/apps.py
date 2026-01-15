@@ -34,6 +34,21 @@ class ApiConfig(AppConfig):
             return False
 
         argv = sys.argv
+        skip_commands = {
+            "makemigrations",
+            "migrate",
+            "showmigrations",
+            "sqlmigrate",
+            "shell",
+            "check",
+            "test",
+            "createsuperuser",
+            "collectstatic",
+            "loaddata",
+            "dumpdata",
+        }
+        if any(cmd in arg for cmd in skip_commands for arg in argv):
+            return False
         if any("runserver" in arg for arg in argv):
             return os.environ.get("RUN_MAIN") == "true"
 

@@ -121,10 +121,6 @@ def _ensure_dte_identifiers(
     if invoice.dte_status != "PENDIENTE":
         invoice.dte_status = "PENDIENTE"
         updates.append("dte_status")
-    if invoice.estado_dte != "PENDIENTE":
-        invoice.estado_dte = "PENDIENTE"
-        updates.append("estado_dte")
-
     if updates:
         invoice.save(update_fields=updates)
 
@@ -183,7 +179,6 @@ def _apply_invoice_send_update(
 ) -> None:
     normalized_status = (status_value or "").upper()
     invoice.dte_status = normalized_status
-    invoice.estado_dte = normalized_status
     if error_message is None:
         invoice.last_dte_error = None
     else:
@@ -192,7 +187,6 @@ def _apply_invoice_send_update(
     invoice.save(
         update_fields=[
             "dte_status",
-            "estado_dte",
             "last_dte_sent_at",
             "dte_send_attempts",
             "last_dte_error",
@@ -1300,7 +1294,6 @@ def resend_pending_dtes(limit: int = 50) -> int:
             Invoice.objects.select_for_update(skip_locked=True)
             .filter(
                 models.Q(dte_status__iexact="pendiente")
-                | models.Q(estado_dte__iexact="pendiente")
             )
             .order_by("id")[:limit]
         )

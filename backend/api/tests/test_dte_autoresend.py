@@ -48,7 +48,6 @@ class ResendPendingDteTests(TestCase):
             doc_type=Invoice.CF,
             payment_method=Invoice.CASH,
             dte_status="PENDIENTE",
-            estado_dte="PENDIENTE",
             observations="",
             total="100.00",
             numero_control="DTE-01-M001P001-000000000000001",
@@ -76,6 +75,5 @@ class ResendPendingDteTests(TestCase):
 
         self.assertEqual(resent, 1)
         self.assertEqual(self.invoice.dte_status, "ACEPTADO")
-        self.assertEqual(self.invoice.estado_dte, "ACEPTADO")
         self.assertIsNotNone(self.invoice.last_dte_sent_at)
         self.assertGreaterEqual(self.invoice.dte_send_attempts, 1)

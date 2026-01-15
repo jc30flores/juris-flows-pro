@@ -85,6 +85,5 @@ class SendCFDteTests(TestCase):
 
         self.assertEqual(record.status, "PENDIENTE")
         self.assertEqual(self.invoice.dte_status, "PENDIENTE")
-        self.assertEqual(self.invoice.estado_dte, "PENDIENTE")
         self.assertTrue(self.invoice.numero_control)
         self.assertTrue(self.invoice.codigo_generacion)

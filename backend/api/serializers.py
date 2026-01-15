@@ -103,13 +103,14 @@ class InvoiceSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "number": {"required": False},
             "dte_status": {"required": False},
-            "estado_dte": {"required": False},
+            "estado_dte": {"read_only": True},
         }
 
     def create(self, validated_data):
         items_data = validated_data.pop("items", None)
         services_data = validated_data.pop("services", None)
         validated_data.pop("override_token", None)
+        validated_data.pop("estado_dte", None)
         staff_user = self.context.get("staff_user")
         request = self.context.get("request")
 
@@ -126,10 +127,6 @@ class InvoiceSerializer(serializers.ModelSerializer):
             validated_data["dte_status"] = Invoice.PENDING
         else:
             validated_data["dte_status"] = self._normalize_status(validated_data["dte_status"])
-        if not validated_data.get("estado_dte"):
-            validated_data["estado_dte"] = Invoice.PENDING
-        else:
-            validated_data["estado_dte"] = self._normalize_status(validated_data["estado_dte"])
 
         validated_data.setdefault("has_credit_note", False)
 
@@ -205,6 +202,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
         items_data = validated_data.pop("items", None)
         services_data = validated_data.pop("services", None)
         validated_data.pop("override_token", None)
+        validated_data.pop("estado_dte", None)
         staff_user = self.context.get("staff_user")
         request = self.context.get("request")
 
@@ -212,10 +210,6 @@ class InvoiceSerializer(serializers.ModelSerializer):
             validated_data["dte_status"] = instance.dte_status or Invoice.PENDING
         else:
             validated_data["dte_status"] = self._normalize_status(validated_data["dte_status"])
-        if not validated_data.get("estado_dte"):
-            validated_data["estado_dte"] = instance.estado_dte or Invoice.PENDING
-        else:
-            validated_data["estado_dte"] = self._normalize_status(validated_data["estado_dte"])
 
         normalized_items = None
         if services_data is not None:
