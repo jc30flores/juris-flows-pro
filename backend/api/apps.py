@@ -1,6 +1,9 @@
 import logging
+import os
+import sys
 
 from django.apps import AppConfig
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +13,10 @@ class ApiConfig(AppConfig):
     name = "api"
 
     def ready(self):
+        if not getattr(settings, "CONNECTIVITY_SENTINEL_ENABLED", True):
+            return
+        if "runserver" in sys.argv and os.environ.get("RUN_MAIN") != "true":
+            return
         try:
             from .connectivity import CONNECTIVITY_SENTINEL
 

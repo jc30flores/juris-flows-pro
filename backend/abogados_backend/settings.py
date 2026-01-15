@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlparse
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -61,16 +62,33 @@ TEMPLATES = [
 WSGI_APPLICATION = "abogados_backend.wsgi.application"
 ASGI_APPLICATION = "abogados_backend.asgi.application"
 
-DATABASES = {
-    "default": {
+def _database_from_url(database_url: str) -> dict:
+    parsed = urlparse(database_url)
+    return {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME", "relitedb"),
-        "USER": os.getenv("DB_USER", "jarvis"),
-        "PASSWORD": os.getenv("DB_PASSWORD", "diez2030"),
-        "HOST": os.getenv("DB_HOST", "localhost"),
-        "PORT": os.getenv("DB_PORT", "5432"),
+        "NAME": parsed.path.lstrip("/"),
+        "USER": parsed.username or "",
+        "PASSWORD": parsed.password or "",
+        "HOST": parsed.hostname or "",
+        "PORT": str(parsed.port or ""),
     }
-}
+
+
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+if DATABASE_URL:
+    DATABASES = {"default": _database_from_url(DATABASE_URL)}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.getenv("DB_NAME", "abogados"),
+            "USER": os.getenv("DB_USER", "jarvis"),
+            "PASSWORD": os.getenv("DB_PASSWORD", "diez2030"),
+            "HOST": os.getenv("DB_HOST", "127.0.0.1"),
+            "PORT": os.getenv("DB_PORT", "5432"),
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {

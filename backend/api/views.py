@@ -13,7 +13,7 @@ from rest_framework import permissions, status, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .dte_cf_service import send_dte_for_invoice
+from .dte_cf_service import send_dte_for_invoice, send_dte_invalidation
 from .models import (
     Activity,
     Client,
@@ -86,7 +86,7 @@ def filter_invoices_queryset(queryset, params):
     if payment_method:
         queryset = queryset.filter(payment_method=payment_method)
     if dte_status:
-        queryset = queryset.filter(dte_status=dte_status)
+        queryset = queryset.filter(dte_status__iexact=dte_status)
 
     return queryset
 
@@ -231,8 +231,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 class ResendDTEView(APIView):
     permission_classes = [permissions.AllowAny]
 
-    def post(self, request):
-        invoice_id = request.data.get("invoice_id")
+    def post(self, request, invoice_id=None):
+        invoice_id = invoice_id or request.data.get("invoice_id")
         if not invoice_id:
             return Response(
                 {"detail": "invoice_id es requerido."},
@@ -247,8 +247,8 @@ class ResendDTEView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        current_status = (invoice.dte_status or "").upper()
-        if current_status in {"ACEPTADO", "APROBADO", "RECHAZADO"}:
+        current_status = (invoice.dte_status or invoice.estado_dte or "").upper()
+        if current_status in {"ACEPTADO", "RECHAZADO"}:
             return Response(
                 {"detail": "El DTE no puede reenviarse en el estado actual."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -265,6 +265,87 @@ class ResendDTEView(APIView):
 
         response_status = status.HTTP_200_OK
         if getattr(invoice, "_dte_pending_due_to_api_down", False):
+            response_status = status.HTTP_202_ACCEPTED
+
+        return Response(data, status=response_status)
+
+
+class DTEInvalidateView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        invoice_id = request.data.get("invoice_id")
+        tipo_anulacion = request.data.get("tipo_anulacion") or request.data.get("tipoAnulacion")
+        motivo = request.data.get("motivo_anulacion") or request.data.get("motivoAnulacion") or ""
+
+        if not invoice_id:
+            return Response(
+                {"detail": "invoice_id es requerido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not tipo_anulacion:
+            return Response(
+                {"detail": "tipo_anulacion es requerido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            invoice = Invoice.objects.prefetch_related("dte_records").get(id=invoice_id)
+        except Invoice.DoesNotExist:
+            return Response(
+                {"detail": "Factura no encontrada."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        current_status = (invoice.dte_status or invoice.estado_dte or "").upper()
+        if current_status == "INVALIDADO":
+            return Response(
+                {"detail": "La factura ya está invalidada."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if current_status != "ACEPTADO":
+            return Response(
+                {"detail": "Solo se pueden invalidar facturas ACEPTADAS."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not invoice.numero_control or not invoice.codigo_generacion:
+            return Response(
+                {"detail": "Faltan identificadores del DTE para invalidar."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        record = invoice.dte_records.order_by("-created_at").first()
+        sello_recibido = ""
+        if record and isinstance(record.response_payload, dict):
+            sello_recibido = (
+                record.response_payload.get("selloRecibido")
+                or (record.response_payload.get("respuesta_hacienda") or {}).get("selloRecibido")
+                or ""
+            )
+        if not sello_recibido:
+            return Response(
+                {"detail": "No se encontró sello de recibido para invalidar."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        staff_user = get_staff_user_from_request(request)
+        invalidation = send_dte_invalidation(
+            invoice,
+            staff_user=staff_user,
+            tipo_anulacion=int(tipo_anulacion),
+            motivo=motivo,
+        )
+        invoice.refresh_from_db()
+        data = InvoiceSerializer(invoice).data
+        dte_message = getattr(invoice, "_dte_message", None)
+        if dte_message:
+            data["dte_message"] = dte_message
+        data["invalidation_status"] = invalidation.status
+        data["invalidation_id"] = invalidation.id
+
+        response_status = status.HTTP_200_OK
+        if invalidation.status == "PENDIENTE":
             response_status = status.HTTP_202_ACCEPTED
 
         return Response(data, status=response_status)

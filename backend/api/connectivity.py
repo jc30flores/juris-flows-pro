@@ -31,6 +31,7 @@ CONNECTIVITY_STATUS: Dict[str, Dict[str, object]] = {
         "last_ok": None,
         "last_error": None,
         "reason": "init",
+        "last_autoresend_at": None,
     },
 }
 
@@ -49,6 +50,10 @@ class ConnectivitySentinel:
         self.timeout = timeout
         self._started = False
         self._thread: threading.Thread | None = None
+        self._last_api_ok = CONNECTIVITY_STATUS["api"]["ok"]
+        self._last_autoresend_at = None
+        self.autoresend_backoff = getattr(settings, "DTE_AUTORETRY_BACKOFF_SECONDS", 60)
+        self.autoresend_limit = getattr(settings, "DTE_AUTORETRY_BATCH_LIMIT", 50)
 
     @property
     def started(self) -> bool:
@@ -84,6 +89,35 @@ class ConnectivitySentinel:
         self._mark_status("internet", internet_ok, internet_reason if not internet_ok else "none")
         api_ok, api_reason = self._check_target("api", self.api_url)
         self._mark_status("api", api_ok, api_reason if not api_ok else "none")
+        self._handle_api_transition(api_ok)
+
+    def _handle_api_transition(self, api_ok: bool) -> None:
+        previous_ok = self._last_api_ok
+        self._last_api_ok = api_ok
+        if previous_ok is False and api_ok is True:
+            self._trigger_autoresend()
+
+    def _trigger_autoresend(self) -> None:
+        now = timezone.now()
+        if self._last_autoresend_at:
+            elapsed = (now - self._last_autoresend_at).total_seconds()
+            if elapsed < self.autoresend_backoff:
+                logger.info(
+                    "Skipping autoresend (backoff active: %.1fs < %ss).",
+                    elapsed,
+                    self.autoresend_backoff,
+                )
+                return
+        try:
+            from .dte_cf_service import resend_pending_dtes
+
+            resent = resend_pending_dtes(limit=self.autoresend_limit)
+            logger.info("Autoresend triggered after recovery. Resent: %s", resent)
+            CONNECTIVITY_STATUS["api"]["last_autoresend_at"] = now.isoformat()
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("Autoresend failed after API recovery")
+        finally:
+            self._last_autoresend_at = now
 
     def _loop(self) -> None:
         while True:
@@ -98,7 +132,6 @@ class ConnectivitySentinel:
         if self._started:
             return
         self._started = True
-        self.run_once()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
