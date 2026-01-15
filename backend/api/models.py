@@ -189,7 +189,7 @@ class DTEInvalidation(models.Model):
         related_name="dte_invalidations",
     )
     dte_record = models.ForeignKey(
-        "DTERecord",
+        DTERecord,
         on_delete=models.SET_NULL,
         related_name="invalidations",
         null=True,
