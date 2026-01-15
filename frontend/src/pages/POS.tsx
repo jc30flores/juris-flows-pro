@@ -425,6 +425,10 @@ export default function POS() {
 
   const totalInvoicesAmount = useMemo(() => {
     return filteredInvoices.reduce((sum, invoice) => {
+      const status = String(invoice.dte_status || "").toUpperCase();
+      if (status !== "ACEPTADO") {
+        return sum;
+      }
       const total = Number(invoice.total) || 0;
       return sum + total;
     }, 0);
