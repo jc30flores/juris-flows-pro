@@ -44,7 +44,7 @@ class Migration(migrations.Migration):
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="invalidations",
-                        to="api.dterecord",
+                        to="api.DTERecord",
                     ),
                 ),
                 (
