@@ -8,6 +8,7 @@ import requests
 from django.conf import settings
 from django.utils import timezone
 
+from .dte_urls import get_dte_base_url
 logger = logging.getLogger(__name__)
 
 
@@ -15,7 +16,7 @@ def _resolve_connectivity_url() -> str | None:
     override_url = str(getattr(settings, "CONNECTIVITY_CHECK_URL", "") or "").strip()
     if override_url:
         return override_url
-    dte_base_url = str(getattr(settings, "DTE_API_BASE_URL", "") or "").strip()
+    dte_base_url = get_dte_base_url()
     if dte_base_url:
         return f"{dte_base_url.rstrip('/')}/health"
     return None

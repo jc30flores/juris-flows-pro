@@ -9,6 +9,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from .dte_cf_service import EMITTER_INFO
+from .dte_urls import build_dte_url
 from .models import DTEInvalidation, DTERecord, Invoice, StaffUser
 
 logger = logging.getLogger(__name__)
@@ -313,10 +314,7 @@ def send_dte_invalidation(
     if not record:
         raise ValueError("No se encontró un DTERecord asociado a la factura.")
 
-    base_url = str(getattr(settings, "DTE_API_BASE_URL", "") or "").strip()
-    if base_url:
-        base_url = base_url.rstrip("/")
-    invalidation_url = f"{base_url}{INVALIDATION_PATH}" if base_url else ""
+    invalidation_url = build_dte_url(INVALIDATION_PATH)
 
     payload = build_invalidation_payload(
         invoice,

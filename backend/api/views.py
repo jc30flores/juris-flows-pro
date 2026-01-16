@@ -33,6 +33,7 @@ from .dte_invalidation_service import (
     extract_invalidation_requirements,
     send_dte_invalidation,
 )
+from .dte_urls import get_dte_base_url
 from .serializers import (
     ActivitySerializer,
     ClientSerializer,
@@ -300,7 +301,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="invalidate-dte")
     def invalidate_dte(self, request, pk=None):
         invoice = self.get_object()
-        dte_base_url = str(getattr(settings, "DTE_API_BASE_URL", "") or "").strip()
+        dte_base_url = get_dte_base_url()
         if not dte_base_url:
             return _build_invalidation_response(
                 ok=False,
