@@ -9,6 +9,9 @@ from django.db import transaction
 from django.utils import timezone
 
 from .connectivity import get_connectivity_status as _connectivity_status_snapshot
+from .dte_auth import build_dte_headers
+from .dte_config import get_dte_base_url, get_mh_ambiente
+from .dte_urls import build_dte_url
 from .models import Activity, DTEControlCounter, DTERecord, Invoice, InvoiceItem, Service
 
 logger = logging.getLogger(__name__)
@@ -889,23 +892,27 @@ def send_dte_for_invoice(
     doc_type_override: str | None = None,
 ) -> DTERecord:
     doc_type = doc_type_override or invoice.doc_type
+    base_url = get_dte_base_url()
+    if not base_url:
+        raise ValueError("DTE_BASE_URL no configurada.")
+
     config = {
         Invoice.CF: {
             "tipo_dte": "01",
             "dte_type": "CF",
-            "url": "https://t12152606851014.cheros.dev/api/v1/dte/factura",
+            "url": build_dte_url("/api/v1/dte/factura"),
             "builder": _build_cf_payload,
         },
         Invoice.CCF: {
             "tipo_dte": "03",
             "dte_type": "CCF",
-            "url": "https://t12152606851014.cheros.dev/api/v1/dte/credito-fiscal",
+            "url": build_dte_url("/api/v1/dte/credito-fiscal"),
             "builder": _build_ccf_payload,
         },
         Invoice.SX: {
             "tipo_dte": "14",
             "dte_type": "SE",
-            "url": "https://t12152606851014.cheros.dev/api/v1/dte/sujeto-excluido",
+            "url": build_dte_url("/api/v1/dte/sujeto-excluido"),
             "builder": _build_se_payload,
         },
     }
@@ -920,7 +927,7 @@ def send_dte_for_invoice(
         fec_emi = now_local.date().isoformat()
         hor_emi = now_local.strftime("%H:%M:%S")
 
-    ambiente = "00"
+    ambiente = get_mh_ambiente()
     est_code = EMITTER_INFO["codEstable"]
     pv_code = EMITTER_INFO["codPuntoVenta"]
     tipo_dte = config[doc_type]["tipo_dte"]
@@ -979,10 +986,7 @@ def send_dte_for_invoice(
     invoice.last_dte_sent_at = timezone.now()
     invoice.save(update_fields=["dte_send_attempts", "last_dte_sent_at"])
 
-    headers = {
-        "Authorization": "Bearer api_key_cliente_12152606851014",
-        "Content-Type": "application/json",
-    }
+    headers = build_dte_headers()
 
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=30)

@@ -116,6 +116,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
     issue_date = serializers.DateField(source="date", read_only=True, format="%Y-%m-%d")
     numero_control = serializers.SerializerMethodField()
     codigo_generacion = serializers.SerializerMethodField()
+    sello_recibido = serializers.SerializerMethodField()
+    fec_emi = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
@@ -221,6 +223,34 @@ class InvoiceSerializer(serializers.ModelSerializer):
             ident = self._extract_ident(record.request_payload or {})
             return ident.get("codigoGeneracion") or ident.get("codigo_generacion")
         return None
+
+    def _extract_hacienda_response(self, payload):
+        if not isinstance(payload, dict):
+            return {}
+        hresp = payload.get("respuesta_hacienda") or payload.get("hacienda_response")
+        if isinstance(hresp, dict):
+            return hresp
+        hresp = payload.get("respuestaHacienda") or payload.get("haciendaResponse")
+        if isinstance(hresp, dict):
+            return hresp
+        return {}
+
+    def get_sello_recibido(self, obj):
+        record = self._get_latest_record(obj)
+        if not record:
+            return None
+        hresp = self._extract_hacienda_response(record.response_payload or {})
+        return hresp.get("selloRecibido") or hresp.get("sello_recibido")
+
+    def get_fec_emi(self, obj):
+        record = self._get_latest_record(obj)
+        if not record:
+            return None
+        ident = self._extract_ident(record.request_payload or {})
+        fec_emi = ident.get("fecEmi") or ident.get("fec_emi")
+        if not fec_emi and record.issue_date:
+            return record.issue_date.strftime("%Y-%m-%d")
+        return fec_emi
 
     def update(self, instance, validated_data):
         items_data = validated_data.pop("items", None)
