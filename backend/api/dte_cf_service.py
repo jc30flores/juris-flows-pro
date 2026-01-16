@@ -399,7 +399,10 @@ def _build_cf_payload(
     total_gross = Decimal("0.00")
 
     for index, item in enumerate(items, start=1):
-        unit_price = Decimal(str(item.unit_price))
+        applied_unit_price = getattr(item, "applied_unit_price", None)
+        unit_price = Decimal(
+            str(applied_unit_price if applied_unit_price is not None else item.unit_price)
+        )
         quantity = Decimal(str(item.quantity))
         gross_line = quantity * unit_price
 
@@ -587,7 +590,10 @@ def _build_ccf_payload(
     total_iva = Decimal("0.00")
 
     for index, item in enumerate(items, start=1):
-        gross_unit = Decimal(str(item.unit_price))
+        applied_unit_price = getattr(item, "applied_unit_price", None)
+        gross_unit = Decimal(
+            str(applied_unit_price if applied_unit_price is not None else item.unit_price)
+        )
         qty_dec = Decimal(str(item.quantity))
         gross_line = gross_unit * qty_dec
         line_base, iva_line = split_gross_amount_with_tax(gross_line)
@@ -767,9 +773,16 @@ def _build_se_payload(
     total_compra = Decimal("0.00")
 
     for index, item in enumerate(items, start=1):
-        unit_price = _to_decimal(item.unit_price)
+        applied_unit_price = getattr(item, "applied_unit_price", None)
+        unit_price = _to_decimal(
+            applied_unit_price if applied_unit_price is not None else item.unit_price
+        )
         quantity = Decimal(item.quantity)
-        line_total = _to_decimal(item.subtotal if item.subtotal else unit_price * quantity)
+        line_total = _to_decimal(
+            item.line_subtotal
+            if getattr(item, "line_subtotal", None)
+            else (item.subtotal if item.subtotal else unit_price * quantity)
+        )
         total_compra += line_total
 
         service: Service | None = getattr(item, "service", None)

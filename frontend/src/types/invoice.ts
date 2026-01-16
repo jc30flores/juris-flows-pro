@@ -19,8 +19,12 @@ export interface InvoiceItem {
   invoice: number;
   service: number | Service;
   quantity: number;
-  original_unit_price?: number | string;
+  unit_price_snapshot?: number | string;
+  wholesale_price_snapshot?: number | string | null;
+  price_type?: "UNIT" | "WHOLESALE";
+  applied_unit_price?: number | string;
   unit_price: number | string;
+  line_subtotal?: number | string;
   subtotal: number | string;
   price_overridden?: boolean;
 }
@@ -65,8 +69,12 @@ export interface InvoiceItemPayload {
   service: number;
   quantity: number;
   unit_price: number;
-  original_unit_price?: number;
+  unit_price_snapshot?: number;
+  wholesale_price_snapshot?: number | null;
+  applied_unit_price?: number;
+  price_type?: "UNIT" | "WHOLESALE";
   price_overridden?: boolean;
+  line_subtotal?: number;
   subtotal: number;
 }
 
@@ -74,10 +82,14 @@ export interface SelectedServicePayload {
   service_id: number;
   name: string;
   price: number;
-  original_unit_price?: number;
+  unit_price_snapshot?: number;
+  wholesale_price_snapshot?: number | null;
   unit_price?: number;
+  applied_unit_price?: number;
+  price_type?: "UNIT" | "WHOLESALE";
   price_overridden?: boolean;
   quantity: number;
+  line_subtotal?: number;
   subtotal: number;
 }
 

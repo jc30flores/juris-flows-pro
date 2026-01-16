@@ -78,20 +78,50 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
         extra_kwargs = {"invoice": {"required": False}}
 
     def create(self, validated_data):
-        if "original_unit_price" not in validated_data:
-            validated_data["original_unit_price"] = validated_data.get("unit_price") or 0
+        if "unit_price_snapshot" not in validated_data:
+            validated_data["unit_price_snapshot"] = (
+                validated_data.get("applied_unit_price")
+                or validated_data.get("unit_price")
+                or 0
+            )
+        if "applied_unit_price" not in validated_data:
+            validated_data["applied_unit_price"] = validated_data.get("unit_price") or 0
+        if "line_subtotal" not in validated_data:
+            validated_data["line_subtotal"] = validated_data.get("subtotal") or 0
+        if "unit_price" not in validated_data:
+            validated_data["unit_price"] = validated_data.get("applied_unit_price") or 0
+        if "subtotal" not in validated_data:
+            validated_data["subtotal"] = validated_data.get("line_subtotal") or 0
         if validated_data.get("price_overridden") is None:
             validated_data["price_overridden"] = False
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
-        if "original_unit_price" not in validated_data:
-            validated_data["original_unit_price"] = (
-                getattr(instance, "original_unit_price", None)
+        if "unit_price_snapshot" not in validated_data:
+            validated_data["unit_price_snapshot"] = (
+                getattr(instance, "unit_price_snapshot", None)
+                or validated_data.get("applied_unit_price")
                 or validated_data.get("unit_price")
                 or 0
             )
-        if "price_overridden" not in validated_data or validated_data.get("price_overridden") is None:
+        if "applied_unit_price" not in validated_data:
+            validated_data["applied_unit_price"] = (
+                validated_data.get("unit_price")
+                or getattr(instance, "applied_unit_price", 0)
+            )
+        if "line_subtotal" not in validated_data:
+            validated_data["line_subtotal"] = (
+                validated_data.get("subtotal")
+                or getattr(instance, "line_subtotal", 0)
+            )
+        if "unit_price" not in validated_data:
+            validated_data["unit_price"] = validated_data.get("applied_unit_price") or 0
+        if "subtotal" not in validated_data:
+            validated_data["subtotal"] = validated_data.get("line_subtotal") or 0
+        if (
+            "price_overridden" not in validated_data
+            or validated_data.get("price_overridden") is None
+        ):
             validated_data["price_overridden"] = (
                 getattr(instance, "price_overridden", False) or False
             )
@@ -103,9 +133,30 @@ class InvoiceServiceInputSerializer(serializers.Serializer):
     serviceId = serializers.IntegerField(required=False)
     service = serializers.IntegerField(required=False)
     name = serializers.CharField(required=False, allow_blank=True)
-    price = serializers.DecimalField(max_digits=10, decimal_places=2)
+    price = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
     quantity = serializers.IntegerField(min_value=1)
-    subtotal = serializers.DecimalField(max_digits=12, decimal_places=2)
+    subtotal = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False
+    )
+    price_type = serializers.ChoiceField(
+        choices=InvoiceItem.PRICE_TYPE_CHOICES, required=False
+    )
+    unit_price_snapshot = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False
+    )
+    wholesale_price_snapshot = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, allow_null=True
+    )
+    applied_unit_price = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False
+    )
+    line_subtotal = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False
+    )
+    unit_price = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False
+    )
+    price_overridden = serializers.BooleanField(required=False)
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
@@ -263,19 +314,23 @@ class InvoiceSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"services": "La cantidad debe ser mayor a 0."}
                 )
-            unit_price = item.get("unit_price") or item.get("price")
+            unit_price = (
+                item.get("applied_unit_price")
+                or item.get("unit_price")
+                or item.get("price")
+            )
             if unit_price is None:
                 unit_price = 0
             unit_price = Decimal(str(unit_price))
-            subtotal = item.get("subtotal")
+            subtotal = item.get("line_subtotal") or item.get("subtotal")
             subtotal_value = (
                 Decimal(str(subtotal))
                 if subtotal is not None
                 else unit_price * quantity
             )
-            if subtotal_value <= 0:
+            if subtotal_value < 0:
                 raise serializers.ValidationError(
-                    {"services": "El subtotal debe ser mayor a 0."}
+                    {"services": "El subtotal debe ser mayor o igual a 0."}
                 )
             total += subtotal_value
         return total
@@ -291,31 +346,76 @@ class InvoiceSerializer(serializers.ModelSerializer):
             if not service_id:
                 continue
             quantity = service_data.get("quantity", 1)
-            unit_price = service_data.get("price") or service_data.get("unit_price")
-            subtotal = service_data.get("subtotal")
+            try:
+                quantity = int(quantity)
+            except (TypeError, ValueError):
+                raise serializers.ValidationError(
+                    {"services": f"La cantidad debe ser un número válido para servicio {service_id}."}
+                )
+            if quantity < 1:
+                raise serializers.ValidationError(
+                    {"services": f"La cantidad debe ser mayor o igual a 1 para servicio {service_id}."}
+                )
+            price_type = str(
+                service_data.get("price_type") or InvoiceItem.UNIT
+            ).upper()
+            if price_type not in {InvoiceItem.UNIT, InvoiceItem.WHOLESALE}:
+                price_type = InvoiceItem.UNIT
+            applied_unit_price = (
+                service_data.get("applied_unit_price")
+                or service_data.get("unit_price")
+                or service_data.get("price")
+            )
+            subtotal = service_data.get("line_subtotal") or service_data.get("subtotal")
 
             service_instance = Service.objects.filter(pk=service_id).first()
-            original_unit_price = service_instance.base_price if service_instance else None
-
-            if unit_price is None:
-                unit_price = original_unit_price
-
-            if unit_price is None:
-                raise serializers.ValidationError(
-                    {"services": f"Servicio {service_id} no tiene precio base."}
-                )
-
-            unit_price = Decimal(str(unit_price))
-            original_unit_price = (
-                Decimal(str(original_unit_price)) if original_unit_price is not None else unit_price
+            unit_price_snapshot = (
+                service_data.get("unit_price_snapshot")
+                if service_data.get("unit_price_snapshot") is not None
+                else (service_instance.unit_price if service_instance else None)
+            )
+            wholesale_price_snapshot = (
+                service_data.get("wholesale_price_snapshot")
+                if service_data.get("wholesale_price_snapshot") is not None
+                else (service_instance.wholesale_price if service_instance else None)
             )
 
-            if unit_price <= 0:
+            if unit_price_snapshot is None:
                 raise serializers.ValidationError(
-                    {"services": f"El precio debe ser mayor a 0 para servicio {service_id}."}
+                    {"services": f"Servicio {service_id} no tiene precio unitario."}
                 )
 
-            price_overridden = unit_price != original_unit_price
+            unit_price_snapshot = Decimal(str(unit_price_snapshot))
+            wholesale_price_snapshot = (
+                Decimal(str(wholesale_price_snapshot))
+                if wholesale_price_snapshot is not None
+                else None
+            )
+
+            base_price = (
+                wholesale_price_snapshot
+                if price_type == InvoiceItem.WHOLESALE
+                else unit_price_snapshot
+            )
+            if base_price is None:
+                base_price = unit_price_snapshot
+
+            if applied_unit_price is None:
+                applied_unit_price = base_price
+
+            if applied_unit_price is None:
+                raise serializers.ValidationError(
+                    {"services": f"Servicio {service_id} no tiene precio válido."}
+                )
+
+            applied_unit_price = Decimal(str(applied_unit_price))
+
+            if applied_unit_price < 0:
+                raise serializers.ValidationError(
+                    {"services": f"El precio debe ser mayor o igual a 0 para servicio {service_id}."}
+                )
+
+            price_overridden = applied_unit_price != base_price
             if price_overridden:
                 self._ensure_price_override_authorized(
                     override_token=override_token,
@@ -324,14 +424,18 @@ class InvoiceSerializer(serializers.ModelSerializer):
                 )
 
             if subtotal is None:
-                subtotal = Decimal(unit_price) * int(quantity)
+                subtotal = Decimal(applied_unit_price) * int(quantity)
 
             normalized_items.append(
                 {
                     "service_id": service_id,
                     "quantity": quantity,
-                    "unit_price": unit_price,
-                    "original_unit_price": original_unit_price,
+                    "price_type": price_type,
+                    "unit_price_snapshot": unit_price_snapshot,
+                    "wholesale_price_snapshot": wholesale_price_snapshot,
+                    "applied_unit_price": applied_unit_price,
+                    "unit_price": applied_unit_price,
+                    "line_subtotal": subtotal,
                     "subtotal": subtotal,
                     "price_overridden": price_overridden,
                 }
@@ -391,8 +495,12 @@ class InvoiceSerializer(serializers.ModelSerializer):
             elif service_value is not None:
                 item_data["service_id"] = service_value
 
-            if "original_unit_price" not in item_data and "unit_price" in item_data:
-                item_data["original_unit_price"] = item_data["unit_price"]
+            if "unit_price_snapshot" not in item_data and "unit_price" in item_data:
+                item_data["unit_price_snapshot"] = item_data["unit_price"]
+            if "applied_unit_price" not in item_data and "unit_price" in item_data:
+                item_data["applied_unit_price"] = item_data["unit_price"]
+            if "line_subtotal" not in item_data and "subtotal" in item_data:
+                item_data["line_subtotal"] = item_data["subtotal"]
             item_data.setdefault("price_overridden", False)
 
             InvoiceItem.objects.create(invoice=invoice, **item_data)

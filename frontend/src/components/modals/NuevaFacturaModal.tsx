@@ -40,10 +40,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 const IVA_RATE = 0.13;
 const AUTHORIZATION_WINDOW_MS = 5 * 60 * 1000;
 
+type PriceType = "UNIT" | "WHOLESALE";
+
 type ServiceLine = SelectedServicePayload & {
-  unit_price_applied: number;
-  unit_price_draft: string;
-  original_unit_price: number;
+  price_type: PriceType;
+  price_type_override: boolean;
+  quantity_input: string;
+  unit_price_snapshot: number;
+  wholesale_price_snapshot: number | null;
+  applied_unit_price: number;
+  applied_price_draft: string;
   price_overridden: boolean;
   price_error?: string | null;
   isEditable: boolean;
@@ -65,6 +71,31 @@ const splitGrossAmount = (gross: number) => {
   const subtotal = round2(grossRounded - iva); // lo que queda es la base
 
   return { subtotal, iva, total: grossRounded };
+};
+
+const resolveBasePrice = (line: ServiceLine, type: PriceType) => {
+  const unitPrice = Number(line.unit_price_snapshot || 0);
+  const wholesaleRaw = line.wholesale_price_snapshot;
+  const wholesalePrice =
+    wholesaleRaw === null || wholesaleRaw === undefined
+      ? null
+      : Number(wholesaleRaw);
+
+  if (type === "WHOLESALE") {
+    if (wholesalePrice !== null && isFinite(wholesalePrice)) {
+      return { value: wholesalePrice, isFallback: false };
+    }
+    return { value: unitPrice, isFallback: true };
+  }
+
+  return { value: unitPrice, isFallback: false };
+};
+
+const parseQuantityInput = (value: string): number | null => {
+  if (value === "") return null;
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed < 1) return null;
+  return parsed;
 };
 
 const facturaSchema = z.object({
@@ -157,6 +188,7 @@ export function NuevaFacturaModal({
   const [clientSearch, setClientSearch] = useState("");
   const [clientOpen, setClientOpen] = useState(false);
   const [serviceLines, setServiceLines] = useState<ServiceLine[]>([]);
+  const [globalPriceType, setGlobalPriceType] = useState<PriceType>("UNIT");
   const [authorizedUntil, setAuthorizedUntil] = useState<number | null>(null);
   const [overrideToken, setOverrideToken] = useState<string | null>(null);
   const [accessModalOpen, setAccessModalOpen] = useState(false);
@@ -187,8 +219,8 @@ export function NuevaFacturaModal({
   const grossTotal = useMemo(
     () =>
       serviceLines.reduce((sum, item) => {
-        const qty = Number(item.quantity) || 0;
-        const priceWithVat = Number(item.unit_price_applied) || 0;
+        const qty = parseQuantityInput(item.quantity_input) ?? 0;
+        const priceWithVat = Number(item.applied_unit_price) || 0;
         return sum + qty * priceWithVat;
       }, 0),
     [serviceLines],
@@ -210,30 +242,49 @@ export function NuevaFacturaModal({
     }
 
     const normalizedLines = serviceLines.map((item) => {
-      const draftValue = item.unit_price_draft.trim();
-      const fallbackValue = item.original_unit_price;
+      const draftValue = item.applied_price_draft.trim();
+      const basePrice = resolveBasePrice(item, item.price_type).value;
+      const fallbackValue = basePrice;
       const parsed = draftValue === "" ? fallbackValue : Number(draftValue);
+      const qtyParsed = parseQuantityInput(item.quantity_input);
 
-      if (!isFinite(parsed) || parsed <= 0) {
-        return { ...item, price_error: "El precio debe ser mayor a 0." };
+      if (!isFinite(parsed) || parsed < 0) {
+        return { ...item, price_error: "El precio debe ser mayor o igual a 0." };
       }
 
-      const priceOverridden = parsed !== item.original_unit_price;
+      if (qtyParsed === null) {
+        return {
+          ...item,
+          quantity: 0,
+          subtotal: 0,
+        };
+      }
+
+      const priceOverridden = parsed !== basePrice;
       return {
         ...item,
-        unit_price_applied: parsed,
-        unit_price_draft: parsed.toFixed(2),
+        applied_unit_price: parsed,
+        applied_price_draft: parsed.toFixed(2),
         price_overridden: priceOverridden,
         price_error: null,
-        subtotal: Number((parsed * item.quantity).toFixed(2)),
+        quantity: qtyParsed,
+        subtotal: Number((parsed * qtyParsed).toFixed(2)),
       };
     });
 
     const invalidLines = normalizedLines.filter(
-      (item) => !isFinite(item.unit_price_applied) || item.unit_price_applied <= 0,
+      (item) =>
+        !isFinite(item.applied_unit_price) ||
+        item.applied_unit_price < 0 ||
+        parseQuantityInput(item.quantity_input) === null,
     );
     if (invalidLines.length > 0) {
       setServiceLines(normalizedLines);
+      toast({
+        title: "Revisa cantidades",
+        description: "Cada producto debe tener cantidad mínima de 1.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -253,16 +304,21 @@ export function NuevaFacturaModal({
     }
 
     const servicesPayload: SelectedServicePayload[] = normalizedLines.map((item) => {
-      const price = Number(item.unit_price_applied);
+      const price = Number(item.applied_unit_price);
+      const qtyParsed = parseQuantityInput(item.quantity_input) ?? 0;
       return {
         service_id: item.service_id,
         name: item.name,
         price,
-        original_unit_price: item.original_unit_price,
+        unit_price_snapshot: item.unit_price_snapshot,
+        wholesale_price_snapshot: item.wholesale_price_snapshot,
         unit_price: price,
+        applied_unit_price: price,
+        price_type: item.price_type,
         price_overridden: item.price_overridden,
-        quantity: item.quantity,
-        subtotal: Number((price * item.quantity).toFixed(2)),
+        quantity: qtyParsed,
+        line_subtotal: Number((price * qtyParsed).toFixed(2)),
+        subtotal: Number((price * qtyParsed).toFixed(2)),
       };
     });
 
@@ -353,25 +409,60 @@ export function NuevaFacturaModal({
 
   useEffect(() => {
     if (open) {
-      setServiceLines(
-        selectedServices.map((item) => {
-          const originalPrice = Number(
-            item.original_unit_price ?? item.unit_price ?? item.price ?? 0,
-          );
-          const appliedPrice = Number(item.unit_price ?? item.price ?? originalPrice);
-          const priceOverridden = item.price_overridden ?? appliedPrice !== originalPrice;
-          return {
+      const preferredGlobal: PriceType =
+        selectedServices.length > 0 &&
+        selectedServices.every((entry) => (entry.price_type ?? "UNIT") === "WHOLESALE")
+          ? "WHOLESALE"
+          : "UNIT";
+      const mappedLines = selectedServices.map((item) => {
+        const unitSnapshot = Number(
+          item.unit_price_snapshot ?? item.unit_price ?? item.price ?? 0,
+        );
+        const wholesaleSnapshot =
+          item.wholesale_price_snapshot === undefined
+            ? null
+            : item.wholesale_price_snapshot;
+        const priceType = (item.price_type ?? "UNIT") as PriceType;
+        const basePrice = resolveBasePrice(
+          {
             ...item,
-            original_unit_price: originalPrice,
-            unit_price_applied: appliedPrice,
-            unit_price_draft: appliedPrice.toFixed(2),
-            price_overridden: priceOverridden,
-            price_error: null,
-            subtotal: Number((appliedPrice * item.quantity).toFixed(2)),
+            unit_price_snapshot: unitSnapshot,
+            wholesale_price_snapshot: wholesaleSnapshot,
+            price_type: priceType,
+            price_type_override: false,
+            applied_unit_price: 0,
+            applied_price_draft: "",
+            price_overridden: false,
             isEditable: false,
-          };
-        }),
-      );
+          } as ServiceLine,
+          priceType,
+        ).value;
+        const appliedPrice = Number(
+          item.applied_unit_price ?? item.unit_price ?? item.price ?? basePrice,
+        );
+        const priceOverridden = item.price_overridden ?? appliedPrice !== basePrice;
+        const quantityValue = Number(item.quantity) || 1;
+        return {
+          ...item,
+          quantity: quantityValue,
+          quantity_input: String(quantityValue),
+          unit_price_snapshot: unitSnapshot,
+          wholesale_price_snapshot:
+            wholesaleSnapshot === null || wholesaleSnapshot === undefined
+              ? null
+              : Number(wholesaleSnapshot),
+          price_type: priceType,
+          price_type_override: priceType !== preferredGlobal,
+          applied_unit_price: appliedPrice,
+          applied_price_draft: appliedPrice.toFixed(2),
+          price_overridden: priceOverridden,
+          price_error: null,
+          subtotal: Number((appliedPrice * quantityValue).toFixed(2)),
+          isEditable: false,
+        };
+      });
+      setGlobalPriceType(preferredGlobal);
+      setServiceLines(mappedLines);
       setAuthorizedUntil(null);
       setOverrideToken(null);
       setAccessModalOpen(false);
@@ -414,15 +505,17 @@ export function NuevaFacturaModal({
 
   const applyOverrideValue = (serviceId: number, value: number) => {
     updateServiceLine(serviceId, (item) => {
-      const priceOverridden = value !== item.original_unit_price;
-      const nextValue = priceOverridden ? value : item.original_unit_price;
+      const basePrice = resolveBasePrice(item, item.price_type).value;
+      const priceOverridden = value !== basePrice;
+      const nextValue = priceOverridden ? value : basePrice;
+      const qtyForCalc = parseQuantityInput(item.quantity_input) ?? 0;
       return {
         ...item,
-        unit_price_applied: nextValue,
-        unit_price_draft: nextValue.toFixed(2),
+        applied_unit_price: nextValue,
+        applied_price_draft: nextValue.toFixed(2),
         price_overridden: priceOverridden,
         price_error: null,
-        subtotal: Number((nextValue * item.quantity).toFixed(2)),
+        subtotal: Number((nextValue * qtyForCalc).toFixed(2)),
       };
     });
   };
@@ -430,7 +523,7 @@ export function NuevaFacturaModal({
   const handlePriceDraftChange = (serviceId: number, value: string) => {
     updateServiceLine(serviceId, (item) => ({
       ...item,
-      unit_price_draft: value,
+      applied_price_draft: value,
       price_error: null,
     }));
   };
@@ -439,17 +532,20 @@ export function NuevaFacturaModal({
     const target = serviceLines.find((item) => item.service_id === serviceId);
     if (!target) return;
 
-    const draftValue = target.unit_price_draft.trim();
+    const draftValue = target.applied_price_draft.trim();
     if (draftValue === "") {
-      applyOverrideValue(serviceId, target.original_unit_price);
+      applyOverrideValue(
+        serviceId,
+        resolveBasePrice(target, target.price_type).value,
+      );
       return;
     }
 
     const parsed = Number(draftValue);
-    if (!isFinite(parsed) || parsed <= 0) {
+    if (!isFinite(parsed) || parsed < 0) {
       updateServiceLine(serviceId, (item) => ({
         ...item,
-        price_error: "El precio debe ser mayor a 0.",
+        price_error: "El precio debe ser mayor o igual a 0.",
       }));
       return;
     }
@@ -460,8 +556,82 @@ export function NuevaFacturaModal({
   const handleResetPrice = (serviceId: number) => {
     const target = serviceLines.find((item) => item.service_id === serviceId);
     if (!target) return;
-    applyOverrideValue(serviceId, target.original_unit_price);
+    applyOverrideValue(
+      serviceId,
+      resolveBasePrice(target, target.price_type).value,
+    );
   };
+
+  const handleQuantityChange = (serviceId: number, value: string) => {
+    if (value !== "" && !/^[0-9]+$/.test(value)) {
+      return;
+    }
+    updateServiceLine(serviceId, (item) => {
+      const qtyParsed = parseQuantityInput(value);
+      const qtyForCalc = qtyParsed ?? 0;
+      return {
+        ...item,
+        quantity_input: value,
+        quantity: qtyForCalc,
+        subtotal: Number((item.applied_unit_price * qtyForCalc).toFixed(2)),
+      };
+    });
+  };
+
+  const applyPriceTypeChange = (
+    serviceId: number,
+    nextType: PriceType,
+    override: boolean,
+  ) => {
+    updateServiceLine(serviceId, (item) => {
+      const { value: basePrice } = resolveBasePrice(item, nextType);
+      const nextApplied = item.price_overridden ? item.applied_unit_price : basePrice;
+      const priceOverridden = nextApplied !== basePrice;
+      const qtyForCalc = parseQuantityInput(item.quantity_input) ?? 0;
+      return {
+        ...item,
+        price_type: nextType,
+        price_type_override: override,
+        applied_unit_price: nextApplied,
+        applied_price_draft: priceOverridden
+          ? item.applied_price_draft
+          : nextApplied.toFixed(2),
+        price_overridden: priceOverridden,
+        subtotal: Number((nextApplied * qtyForCalc).toFixed(2)),
+      };
+    });
+  };
+
+  const handleGlobalPriceTypeChange = (nextType: PriceType) => {
+    setGlobalPriceType(nextType);
+    setServiceLines((prev) =>
+      prev.map((item) => {
+        if (item.price_type_override) {
+          return item;
+        }
+        const { value: basePrice } = resolveBasePrice(item, nextType);
+        const nextApplied = item.price_overridden ? item.applied_unit_price : basePrice;
+        const priceOverridden = nextApplied !== basePrice;
+        const qtyForCalc = parseQuantityInput(item.quantity_input) ?? 0;
+        return {
+          ...item,
+          price_type: nextType,
+          applied_unit_price: nextApplied,
+          applied_price_draft: priceOverridden
+            ? item.applied_price_draft
+            : nextApplied.toFixed(2),
+          price_overridden: priceOverridden,
+          subtotal: Number((nextApplied * qtyForCalc).toFixed(2)),
+        };
+      }),
+    );
+  };
+
+  const hasInvalidQty = useMemo(
+    () =>
+      serviceLines.some((item) => parseQuantityInput(item.quantity_input) === null),
+    [serviceLines],
+  );
 
   const handleAccessConfirm = async () => {
     if (!accessCodeInput.trim()) {
@@ -698,11 +868,39 @@ export function NuevaFacturaModal({
             </div>
 
             <div className="sm:col-span-2 space-y-4">
-              <div className="flex items-center justify-between">
-                <Label>Resumen de productos</Label>
-                <span className="text-sm text-muted-foreground">
-                  Total: ${total.toFixed(2)}
-                </span>
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Label>Resumen de productos</Label>
+                  <span className="text-sm text-muted-foreground">
+                    Total: ${total.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Precio global:</span>
+                  <div className="inline-flex items-center rounded-full border border-border bg-muted/40 p-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={globalPriceType === "UNIT" ? "secondary" : "ghost"}
+                      className="h-7 rounded-full px-3 text-xs"
+                      onClick={() => handleGlobalPriceTypeChange("UNIT")}
+                    >
+                      Unitario
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={globalPriceType === "WHOLESALE" ? "secondary" : "ghost"}
+                      className="h-7 rounded-full px-3 text-xs"
+                      onClick={() => handleGlobalPriceTypeChange("WHOLESALE")}
+                    >
+                      Mayoreo
+                    </Button>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    Aplica a líneas sin ajuste personalizado.
+                  </span>
+                </div>
               </div>
 
               {serviceLines.length > 0 ? (
@@ -720,31 +918,91 @@ export function NuevaFacturaModal({
                       <tbody>
                         {serviceLines.map((servicio) => (
                           <tr key={servicio.service_id} className="border-t border-border">
-                            <td className="px-4 py-3">
-                              <p className="font-medium leading-tight">{servicio.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                ID: {renderCellValue(servicio.service_id)}
-                              </p>
-                            </td>
-                            <td className="px-4 py-3 text-center">{servicio.quantity}</td>
-                            <td className="px-4 py-3">
-                              <div className="space-y-2">
-                                <div className="text-xs text-muted-foreground">
-                                  <span
-                                    className={
-                                      servicio.price_overridden ? "line-through" : ""
-                                    }
-                                  >
-                                    Original: ${Number(servicio.original_unit_price).toFixed(2)}
-                                  </span>
+                            <td className="px-4 py-3 align-top">
+                              <div className="flex min-h-[44px] items-center">
+                                <div>
+                                  <p className="font-medium leading-tight">
+                                    {servicio.name}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    ID: {renderCellValue(servicio.service_id)}
+                                  </p>
                                 </div>
-                                <div className="flex items-center gap-2">
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 align-top text-center">
+                              <div className="flex min-h-[44px] items-center justify-center">
+                                <Input
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  className={`mx-auto w-20 text-center shadow-inner ${
+                                    parseQuantityInput(servicio.quantity_input) === null
+                                      ? "border-destructive focus-visible:ring-destructive"
+                                      : ""
+                                  }`}
+                                  value={servicio.quantity_input}
+                                  onChange={(event) =>
+                                    handleQuantityChange(
+                                      servicio.service_id,
+                                      event.target.value,
+                                    )
+                                  }
+                                />
+                              </div>
+                              {parseQuantityInput(servicio.quantity_input) === null && (
+                                <span className="mt-1 block text-[11px] text-destructive">
+                                  Cantidad mínima: 1
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              <div className="flex flex-col">
+                                <div className="flex min-h-[44px] items-center gap-2">
+                                  <div className="inline-flex items-center rounded-full border border-border bg-muted/40 p-1 text-xs">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant={
+                                        servicio.price_type === "UNIT" ? "secondary" : "ghost"
+                                      }
+                                      className="h-6 rounded-full px-2 text-[11px]"
+                                      onClick={() =>
+                                        applyPriceTypeChange(
+                                          servicio.service_id,
+                                          "UNIT",
+                                          "UNIT" !== globalPriceType,
+                                        )
+                                      }
+                                    >
+                                      Unit
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant={
+                                        servicio.price_type === "WHOLESALE"
+                                          ? "secondary"
+                                          : "ghost"
+                                      }
+                                      className="h-6 rounded-full px-2 text-[11px]"
+                                      onClick={() =>
+                                        applyPriceTypeChange(
+                                          servicio.service_id,
+                                          "WHOLESALE",
+                                          "WHOLESALE" !== globalPriceType,
+                                        )
+                                      }
+                                    >
+                                      May
+                                    </Button>
+                                  </div>
                                   <Input
                                     type="number"
                                     step="0.01"
                                     min="0"
                                     className="w-32 shadow-inner"
-                                    value={servicio.unit_price_draft}
+                                    value={servicio.applied_price_draft}
                                     disabled={!servicio.isEditable}
                                     ref={(node) => {
                                       priceInputRefs.current[servicio.service_id] = node;
@@ -777,9 +1035,13 @@ export function NuevaFacturaModal({
                                     {(() => {
                                       const money = (value: number | string) =>
                                         Number((Number(value) || 0).toFixed(2));
+                                      const basePrice = resolveBasePrice(
+                                        servicio,
+                                        servicio.price_type,
+                                      ).value;
                                       const isPriceChanged =
-                                        money(servicio.unit_price_applied) !==
-                                        money(servicio.original_unit_price);
+                                        money(servicio.applied_unit_price) !==
+                                        money(basePrice);
                                       if (!isPriceChanged) {
                                         return null;
                                       }
@@ -802,15 +1064,50 @@ export function NuevaFacturaModal({
                                     })()}
                                   </div>
                                 </div>
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span>
+                                      {servicio.price_type_override ? "Ajuste" : "Global"}
+                                    </span>
+                                    {(() => {
+                                      const { value, isFallback } = resolveBasePrice(
+                                        servicio,
+                                        servicio.price_type,
+                                      );
+                                      const label =
+                                        servicio.price_type === "WHOLESALE"
+                                          ? "Mayoreo"
+                                          : "Unitario";
+                                      return (
+                                        <>
+                                          <span
+                                            className={
+                                              servicio.price_overridden ? "line-through" : ""
+                                            }
+                                          >
+                                            Original ({label}): ${value.toFixed(2)}
+                                          </span>
+                                          {servicio.price_type === "WHOLESALE" && isFallback && (
+                                            <span className="text-amber-500">
+                                              Mayoreo no definido, usando unitario.
+                                            </span>
+                                          )}
+                                        </>
+                                      );
+                                    })()}
+                                  </div>
+                                </div>
                                 {servicio.price_error && (
-                                  <p className="text-xs text-destructive">
+                                  <p className="mt-1 text-xs text-destructive">
                                     {servicio.price_error}
                                   </p>
                                 )}
                               </div>
                             </td>
-                            <td className="px-4 py-3 text-right font-semibold">
-                              ${Number(servicio.subtotal).toFixed(2)}
+                            <td className="px-4 py-3 align-top text-right">
+                              <div className="flex min-h-[44px] items-center justify-end font-semibold">
+                                ${Number(servicio.subtotal).toFixed(2)}
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -830,79 +1127,174 @@ export function NuevaFacturaModal({
                         </p>
                         <div className="flex items-center justify-between text-sm">
                           <span>Cantidad:</span>
-                          <span className="font-medium">{servicio.quantity}</span>
-                        </div>
-                        <div className="space-y-2">
-                          <div className="text-xs text-muted-foreground">
-                            <span
-                              className={
-                                servicio.price_overridden ? "line-through" : ""
+                          <div className="flex flex-col items-end gap-1">
+                            <Input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              className={`w-20 text-center shadow-inner ${
+                                parseQuantityInput(servicio.quantity_input) === null
+                                  ? "border-destructive focus-visible:ring-destructive"
+                                  : ""
+                              }`}
+                              value={servicio.quantity_input}
+                              onChange={(event) =>
+                                handleQuantityChange(
+                                  servicio.service_id,
+                                  event.target.value,
+                                )
                               }
-                            >
-                              Original: ${Number(servicio.original_unit_price).toFixed(2)}
-                            </span>
-                          </div>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={servicio.unit_price_draft}
-                            disabled={!servicio.isEditable}
-                            className="shadow-inner"
-                            ref={(node) => {
-                              priceInputRefs.current[servicio.service_id] = node;
-                            }}
-                            onChange={(event) =>
-                              handlePriceDraftChange(servicio.service_id, event.target.value)
-                            }
-                            onBlur={() => handlePriceBlur(servicio.service_id)}
-                          />
-                          <div className="flex items-center gap-1">
-                            {!servicio.isEditable && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    aria-label="Editar precio"
-                                    onClick={() => handleUnlockRequest(servicio.service_id)}
-                                  >
-                                    <Pencil className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Editar precio</TooltipContent>
-                              </Tooltip>
+                            />
+                            {parseQuantityInput(servicio.quantity_input) === null && (
+                              <span className="text-[11px] text-destructive">
+                                Cantidad mínima: 1
+                              </span>
                             )}
-                            {(() => {
-                              const money = (value: number | string) =>
-                                Number((Number(value) || 0).toFixed(2));
-                              const isPriceChanged =
-                                money(servicio.unit_price_applied) !==
-                                money(servicio.original_unit_price);
-                              if (!isPriceChanged) {
-                                return null;
+                          </div>
+                        </div>
+                        <div className="flex flex-col">
+                          <div className="flex min-h-[44px] items-center gap-2">
+                            <div className="inline-flex items-center rounded-full border border-border bg-muted/40 p-1 text-xs">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={
+                                  servicio.price_type === "UNIT" ? "secondary" : "ghost"
+                                }
+                                className="h-6 rounded-full px-2 text-[11px]"
+                                onClick={() =>
+                                  applyPriceTypeChange(
+                                    servicio.service_id,
+                                    "UNIT",
+                                    "UNIT" !== globalPriceType,
+                                  )
+                                }
+                              >
+                                Unit
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={
+                                  servicio.price_type === "WHOLESALE"
+                                    ? "secondary"
+                                    : "ghost"
+                                }
+                                className="h-6 rounded-full px-2 text-[11px]"
+                                onClick={() =>
+                                  applyPriceTypeChange(
+                                    servicio.service_id,
+                                    "WHOLESALE",
+                                    "WHOLESALE" !== globalPriceType,
+                                  )
+                                }
+                              >
+                                May
+                              </Button>
+                            </div>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={servicio.applied_price_draft}
+                              disabled={!servicio.isEditable}
+                              className="shadow-inner"
+                              ref={(node) => {
+                                priceInputRefs.current[servicio.service_id] = node;
+                              }}
+                              onChange={(event) =>
+                                handlePriceDraftChange(
+                                  servicio.service_id,
+                                  event.target.value,
+                                )
                               }
-                              return (
+                              onBlur={() => handlePriceBlur(servicio.service_id)}
+                            />
+                            <div className="flex items-center gap-1">
+                              {!servicio.isEditable && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <Button
                                       type="button"
                                       variant="ghost"
                                       size="icon"
-                                      aria-label="Restablecer precio"
-                                      onClick={() => handleResetPrice(servicio.service_id)}
+                                      aria-label="Editar precio"
+                                      onClick={() => handleUnlockRequest(servicio.service_id)}
                                     >
-                                      <RotateCcw className="h-4 w-4" />
+                                      <Pencil className="h-4 w-4" />
                                     </Button>
                                   </TooltipTrigger>
-                                  <TooltipContent>Restablecer precio</TooltipContent>
+                                  <TooltipContent>Editar precio</TooltipContent>
                                 </Tooltip>
-                              );
-                            })()}
+                              )}
+                              {(() => {
+                                const money = (value: number | string) =>
+                                  Number((Number(value) || 0).toFixed(2));
+                                const isPriceChanged =
+                                  money(servicio.applied_unit_price) !==
+                                  money(
+                                    resolveBasePrice(
+                                      servicio,
+                                      servicio.price_type,
+                                    ).value,
+                                  );
+                                if (!isPriceChanged) {
+                                  return null;
+                                }
+                                return (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        aria-label="Restablecer precio"
+                                        onClick={() => handleResetPrice(servicio.service_id)}
+                                      >
+                                        <RotateCcw className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Restablecer precio</TooltipContent>
+                                  </Tooltip>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span>
+                                {servicio.price_type_override ? "Ajuste" : "Global"}
+                              </span>
+                              {(() => {
+                                const { value, isFallback } = resolveBasePrice(
+                                  servicio,
+                                  servicio.price_type,
+                                );
+                                const label =
+                                  servicio.price_type === "WHOLESALE"
+                                    ? "Mayoreo"
+                                    : "Unitario";
+                                return (
+                                  <>
+                                    <span
+                                      className={
+                                        servicio.price_overridden ? "line-through" : ""
+                                      }
+                                    >
+                                      Original ({label}): ${value.toFixed(2)}
+                                    </span>
+                                    {servicio.price_type === "WHOLESALE" && isFallback && (
+                                      <span className="text-amber-500">
+                                        Mayoreo no definido, usando unitario.
+                                      </span>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </div>
                           </div>
                           {servicio.price_error && (
-                            <p className="text-xs text-destructive">
+                            <p className="mt-1 text-xs text-destructive">
                               {servicio.price_error}
                             </p>
                           )}
@@ -961,7 +1353,7 @@ export function NuevaFacturaModal({
             </Button>
             <Button
               type="submit"
-              disabled={submitting || serviceLines.length === 0}
+              disabled={submitting || serviceLines.length === 0 || hasInvalidQty}
               className="w-full sm:w-auto"
             >
               {mode === "edit" ? "Guardar Cambios" : "Crear Factura"}

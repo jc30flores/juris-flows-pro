@@ -132,7 +132,9 @@ export default function Servicios() {
                 <th className="px-4 py-3 text-left text-sm font-medium">Código</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Producto</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Categoría</th>
-                <th className="px-4 py-3 text-right text-sm font-medium">Precio Base</th>
+                <th className="px-4 py-3 text-right text-sm font-medium">
+                  Precio Unitario / Mayoreo
+                </th>
                 <th className="px-4 py-3 text-center text-sm font-medium">Estado</th>
               </tr>
             </thead>
@@ -156,8 +158,19 @@ export default function Servicios() {
                     <td className="px-4 py-3 text-sm text-muted-foreground">
                       {resolveCategoryName(servicio.category)}
                     </td>
-                    <td className="px-4 py-3 text-right font-semibold text-accent">
-                      ${Number(servicio.base_price).toFixed(2)}
+                    <td className="px-4 py-3 text-right">
+                      <div className="space-y-1">
+                        <p className="font-semibold text-accent">
+                          ${Number(servicio.unit_price).toFixed(2)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Mayoreo:{" "}
+                          {servicio.wholesale_price !== null &&
+                          servicio.wholesale_price !== undefined
+                            ? `$${Number(servicio.wholesale_price).toFixed(2)}`
+                            : "No definido"}
+                        </p>
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-center">
                       <Badge
