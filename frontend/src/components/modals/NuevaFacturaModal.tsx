@@ -45,6 +45,7 @@ type PriceType = "UNIT" | "WHOLESALE";
 type ServiceLine = SelectedServicePayload & {
   price_type: PriceType;
   price_type_override: boolean;
+  quantity_input: string;
   unit_price_snapshot: number;
   wholesale_price_snapshot: number | null;
   applied_unit_price: number;
@@ -88,6 +89,13 @@ const resolveBasePrice = (line: ServiceLine, type: PriceType) => {
   }
 
   return { value: unitPrice, isFallback: false };
+};
+
+const parseQuantityInput = (value: string): number | null => {
+  if (value === "") return null;
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed < 1) return null;
+  return parsed;
 };
 
 const facturaSchema = z.object({
@@ -211,7 +219,7 @@ export function NuevaFacturaModal({
   const grossTotal = useMemo(
     () =>
       serviceLines.reduce((sum, item) => {
-        const qty = Number(item.quantity) || 0;
+        const qty = parseQuantityInput(item.quantity_input) ?? 0;
         const priceWithVat = Number(item.applied_unit_price) || 0;
         return sum + qty * priceWithVat;
       }, 0),
@@ -238,9 +246,18 @@ export function NuevaFacturaModal({
       const basePrice = resolveBasePrice(item, item.price_type).value;
       const fallbackValue = basePrice;
       const parsed = draftValue === "" ? fallbackValue : Number(draftValue);
+      const qtyParsed = parseQuantityInput(item.quantity_input);
 
       if (!isFinite(parsed) || parsed < 0) {
         return { ...item, price_error: "El precio debe ser mayor o igual a 0." };
+      }
+
+      if (qtyParsed === null) {
+        return {
+          ...item,
+          quantity: 0,
+          subtotal: 0,
+        };
       }
 
       const priceOverridden = parsed !== basePrice;
@@ -250,15 +267,24 @@ export function NuevaFacturaModal({
         applied_price_draft: parsed.toFixed(2),
         price_overridden: priceOverridden,
         price_error: null,
-        subtotal: Number((parsed * item.quantity).toFixed(2)),
+        quantity: qtyParsed,
+        subtotal: Number((parsed * qtyParsed).toFixed(2)),
       };
     });
 
     const invalidLines = normalizedLines.filter(
-      (item) => !isFinite(item.applied_unit_price) || item.applied_unit_price < 0,
+      (item) =>
+        !isFinite(item.applied_unit_price) ||
+        item.applied_unit_price < 0 ||
+        parseQuantityInput(item.quantity_input) === null,
     );
     if (invalidLines.length > 0) {
       setServiceLines(normalizedLines);
+      toast({
+        title: "Revisa cantidades",
+        description: "Cada producto debe tener cantidad mínima de 1.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -279,6 +305,7 @@ export function NuevaFacturaModal({
 
     const servicesPayload: SelectedServicePayload[] = normalizedLines.map((item) => {
       const price = Number(item.applied_unit_price);
+      const qtyParsed = parseQuantityInput(item.quantity_input) ?? 0;
       return {
         service_id: item.service_id,
         name: item.name,
@@ -289,9 +316,9 @@ export function NuevaFacturaModal({
         applied_unit_price: price,
         price_type: item.price_type,
         price_overridden: item.price_overridden,
-        quantity: item.quantity,
-        line_subtotal: Number((price * item.quantity).toFixed(2)),
-        subtotal: Number((price * item.quantity).toFixed(2)),
+        quantity: qtyParsed,
+        line_subtotal: Number((price * qtyParsed).toFixed(2)),
+        subtotal: Number((price * qtyParsed).toFixed(2)),
       };
     });
 
@@ -414,8 +441,11 @@ export function NuevaFacturaModal({
           item.applied_unit_price ?? item.unit_price ?? item.price ?? basePrice,
         );
         const priceOverridden = item.price_overridden ?? appliedPrice !== basePrice;
+        const quantityValue = Number(item.quantity) || 1;
         return {
           ...item,
+          quantity: quantityValue,
+          quantity_input: String(quantityValue),
           unit_price_snapshot: unitSnapshot,
           wholesale_price_snapshot:
             wholesaleSnapshot === null || wholesaleSnapshot === undefined
@@ -427,7 +457,7 @@ export function NuevaFacturaModal({
           applied_price_draft: appliedPrice.toFixed(2),
           price_overridden: priceOverridden,
           price_error: null,
-          subtotal: Number((appliedPrice * item.quantity).toFixed(2)),
+          subtotal: Number((appliedPrice * quantityValue).toFixed(2)),
           isEditable: false,
         };
       });
@@ -478,13 +508,14 @@ export function NuevaFacturaModal({
       const basePrice = resolveBasePrice(item, item.price_type).value;
       const priceOverridden = value !== basePrice;
       const nextValue = priceOverridden ? value : basePrice;
+      const qtyForCalc = parseQuantityInput(item.quantity_input) ?? 0;
       return {
         ...item,
         applied_unit_price: nextValue,
         applied_price_draft: nextValue.toFixed(2),
         price_overridden: priceOverridden,
         price_error: null,
-        subtotal: Number((nextValue * item.quantity).toFixed(2)),
+        subtotal: Number((nextValue * qtyForCalc).toFixed(2)),
       };
     });
   };
@@ -532,13 +563,19 @@ export function NuevaFacturaModal({
   };
 
   const handleQuantityChange = (serviceId: number, value: string) => {
-    const parsed = Number(value);
-    const safeQuantity = !isFinite(parsed) || parsed <= 0 ? 1 : Math.floor(parsed);
-    updateServiceLine(serviceId, (item) => ({
-      ...item,
-      quantity: safeQuantity,
-      subtotal: Number((item.applied_unit_price * safeQuantity).toFixed(2)),
-    }));
+    if (value !== "" && !/^[0-9]+$/.test(value)) {
+      return;
+    }
+    updateServiceLine(serviceId, (item) => {
+      const qtyParsed = parseQuantityInput(value);
+      const qtyForCalc = qtyParsed ?? 0;
+      return {
+        ...item,
+        quantity_input: value,
+        quantity: qtyForCalc,
+        subtotal: Number((item.applied_unit_price * qtyForCalc).toFixed(2)),
+      };
+    });
   };
 
   const applyPriceTypeChange = (
@@ -550,6 +587,7 @@ export function NuevaFacturaModal({
       const { value: basePrice } = resolveBasePrice(item, nextType);
       const nextApplied = item.price_overridden ? item.applied_unit_price : basePrice;
       const priceOverridden = nextApplied !== basePrice;
+      const qtyForCalc = parseQuantityInput(item.quantity_input) ?? 0;
       return {
         ...item,
         price_type: nextType,
@@ -559,7 +597,7 @@ export function NuevaFacturaModal({
           ? item.applied_price_draft
           : nextApplied.toFixed(2),
         price_overridden: priceOverridden,
-        subtotal: Number((nextApplied * item.quantity).toFixed(2)),
+        subtotal: Number((nextApplied * qtyForCalc).toFixed(2)),
       };
     });
   };
@@ -574,6 +612,7 @@ export function NuevaFacturaModal({
         const { value: basePrice } = resolveBasePrice(item, nextType);
         const nextApplied = item.price_overridden ? item.applied_unit_price : basePrice;
         const priceOverridden = nextApplied !== basePrice;
+        const qtyForCalc = parseQuantityInput(item.quantity_input) ?? 0;
         return {
           ...item,
           price_type: nextType,
@@ -582,11 +621,17 @@ export function NuevaFacturaModal({
             ? item.applied_price_draft
             : nextApplied.toFixed(2),
           price_overridden: priceOverridden,
-          subtotal: Number((nextApplied * item.quantity).toFixed(2)),
+          subtotal: Number((nextApplied * qtyForCalc).toFixed(2)),
         };
       }),
     );
   };
+
+  const hasInvalidQty = useMemo(
+    () =>
+      serviceLines.some((item) => parseQuantityInput(item.quantity_input) === null),
+    [serviceLines],
+  );
 
   const handleAccessConfirm = async () => {
     if (!accessCodeInput.trim()) {
@@ -880,19 +925,30 @@ export function NuevaFacturaModal({
                               </p>
                             </td>
                             <td className="px-4 py-3 text-center">
-                              <Input
-                                type="number"
-                                min="1"
-                                step="1"
-                                className="mx-auto w-20 text-center shadow-inner"
-                                value={servicio.quantity}
-                                onChange={(event) =>
-                                  handleQuantityChange(
-                                    servicio.service_id,
-                                    event.target.value,
-                                  )
-                                }
-                              />
+                              <div className="flex flex-col items-center gap-1">
+                                <Input
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  className={`mx-auto w-20 text-center shadow-inner ${
+                                    parseQuantityInput(servicio.quantity_input) === null
+                                      ? "border-destructive focus-visible:ring-destructive"
+                                      : ""
+                                  }`}
+                                  value={servicio.quantity_input}
+                                  onChange={(event) =>
+                                    handleQuantityChange(
+                                      servicio.service_id,
+                                      event.target.value,
+                                    )
+                                  }
+                                />
+                                {parseQuantityInput(servicio.quantity_input) === null && (
+                                  <span className="text-[11px] text-destructive">
+                                    Cantidad mínima: 1
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="px-4 py-3">
                               <div className="space-y-2">
@@ -1063,19 +1119,30 @@ export function NuevaFacturaModal({
                         </p>
                         <div className="flex items-center justify-between text-sm">
                           <span>Cantidad:</span>
-                          <Input
-                            type="number"
-                            min="1"
-                            step="1"
-                            className="w-20 text-center shadow-inner"
-                            value={servicio.quantity}
-                            onChange={(event) =>
-                              handleQuantityChange(
-                                servicio.service_id,
-                                event.target.value,
-                              )
-                            }
-                          />
+                          <div className="flex flex-col items-end gap-1">
+                            <Input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              className={`w-20 text-center shadow-inner ${
+                                parseQuantityInput(servicio.quantity_input) === null
+                                  ? "border-destructive focus-visible:ring-destructive"
+                                  : ""
+                              }`}
+                              value={servicio.quantity_input}
+                              onChange={(event) =>
+                                handleQuantityChange(
+                                  servicio.service_id,
+                                  event.target.value,
+                                )
+                              }
+                            />
+                            {parseQuantityInput(servicio.quantity_input) === null && (
+                              <span className="text-[11px] text-destructive">
+                                Cantidad mínima: 1
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <div className="space-y-2">
                           <div className="flex flex-wrap items-center gap-2">
@@ -1276,7 +1343,7 @@ export function NuevaFacturaModal({
             </Button>
             <Button
               type="submit"
-              disabled={submitting || serviceLines.length === 0}
+              disabled={submitting || serviceLines.length === 0 || hasInvalidQty}
               className="w-full sm:w-auto"
             >
               {mode === "edit" ? "Guardar Cambios" : "Crear Factura"}

@@ -346,6 +346,16 @@ class InvoiceSerializer(serializers.ModelSerializer):
             if not service_id:
                 continue
             quantity = service_data.get("quantity", 1)
+            try:
+                quantity = int(quantity)
+            except (TypeError, ValueError):
+                raise serializers.ValidationError(
+                    {"services": f"La cantidad debe ser un número válido para servicio {service_id}."}
+                )
+            if quantity < 1:
+                raise serializers.ValidationError(
+                    {"services": f"La cantidad debe ser mayor o igual a 1 para servicio {service_id}."}
+                )
             price_type = str(
                 service_data.get("price_type") or InvoiceItem.UNIT
             ).upper()
