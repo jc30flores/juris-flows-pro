@@ -34,11 +34,18 @@ const servicioSchema = z.object({
     .min(1, "El nombre es requerido")
     .max(200, "El nombre debe tener máximo 200 caracteres"),
   category: z.string().min(1, "La categoría es requerida"),
-  base_price: z
+  unit_price: z
     .string()
-    .min(1, "El precio es requerido")
-    .refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
-      message: "El precio debe ser mayor a 0",
+    .min(1, "El precio unitario es requerido")
+    .refine((val) => !isNaN(Number(val)) && Number(val) >= 0, {
+      message: "El precio unitario debe ser mayor o igual a 0",
+    }),
+  wholesale_price: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .refine((val) => !val || (!isNaN(Number(val)) && Number(val) >= 0), {
+      message: "El precio mayoreo debe ser mayor o igual a 0",
     }),
   activo: z.boolean().default(true),
 });
@@ -66,7 +73,8 @@ export function NuevoServicioModal({
       code: "",
       name: "",
       category: "",
-      base_price: "",
+      unit_price: "",
+      wholesale_price: "",
       activo: true,
     },
   });
@@ -110,7 +118,9 @@ export function NuevoServicioModal({
         code: codeToUse,
         name: data.name.toUpperCase(),
         category: Number(data.category),
-        base_price: Number(data.base_price),
+        unit_price: Number(data.unit_price),
+        wholesale_price:
+          data.wholesale_price?.trim() === "" ? null : Number(data.wholesale_price),
         active: data.activo,
       });
 
@@ -198,26 +208,53 @@ export function NuevoServicioModal({
             )}
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="precioBase">Precio Base</Label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                $
-              </span>
-              <Input
-                id="precioBase"
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                className="pl-7 shadow-inner"
-                {...form.register("base_price")}
-              />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="precioUnitario">Precio Unitario</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                  $
+                </span>
+                <Input
+                  id="precioUnitario"
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  className="pl-7 shadow-inner"
+                  {...form.register("unit_price")}
+                />
+              </div>
+              {form.formState.errors.unit_price && (
+                <p className="text-sm text-destructive">
+                  {form.formState.errors.unit_price.message}
+                </p>
+              )}
             </div>
-            {form.formState.errors.base_price && (
-              <p className="text-sm text-destructive">
-                {form.formState.errors.base_price.message}
+
+            <div className="space-y-2">
+              <Label htmlFor="precioMayoreo">Precio Mayoreo</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                  $
+                </span>
+                <Input
+                  id="precioMayoreo"
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  className="pl-7 shadow-inner"
+                  {...form.register("wholesale_price")}
+                />
+              </div>
+              {form.formState.errors.wholesale_price && (
+                <p className="text-sm text-destructive">
+                  {form.formState.errors.wholesale_price.message}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Opcional: si no se define, se usará el precio unitario.
               </p>
-            )}
+            </div>
           </div>
 
           <div className="flex items-center space-x-2">

@@ -4,13 +4,13 @@
 Zelaya Sports Facturador es una plataforma para la gestión integral de una oficina jurídica. El objetivo es centralizar operaciones de facturación electrónica (DTE), servicios jurídicos, clientes, gastos y usuarios internos. Los módulos clave son:
 
 - **Facturación electrónica / DTE**: emisión y seguimiento de documentos fiscales (CF, CCF, etc.). Permite registrar método de pago, estado del DTE y totales.
-- **Servicios jurídicos**: catálogo de servicios con código, categoría y precio base; control de si el servicio es imponible y si está activo.
+- **Servicios jurídicos**: catálogo de servicios con código, categoría, precio unitario y precio mayoreo; control de si el servicio es imponible y si está activo.
 - **Clientes**: registro de personas naturales y jurídicas con identificadores fiscales (DUI, NIT), teléfonos y correos. Se distingue el tipo fiscal (CF, CCF, SX).
 - **Gastos**: control de gastos internos por proveedor, fecha y total.
 - **Usuarios y roles**: administración de usuarios internos (admin, contador, colaborador) y estado activo.
 
 Flujo de uso esperado:
-1. Registrar servicios y categorías básicas, indicando precio base e imponible.
+1. Registrar servicios y categorías básicas, indicando precio unitario, mayoreo e imponible.
 2. Registrar clientes (persona o empresa) con datos fiscales y de contacto.
 3. Emitir una factura/DTE en el módulo de facturación seleccionando cliente, servicios y método de pago; seguir estado del DTE.
 4. Controlar gastos de la oficina registrando proveedor, fecha y total; exportar reportes cuando aplique.
@@ -20,7 +20,7 @@ Flujo de uso esperado:
 Basado en `frontend/src/`, el frontend incluye las siguientes pantallas principales:
 
 - **Facturador (POS)** (`/pos`): listado de DTE recientes con número, fecha, cliente, tipo (CF/CCF), método de pago, estado DTE y total. Acciones: crear nueva factura (modal), filtrar por rango rápido (hoy/semana/mes), buscar por número o cliente, exportar, ver detalles.
-- **Servicios** (`/servicios`): tabla con código, nombre del servicio, categoría, precio base y estado (activo/inactivo). Acciones: activar modo edición, crear servicio, crear categoría, editar servicio al hacer clic en una fila.
+- **Servicios** (`/servicios`): tabla con código, nombre del servicio, categoría, precio unitario/mayoreo y estado (activo/inactivo). Acciones: activar modo edición, crear servicio, crear categoría, editar servicio al hacer clic en una fila.
 - **Clientes** (`/clientes`): tabla y tarjetas con nombre/razón social, nombre comercial, tipo fiscal, DUI/NIT, teléfono y correo. Acciones: activar modo edición, crear nuevo cliente, editar cliente al seleccionar una fila o tarjeta, búsqueda por nombre/DUI/NIT.
 - **Gastos** (`/gastos`): tabla y tarjetas con nombre del gasto, proveedor, fecha y total. Acciones: crear gasto, ver detalle del gasto, filtros rápidos por fecha, búsqueda y exportar.
 - **Usuarios** (`/usuarios`): tabla y tarjetas con nombre, rol (ADMIN, COLABORADOR, CONTADOR) y estado activo. Acciones: crear nuevo usuario y preparar edición.
@@ -30,7 +30,7 @@ Basado en `frontend/src/`, el frontend incluye las siguientes pantallas principa
 A partir del comportamiento del frontend se infieren las siguientes entidades y vínculos:
 
 - **Cliente**: nombre/razón social (texto), nombre comercial opcional (texto), tipo fiscal (enum CF/CCF/SX), DUI (texto), NIT (texto), NRC (texto), teléfono (texto), correo (texto), tipo de persona (enum persona/empresa/otro).
-- **Servicio**: código (texto), nombre (texto), categoría (referencia a `CategoriaServicio`), precio base (numérico), imponible (booleano), activo (booleano), descripción opcional (texto).
+- **Servicio**: código (texto), nombre (texto), categoría (referencia a `CategoriaServicio`), precio unitario (numérico), precio mayoreo opcional (numérico), imponible (booleano), activo (booleano), descripción opcional (texto).
 - **CategoriaServicio**: nombre (texto), descripción (texto opcional), estado activo (booleano).
 - **Factura o DocumentoFiscal (DTE)**: número (texto), fecha de emisión (fecha), cliente (FK a `Cliente`), tipo fiscal (enum CF/CCF/otros), método de pago (FK a `MetodoPago`), estado DTE (FK a `EstadoDTE`), total (numérico), moneda (texto), referencia a usuario creador (FK `Usuario`).
 - **DetalleFactura / LineaServicio**: factura (FK `DocumentoFiscal`), servicio (FK `Servicio`), cantidad (numérico), precio unitario (numérico), subtotal/impuestos calculados (numérico), notas (texto opcional).
@@ -78,7 +78,8 @@ Tablas sugeridas:
   - code (varchar(50))
   - name (varchar(200))
   - category_id (integer, FK -> service_categories.id)
-  - base_price (numeric(12,2))
+  - unit_price (numeric(12,2))
+  - wholesale_price (numeric(12,2), nullable)
   - taxable (boolean, default true)
   - is_active (boolean, default true)
   - description (text, nullable)

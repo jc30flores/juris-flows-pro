@@ -1,3 +1,4 @@
+from django.core.validators import MinValueValidator
 from django.db import models
 
 
@@ -16,7 +17,16 @@ class Service(models.Model):
     category = models.ForeignKey(
         ServiceCategory, related_name="services", on_delete=models.PROTECT
     )
-    base_price = models.DecimalField(max_digits=10, decimal_places=2)
+    unit_price = models.DecimalField(
+        max_digits=10, decimal_places=2, validators=[MinValueValidator(0)]
+    )
+    wholesale_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+    )
     active = models.BooleanField(default=True)
 
     def __str__(self) -> str:
@@ -173,20 +183,54 @@ class DTEControlCounter(models.Model):
 
 
 class InvoiceItem(models.Model):
+    UNIT = "UNIT"
+    WHOLESALE = "WHOLESALE"
+    PRICE_TYPE_CHOICES = [
+        (UNIT, "Unitario"),
+        (WHOLESALE, "Mayoreo"),
+    ]
+
     invoice = models.ForeignKey(
         Invoice, related_name="items", on_delete=models.CASCADE
     )
     service = models.ForeignKey(Service, on_delete=models.PROTECT)
-    quantity = models.IntegerField()
-    original_unit_price = models.DecimalField(
+    quantity = models.IntegerField(validators=[MinValueValidator(1)])
+    unit_price_snapshot = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
         null=True,
         blank=True,
     )
-    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
-    subtotal = models.DecimalField(max_digits=12, decimal_places=2)
+    wholesale_price_snapshot = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    price_type = models.CharField(
+        max_length=10,
+        choices=PRICE_TYPE_CHOICES,
+        default=UNIT,
+    )
+    applied_unit_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+    unit_price = models.DecimalField(
+        max_digits=10, decimal_places=2, validators=[MinValueValidator(0)]
+    )
+    line_subtotal = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+    subtotal = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(0)]
+    )
     price_overridden = models.BooleanField(default=False, null=True, blank=True)
 
     def __str__(self) -> str:

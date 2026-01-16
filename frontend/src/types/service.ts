@@ -10,7 +10,8 @@ export interface Service {
   code: string;
   name: string;
   category: number | ServiceCategory;
-  base_price: number | string;
+  unit_price: number | string;
+  wholesale_price?: number | string | null;
   active: boolean;
 }
 
@@ -18,6 +19,7 @@ export interface ServicePayload {
   code: string;
   name: string;
   category: number;
-  base_price: number;
+  unit_price: number;
+  wholesale_price?: number | null;
   active: boolean;
 }

@@ -51,7 +51,13 @@ export function ServiceSelectorModal({
         if (quantity <= 0) {
           return updated.filter((_, idx) => idx !== existingIndex);
         }
-        const price = Number(current.unit_price ?? current.price ?? service.base_price ?? 0);
+        const price = Number(
+          current.applied_unit_price ??
+            current.unit_price ??
+            current.price ??
+            service.unit_price ??
+            0,
+        );
         updated[existingIndex] = {
           ...current,
           quantity,
@@ -62,15 +68,19 @@ export function ServiceSelectorModal({
 
       if (delta < 0) return prev;
 
-      const price = Number(service.base_price || 0);
+      const price = Number(service.unit_price || 0);
       return [
         ...prev,
         {
           service_id: service.id,
           name: service.name,
           price,
-          original_unit_price: price,
+          unit_price_snapshot: price,
+          wholesale_price_snapshot:
+            service.wholesale_price === undefined ? null : service.wholesale_price,
           unit_price: price,
+          applied_unit_price: price,
+          price_type: "UNIT",
           price_overridden: false,
           quantity: 1,
           subtotal: Number(price.toFixed(2)),
@@ -140,7 +150,12 @@ export function ServiceSelectorModal({
                             {service.name}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            ${Number(service.base_price || 0).toFixed(2)} · {service.code || "-"}
+                            Unitario: ${Number(service.unit_price || 0).toFixed(2)}
+                            {service.wholesale_price !== null &&
+                            service.wholesale_price !== undefined
+                              ? ` · Mayoreo: ${Number(service.wholesale_price || 0).toFixed(2)}`
+                              : ""}
+                            {service.code ? ` · ${service.code}` : ""}
                           </p>
                         </div>
                         <div className="inline-flex items-center gap-2">

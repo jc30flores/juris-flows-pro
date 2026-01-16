@@ -28,7 +28,7 @@ class SendCFDteTests(TestCase):
             code="SRV-001",
             name="Consulta",
             category=category,
-            base_price="100.00",
+            unit_price="100.00",
         )
         self.client = Client.objects.create(
             full_name="Juan Perez",
@@ -55,7 +55,11 @@ class SendCFDteTests(TestCase):
             invoice=self.invoice,
             service=service,
             quantity=1,
+            unit_price_snapshot="100.00",
+            price_type=InvoiceItem.UNIT,
+            applied_unit_price="100.00",
             unit_price="100.00",
+            line_subtotal="100.00",
             subtotal="100.00",
         )
 
