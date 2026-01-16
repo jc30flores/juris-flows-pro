@@ -9,6 +9,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .connectivity import get_connectivity_status as _connectivity_status_snapshot
+from .dte_config import build_dte_url, get_mh_ambiente
 from .models import Activity, DTEControlCounter, DTERecord, Invoice, InvoiceItem, Service
 
 logger = logging.getLogger(__name__)
@@ -893,19 +894,19 @@ def send_dte_for_invoice(
         Invoice.CF: {
             "tipo_dte": "01",
             "dte_type": "CF",
-            "url": "https://t12152606851014.cheros.dev/api/v1/dte/factura",
+            "url": build_dte_url("/api/v1/dte/factura"),
             "builder": _build_cf_payload,
         },
         Invoice.CCF: {
             "tipo_dte": "03",
             "dte_type": "CCF",
-            "url": "https://t12152606851014.cheros.dev/api/v1/dte/credito-fiscal",
+            "url": build_dte_url("/api/v1/dte/credito-fiscal"),
             "builder": _build_ccf_payload,
         },
         Invoice.SX: {
             "tipo_dte": "14",
             "dte_type": "SE",
-            "url": "https://t12152606851014.cheros.dev/api/v1/dte/sujeto-excluido",
+            "url": build_dte_url("/api/v1/dte/sujeto-excluido"),
             "builder": _build_se_payload,
         },
     }
@@ -920,7 +921,7 @@ def send_dte_for_invoice(
         fec_emi = now_local.date().isoformat()
         hor_emi = now_local.strftime("%H:%M:%S")
 
-    ambiente = "00"
+    ambiente = get_mh_ambiente()
     est_code = EMITTER_INFO["codEstable"]
     pv_code = EMITTER_INFO["codPuntoVenta"]
     tipo_dte = config[doc_type]["tipo_dte"]

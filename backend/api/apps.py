@@ -14,6 +14,7 @@ class ApiConfig(AppConfig):
 
     def ready(self):
         try:
+            from .dte_config import log_dte_configuration
             from .connectivity import CONNECTIVITY_SENTINEL
 
             if not getattr(settings, "CONNECTIVITY_SENTINEL_ENABLED", True):
@@ -34,6 +35,7 @@ class ApiConfig(AppConfig):
             if getattr(CONNECTIVITY_SENTINEL, "_started", False):
                 return
 
+            log_dte_configuration()
             print("[CONNECTIVITY] Inicializando centinela de conectividad...")
             CONNECTIVITY_SENTINEL.start()
             CONNECTIVITY_SENTINEL._started = True
