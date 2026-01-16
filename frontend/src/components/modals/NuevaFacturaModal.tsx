@@ -898,7 +898,7 @@ export function NuevaFacturaModal({
                     </Button>
                   </div>
                   <span className="text-xs text-muted-foreground">
-                    Aplica a líneas sin override.
+                    Aplica a líneas sin ajuste personalizado.
                   </span>
                 </div>
               </div>
@@ -1067,7 +1067,7 @@ export function NuevaFacturaModal({
                                 <div className="mt-1 text-xs text-muted-foreground">
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span>
-                                      {servicio.price_type_override ? "Override" : "Global"}
+                                      {servicio.price_type_override ? "Ajuste" : "Global"}
                                     </span>
                                     {(() => {
                                       const { value, isFallback } = resolveBasePrice(
@@ -1263,7 +1263,7 @@ export function NuevaFacturaModal({
                           <div className="mt-1 text-xs text-muted-foreground">
                             <div className="flex flex-wrap items-center gap-2">
                               <span>
-                                {servicio.price_type_override ? "Override" : "Global"}
+                                {servicio.price_type_override ? "Ajuste" : "Global"}
                               </span>
                               {(() => {
                                 const { value, isFallback } = resolveBasePrice(
