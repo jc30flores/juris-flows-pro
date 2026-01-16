@@ -8,6 +8,7 @@ import requests
 from django.conf import settings
 from django.utils import timezone
 
+from .dte_auth import build_dte_headers, mask_headers
 from .dte_cf_service import EMITTER_INFO
 from .dte_urls import build_dte_url
 from .models import DTEInvalidation, DTERecord, Invoice, StaffUser
@@ -354,13 +355,15 @@ def send_dte_invalidation(
         invalidation.save(update_fields=["response_payload", "hacienda_state", "status"])
         return invalidation, invalidation.response_payload, 503, "CONFIG_FALTANTE", detail, None
 
+    headers = build_dte_headers()
     logger.info(
-        "Sending DTE invalidation invoice_id=%s url=%s dte_status=%s timeout=%s verify_ssl=%s payload=%s",
+        "Sending DTE invalidation invoice_id=%s url=%s dte_status=%s timeout=%s verify_ssl=%s headers=%s payload=%s",
         invoice.id,
         invalidation_url,
         invoice.dte_status,
         DEFAULT_INVALIDATION_TIMEOUT,
         DEFAULT_VERIFY_SSL,
+        mask_headers(headers),
         json.dumps(payload, indent=2, ensure_ascii=False),
     )
     print(
@@ -368,10 +371,7 @@ def send_dte_invalidation(
         json.dumps(payload, indent=2, ensure_ascii=False),
     )
 
-    headers = {
-        "Authorization": f"Bearer {INVALIDATION_AUTH_TOKEN}",
-        "Content-Type": "application/json",
-    }
+    print("[DTE INVALIDACION] Headers:", mask_headers(headers))
 
     started_at = time.monotonic()
     try:
@@ -440,6 +440,23 @@ def send_dte_invalidation(
                 "[DTE INVALIDACION] Bridge JSON:\n",
                 json.dumps(response_data, indent=2, ensure_ascii=False),
             )
+
+        if status_code in (401, 403):
+            bridge_error = (
+                response_data
+                if isinstance(response_data, dict)
+                else {"raw_text": _truncate_text(response_text)}
+            )
+            bridge_error = {
+                "bridge_url": invalidation_url,
+                "bridge_status": status_code,
+                "bridge_body": bridge_error,
+            }
+            invalidation.hacienda_state = "NO_AUTENTICADO"
+            invalidation.status = "NO_AUTENTICADO"
+            invalidation.save(update_fields=["response_payload", "hacienda_state", "status"])
+            detail = "No autenticado contra el puente DTE"
+            return invalidation, response_data, status_code, "NO_AUTENTICADO", detail, bridge_error
 
         if status_code >= 500:
             bridge_error = (

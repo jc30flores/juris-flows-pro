@@ -451,6 +451,12 @@ export default function POS() {
             "DTE_API_BASE_URL no configurada. Configure la URL del puente DTE para invalidación.",
           variant: "destructive" as const,
         };
+      case "NO_AUTENTICADO":
+        return {
+          title: "No autenticado",
+          description: message || "No autenticado contra el puente DTE.",
+          variant: "destructive" as const,
+        };
       default:
         return {
           title: "Estado de invalidación",

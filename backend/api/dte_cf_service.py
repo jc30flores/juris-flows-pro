@@ -9,6 +9,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .connectivity import get_connectivity_status as _connectivity_status_snapshot
+from .dte_auth import build_dte_headers
 from .dte_urls import build_dte_url, get_dte_base_url
 from .models import Activity, DTEControlCounter, DTERecord, Invoice, InvoiceItem, Service
 
@@ -984,10 +985,7 @@ def send_dte_for_invoice(
     invoice.last_dte_sent_at = timezone.now()
     invoice.save(update_fields=["dte_send_attempts", "last_dte_sent_at"])
 
-    headers = {
-        "Authorization": "Bearer api_key_cliente_12152606851014",
-        "Content-Type": "application/json",
-    }
+    headers = build_dte_headers()
 
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=30)
