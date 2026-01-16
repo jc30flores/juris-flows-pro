@@ -10,9 +10,18 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_INTERNET_URL = getattr(
-    settings, "INTERNET_HEALTH_URL", "https://www.google.com/generate_204"
-)
+
+def _resolve_connectivity_url() -> str | None:
+    override_url = str(getattr(settings, "CONNECTIVITY_CHECK_URL", "") or "").strip()
+    if override_url:
+        return override_url
+    dte_base_url = str(getattr(settings, "DTE_API_BASE_URL", "") or "").strip()
+    if dte_base_url:
+        return f"{dte_base_url.rstrip('/')}/health"
+    return None
+
+
+DEFAULT_INTERNET_URL = _resolve_connectivity_url()
 DEFAULT_API_URL = getattr(
     settings, "API_HEALTH_URL", "http://localhost:8000/api/health/"
 )
@@ -58,14 +67,25 @@ class ConnectivitySentinel:
     def _mark_status(self, key: str, ok: bool, reason: str) -> None:
         now_iso = timezone.now().isoformat()
         entry = CONNECTIVITY_STATUS[key]
+        previous_ok = entry.get("ok")
+        previous_reason = entry.get("reason")
         entry["ok"] = ok
         entry["reason"] = reason
         if ok:
             entry["last_ok"] = now_iso
         else:
             entry["last_error"] = now_iso
+        if previous_ok != ok or previous_reason != reason:
+            logger.info(
+                "Connectivity status changed target=%s ok=%s reason=%s",
+                key,
+                ok,
+                reason,
+            )
 
     def _check_target(self, target: str, url: str) -> Tuple[bool, str]:
+        if not url:
+            return False, "not_configured"
         target_name = target.lower()
         try:
             response = requests.get(url, timeout=self.timeout)
@@ -73,11 +93,15 @@ class ConnectivitySentinel:
             if status_code in (200, 204):
                 return True, "ok"
             reason = f"status_{status_code}"
-            print(f"[CONNECTIVITY] {target_name.upper()} FAIL (status={status_code}, reason={reason})")
+            logger.warning(
+                "Connectivity check failed target=%s status=%s reason=%s",
+                target_name,
+                status_code,
+                reason,
+            )
             return False, reason
         except requests.RequestException as exc:  # pragma: no cover - external IO
             logger.warning("Connectivity check failed for %s: %s", target, exc)
-            print(f"[CONNECTIVITY] {target_name.upper()} ERROR de red: {exc}")
             return False, f"network_error:{exc}"
 
     def run_once(self) -> None:

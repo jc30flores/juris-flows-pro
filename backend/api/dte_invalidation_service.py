@@ -15,7 +15,16 @@ logger = logging.getLogger(__name__)
 
 INVALIDATION_AUTH_TOKEN = "api_key_cliente_12152606851014"
 INVALIDATION_PATH = "/api/v1/dte/invalidacion"
-DEFAULT_INVALIDATION_TIMEOUT = int(getattr(settings, "DTE_INVALIDATION_TIMEOUT", 30))
+DEFAULT_INVALIDATION_CONNECT_TIMEOUT = int(
+    getattr(settings, "DTE_INVALIDATION_CONNECT_TIMEOUT", 5)
+)
+DEFAULT_INVALIDATION_READ_TIMEOUT = int(
+    getattr(settings, "DTE_INVALIDATION_READ_TIMEOUT", 25)
+)
+DEFAULT_INVALIDATION_TIMEOUT = (
+    DEFAULT_INVALIDATION_CONNECT_TIMEOUT,
+    DEFAULT_INVALIDATION_READ_TIMEOUT,
+)
 DEFAULT_VERIFY_SSL = bool(getattr(settings, "DTE_INVALIDATION_VERIFY_SSL", True))
 
 
@@ -327,11 +336,14 @@ def send_dte_invalidation(
 
     if not invalidation_url:
         detail = "DTE_API_BASE_URL no configurada."
-        invalidation.response_payload = {"success": None, "error": {"type": "config", "message": detail}}
+        invalidation.response_payload = {
+            "success": None,
+            "error": {"type": "config", "message": detail},
+        }
         invalidation.hacienda_state = "ERROR_CONFIG"
         invalidation.status = "ERROR_CONFIG"
         invalidation.save(update_fields=["response_payload", "hacienda_state", "status"])
-        return invalidation, invalidation.response_payload, 500, "ERROR_CONFIG", detail, None
+        return invalidation, invalidation.response_payload, 503, "CONFIG_FALTANTE", detail, None
 
     logger.info(
         "Sending DTE invalidation invoice_id=%s url=%s timeout=%s verify_ssl=%s payload=%s",

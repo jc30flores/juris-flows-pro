@@ -300,6 +300,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="invalidate-dte")
     def invalidate_dte(self, request, pk=None):
         invoice = self.get_object()
+        dte_base_url = str(getattr(settings, "DTE_API_BASE_URL", "") or "").strip()
+        if not dte_base_url:
+            return _build_invalidation_response(
+                ok=False,
+                status_label="CONFIG_FALTANTE",
+                message=(
+                    "DTE_API_BASE_URL no configurada. Configure la URL del puente DTE para invalidación."
+                ),
+                http_status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                details={"missing": ["DTE_API_BASE_URL"]},
+            )
         normalized_status = str(invoice.dte_status or "").upper()
         if normalized_status == Invoice.INVALIDATED:
             return _build_invalidation_response(

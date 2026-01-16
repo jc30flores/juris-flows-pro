@@ -30,6 +30,8 @@ class ApiConfig(AppConfig):
                 return
             if "runserver" not in sys.argv:
                 return
+            if not getattr(settings, "DEBUG", False):
+                return
             if "runserver" in sys.argv and os.environ.get("RUN_MAIN") != "true":
                 return
 

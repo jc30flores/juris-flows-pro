@@ -443,6 +443,14 @@ export default function POS() {
           description: message || "La factura no cumple los requisitos para invalidar.",
           variant: "destructive" as const,
         };
+      case "CONFIG_FALTANTE":
+        return {
+          title: "Configuración faltante",
+          description:
+            message ||
+            "DTE_API_BASE_URL no configurada. Configure la URL del puente DTE para invalidación.",
+          variant: "destructive" as const,
+        };
       default:
         return {
           title: "Estado de invalidación",
