@@ -10,7 +10,8 @@ from django.utils import timezone
 
 from .connectivity import get_connectivity_status as _connectivity_status_snapshot
 from .dte_auth import build_dte_headers
-from .dte_urls import build_dte_url, get_dte_base_url
+from .dte_config import get_dte_base_url, get_mh_ambiente
+from .dte_urls import build_dte_url
 from .models import Activity, DTEControlCounter, DTERecord, Invoice, InvoiceItem, Service
 
 logger = logging.getLogger(__name__)
@@ -893,7 +894,7 @@ def send_dte_for_invoice(
     doc_type = doc_type_override or invoice.doc_type
     base_url = get_dte_base_url()
     if not base_url:
-        raise ValueError("DTE_API_BASE_URL no configurada.")
+        raise ValueError("DTE_BASE_URL no configurada.")
 
     config = {
         Invoice.CF: {
@@ -926,7 +927,7 @@ def send_dte_for_invoice(
         fec_emi = now_local.date().isoformat()
         hor_emi = now_local.strftime("%H:%M:%S")
 
-    ambiente = "00"
+    ambiente = get_mh_ambiente()
     est_code = EMITTER_INFO["codEstable"]
     pv_code = EMITTER_INFO["codPuntoVenta"]
     tipo_dte = config[doc_type]["tipo_dte"]

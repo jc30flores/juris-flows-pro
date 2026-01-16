@@ -33,7 +33,7 @@ from .dte_invalidation_service import (
     extract_invalidation_requirements,
     send_dte_invalidation,
 )
-from .dte_urls import get_dte_base_url
+from .dte_config import get_dte_base_url
 from .serializers import (
     ActivitySerializer,
     ClientSerializer,
@@ -307,10 +307,10 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 ok=False,
                 status_label="CONFIG_FALTANTE",
                 message=(
-                    "DTE_API_BASE_URL no configurada. Configure la URL del puente DTE para invalidación."
+                    "DTE_BASE_URL no configurada. Configure la URL del puente DTE para invalidación."
                 ),
                 http_status=status.HTTP_503_SERVICE_UNAVAILABLE,
-                details={"missing": ["DTE_API_BASE_URL"]},
+                details={"missing": ["DTE_BASE_URL"]},
             )
         normalized_status = str(invoice.dte_status or "").upper()
         if normalized_status == Invoice.INVALIDATED:

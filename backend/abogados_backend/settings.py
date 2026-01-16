@@ -17,7 +17,14 @@ ALLOWED_HOSTS = [
 ]
 
 if DEBUG:
-    print("[ENV] DTE_API_BASE_URL loaded:", bool(os.getenv("DTE_API_BASE_URL")))
+    print("[ENV] DTE_BASE_URL loaded:", bool(os.getenv("DTE_BASE_URL")))
+    try:
+        from api.dte_config import get_dte_base_url, get_mh_ambiente
+
+        print("[ENV] DTE_BASE_URL resolved:", get_dte_base_url())
+        print("[ENV] MH_AMBIENTE resolved:", get_mh_ambiente())
+    except Exception as exc:  # pragma: no cover - defensive
+        print("[ENV] Failed to resolve DTE config:", exc)
 
 CSRF_TRUSTED_ORIGINS = [
     "https://zelaya-sport.cuskatech.com",
@@ -113,13 +120,16 @@ CORS_ALLOWED_ORIGINS = [
 REST_FRAMEWORK = {}
 
 INTERNET_HEALTH_URL = os.getenv("INTERNET_HEALTH_URL", "https://www.google.com/generate_204")
-API_HEALTH_URL = os.getenv("API_HEALTH_URL", "https://t12152606851014.cheros.dev/health")
+API_HEALTH_URL = os.getenv("API_HEALTH_URL", "https://p12152606851014.cheros.dev/health")
 CONNECTIVITY_CHECK_INTERVAL = int(os.getenv("CONNECTIVITY_CHECK_INTERVAL", "15"))
 CONNECTIVITY_CHECK_TIMEOUT = int(os.getenv("CONNECTIVITY_CHECK_TIMEOUT", "5"))
 CONNECTIVITY_SENTINEL_ENABLED = os.getenv("CONNECTIVITY_SENTINEL_ENABLED", "1") == "1"
 DTE_AUTORETRY_BACKOFF_SECONDS = int(os.getenv("DTE_AUTORETRY_BACKOFF_SECONDS", "60"))
 DTE_AUTORETRY_BATCH_SIZE = int(os.getenv("DTE_AUTORETRY_BATCH_SIZE", "25"))
+DTE_BASE_URL = os.getenv("DTE_BASE_URL", "https://p12152606851014.cheros.dev").strip()
 DTE_API_BASE_URL = os.getenv("DTE_API_BASE_URL", "").strip()
+DTE_AMBIENTE = os.getenv("DTE_AMBIENTE", "").strip()
+MH_AMBIENTE = os.getenv("MH_AMBIENTE", "01").strip()
 DTE_API_INVALIDACION_URL = os.getenv("DTE_API_INVALIDACION_URL", "").strip()
 DTE_API_TOKEN = os.getenv("DTE_API_TOKEN", "").strip()
 DTE_FACTURA_URL = os.getenv("DTE_FACTURA_URL", "").strip()

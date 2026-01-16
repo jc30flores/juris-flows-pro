@@ -26,7 +26,7 @@ python manage.py migrate
 python manage.py runserver
 ```
 
-Configura `DTE_API_BASE_URL` en `backend/.env` para apuntar al puente DTE (ej: `https://t12152606851014.cheros.dev`). 
+Configura `DTE_BASE_URL` en `backend/.env` para apuntar al puente DTE (ej: `https://p12152606851014.cheros.dev`). 
 
 Tras actualizar los modelos de la app `api`, recuerda ejecutar:
 

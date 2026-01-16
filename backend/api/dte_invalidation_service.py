@@ -9,6 +9,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from .dte_auth import build_dte_headers, mask_headers
+from .dte_config import get_mh_ambiente
 from .dte_cf_service import EMITTER_INFO
 from .dte_urls import build_dte_url
 from .models import DTEInvalidation, DTERecord, Invoice, StaffUser
@@ -222,7 +223,7 @@ def build_invalidation_payload(
     resumen = _extract_resumen(request_payload)
     receptor = _extract_receptor(request_payload)
 
-    ambiente = ident.get("ambiente") or "01"
+    ambiente = ident.get("ambiente") or get_mh_ambiente()
     codigo_generacion = (
         ident.get("codigoGeneracion")
         or ident.get("codigo_generacion")
@@ -300,7 +301,7 @@ def extract_invalidation_requirements(record: DTERecord) -> dict:
         ),
         "sello_recibido": _extract_sello_recibido(response_payload) or "",
         "fec_emi": fec_emi or "",
-        "ambiente": ident.get("ambiente") or "01",
+        "ambiente": ident.get("ambiente") or get_mh_ambiente(),
     }
 
 
@@ -345,7 +346,7 @@ def send_dte_invalidation(
     )
 
     if not invalidation_url:
-        detail = "DTE_API_BASE_URL no configurada."
+        detail = "DTE_BASE_URL no configurada."
         invalidation.response_payload = {
             "success": None,
             "error": {"type": "config", "message": detail},

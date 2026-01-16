@@ -448,7 +448,7 @@ export default function POS() {
           title: "Configuración faltante",
           description:
             message ||
-            "DTE_API_BASE_URL no configurada. Configure la URL del puente DTE para invalidación.",
+            "DTE_BASE_URL no configurada. Configure la URL del puente DTE para invalidación.",
           variant: "destructive" as const,
         };
       case "NO_AUTENTICADO":
