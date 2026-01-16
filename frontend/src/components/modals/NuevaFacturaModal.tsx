@@ -918,14 +918,20 @@ export function NuevaFacturaModal({
                       <tbody>
                         {serviceLines.map((servicio) => (
                           <tr key={servicio.service_id} className="border-t border-border">
-                            <td className="px-4 py-3">
-                              <p className="font-medium leading-tight">{servicio.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                ID: {renderCellValue(servicio.service_id)}
-                              </p>
+                            <td className="px-4 py-3 align-top">
+                              <div className="flex min-h-[44px] items-center">
+                                <div>
+                                  <p className="font-medium leading-tight">
+                                    {servicio.name}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    ID: {renderCellValue(servicio.service_id)}
+                                  </p>
+                                </div>
+                              </div>
                             </td>
-                            <td className="px-4 py-3 text-center">
-                              <div className="flex flex-col items-center gap-1">
+                            <td className="px-4 py-3 align-top text-center">
+                              <div className="flex min-h-[44px] items-center justify-center">
                                 <Input
                                   type="text"
                                   inputMode="numeric"
@@ -943,16 +949,16 @@ export function NuevaFacturaModal({
                                     )
                                   }
                                 />
-                                {parseQuantityInput(servicio.quantity_input) === null && (
-                                  <span className="text-[11px] text-destructive">
-                                    Cantidad mínima: 1
-                                  </span>
-                                )}
                               </div>
+                              {parseQuantityInput(servicio.quantity_input) === null && (
+                                <span className="mt-1 block text-[11px] text-destructive">
+                                  Cantidad mínima: 1
+                                </span>
+                              )}
                             </td>
-                            <td className="px-4 py-3">
-                              <div className="space-y-2">
-                                <div className="flex flex-wrap items-center gap-2">
+                            <td className="px-4 py-3 align-top">
+                              <div className="flex flex-col">
+                                <div className="flex min-h-[44px] items-center gap-2">
                                   <div className="inline-flex items-center rounded-full border border-border bg-muted/40 p-1 text-xs">
                                     <Button
                                       type="button"
@@ -991,39 +997,6 @@ export function NuevaFacturaModal({
                                       May
                                     </Button>
                                   </div>
-                                  <span className="text-xs text-muted-foreground">
-                                    {servicio.price_type_override ? "Override" : "Global"}
-                                  </span>
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  {(() => {
-                                    const { value, isFallback } = resolveBasePrice(
-                                      servicio,
-                                      servicio.price_type,
-                                    );
-                                    const label =
-                                      servicio.price_type === "WHOLESALE"
-                                        ? "Mayoreo"
-                                        : "Unitario";
-                                    return (
-                                      <>
-                                        <span
-                                          className={
-                                            servicio.price_overridden ? "line-through" : ""
-                                          }
-                                        >
-                                          Original ({label}): ${value.toFixed(2)}
-                                        </span>
-                                        {servicio.price_type === "WHOLESALE" && isFallback && (
-                                          <span className="block text-amber-500">
-                                            Mayoreo no definido, usando unitario.
-                                          </span>
-                                        )}
-                                      </>
-                                    );
-                                  })()}
-                                </div>
-                                <div className="flex items-center gap-2">
                                   <Input
                                     type="number"
                                     step="0.01"
@@ -1091,15 +1064,50 @@ export function NuevaFacturaModal({
                                     })()}
                                   </div>
                                 </div>
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span>
+                                      {servicio.price_type_override ? "Override" : "Global"}
+                                    </span>
+                                    {(() => {
+                                      const { value, isFallback } = resolveBasePrice(
+                                        servicio,
+                                        servicio.price_type,
+                                      );
+                                      const label =
+                                        servicio.price_type === "WHOLESALE"
+                                          ? "Mayoreo"
+                                          : "Unitario";
+                                      return (
+                                        <>
+                                          <span
+                                            className={
+                                              servicio.price_overridden ? "line-through" : ""
+                                            }
+                                          >
+                                            Original ({label}): ${value.toFixed(2)}
+                                          </span>
+                                          {servicio.price_type === "WHOLESALE" && isFallback && (
+                                            <span className="text-amber-500">
+                                              Mayoreo no definido, usando unitario.
+                                            </span>
+                                          )}
+                                        </>
+                                      );
+                                    })()}
+                                  </div>
+                                </div>
                                 {servicio.price_error && (
-                                  <p className="text-xs text-destructive">
+                                  <p className="mt-1 text-xs text-destructive">
                                     {servicio.price_error}
                                   </p>
                                 )}
                               </div>
                             </td>
-                            <td className="px-4 py-3 text-right font-semibold">
-                              ${Number(servicio.subtotal).toFixed(2)}
+                            <td className="px-4 py-3 align-top text-right">
+                              <div className="flex min-h-[44px] items-center justify-end font-semibold">
+                                ${Number(servicio.subtotal).toFixed(2)}
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1144,8 +1152,8 @@ export function NuevaFacturaModal({
                             )}
                           </div>
                         </div>
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-col">
+                          <div className="flex min-h-[44px] items-center gap-2">
                             <div className="inline-flex items-center rounded-full border border-border bg-muted/40 p-1 text-xs">
                               <Button
                                 type="button"
@@ -1184,107 +1192,109 @@ export function NuevaFacturaModal({
                                 May
                               </Button>
                             </div>
-                            <span className="text-xs text-muted-foreground">
-                              {servicio.price_type_override ? "Override" : "Global"}
-                            </span>
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {(() => {
-                              const { value, isFallback } = resolveBasePrice(
-                                servicio,
-                                servicio.price_type,
-                              );
-                              const label =
-                                servicio.price_type === "WHOLESALE"
-                                  ? "Mayoreo"
-                                  : "Unitario";
-                              return (
-                                <>
-                                  <span
-                                    className={
-                                      servicio.price_overridden ? "line-through" : ""
-                                    }
-                                  >
-                                    Original ({label}): ${value.toFixed(2)}
-                                  </span>
-                                  {servicio.price_type === "WHOLESALE" && isFallback && (
-                                    <span className="block text-amber-500">
-                                      Mayoreo no definido, usando unitario.
-                                    </span>
-                                  )}
-                                </>
-                              );
-                            })()}
-                          </div>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={servicio.applied_price_draft}
-                            disabled={!servicio.isEditable}
-                            className="shadow-inner"
-                            ref={(node) => {
-                              priceInputRefs.current[servicio.service_id] = node;
-                            }}
-                            onChange={(event) =>
-                              handlePriceDraftChange(
-                                servicio.service_id,
-                                event.target.value,
-                              )
-                            }
-                            onBlur={() => handlePriceBlur(servicio.service_id)}
-                          />
-                          <div className="flex items-center gap-1">
-                            {!servicio.isEditable && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    aria-label="Editar precio"
-                                    onClick={() => handleUnlockRequest(servicio.service_id)}
-                                  >
-                                    <Pencil className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Editar precio</TooltipContent>
-                              </Tooltip>
-                            )}
-                            {(() => {
-                              const money = (value: number | string) =>
-                                Number((Number(value) || 0).toFixed(2));
-                              const isPriceChanged =
-                                money(servicio.applied_unit_price) !==
-                                money(
-                                  resolveBasePrice(
-                                    servicio,
-                                    servicio.price_type,
-                                  ).value,
-                                );
-                              if (!isPriceChanged) {
-                                return null;
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={servicio.applied_price_draft}
+                              disabled={!servicio.isEditable}
+                              className="shadow-inner"
+                              ref={(node) => {
+                                priceInputRefs.current[servicio.service_id] = node;
+                              }}
+                              onChange={(event) =>
+                                handlePriceDraftChange(
+                                  servicio.service_id,
+                                  event.target.value,
+                                )
                               }
-                              return (
+                              onBlur={() => handlePriceBlur(servicio.service_id)}
+                            />
+                            <div className="flex items-center gap-1">
+                              {!servicio.isEditable && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <Button
                                       type="button"
                                       variant="ghost"
                                       size="icon"
-                                      aria-label="Restablecer precio"
-                                      onClick={() => handleResetPrice(servicio.service_id)}
+                                      aria-label="Editar precio"
+                                      onClick={() => handleUnlockRequest(servicio.service_id)}
                                     >
-                                      <RotateCcw className="h-4 w-4" />
+                                      <Pencil className="h-4 w-4" />
                                     </Button>
                                   </TooltipTrigger>
-                                  <TooltipContent>Restablecer precio</TooltipContent>
+                                  <TooltipContent>Editar precio</TooltipContent>
                                 </Tooltip>
-                              );
-                            })()}
+                              )}
+                              {(() => {
+                                const money = (value: number | string) =>
+                                  Number((Number(value) || 0).toFixed(2));
+                                const isPriceChanged =
+                                  money(servicio.applied_unit_price) !==
+                                  money(
+                                    resolveBasePrice(
+                                      servicio,
+                                      servicio.price_type,
+                                    ).value,
+                                  );
+                                if (!isPriceChanged) {
+                                  return null;
+                                }
+                                return (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        aria-label="Restablecer precio"
+                                        onClick={() => handleResetPrice(servicio.service_id)}
+                                      >
+                                        <RotateCcw className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Restablecer precio</TooltipContent>
+                                  </Tooltip>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span>
+                                {servicio.price_type_override ? "Override" : "Global"}
+                              </span>
+                              {(() => {
+                                const { value, isFallback } = resolveBasePrice(
+                                  servicio,
+                                  servicio.price_type,
+                                );
+                                const label =
+                                  servicio.price_type === "WHOLESALE"
+                                    ? "Mayoreo"
+                                    : "Unitario";
+                                return (
+                                  <>
+                                    <span
+                                      className={
+                                        servicio.price_overridden ? "line-through" : ""
+                                      }
+                                    >
+                                      Original ({label}): ${value.toFixed(2)}
+                                    </span>
+                                    {servicio.price_type === "WHOLESALE" && isFallback && (
+                                      <span className="text-amber-500">
+                                        Mayoreo no definido, usando unitario.
+                                      </span>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </div>
                           </div>
                           {servicio.price_error && (
-                            <p className="text-xs text-destructive">
+                            <p className="mt-1 text-xs text-destructive">
                               {servicio.price_error}
                             </p>
                           )}
