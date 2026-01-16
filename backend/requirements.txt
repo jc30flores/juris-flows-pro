@@ -5,3 +5,4 @@ django-cors-headers
 
 requests
 openpyxl
+python-dotenv

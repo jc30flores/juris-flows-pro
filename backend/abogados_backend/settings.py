@@ -1,16 +1,23 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+load_dotenv(BASE_DIR / ".env")
+
 SECRET_KEY = os.getenv("SECRET_KEY", "changeme")
-DEBUG = True
+DEBUG = os.getenv("DEBUG", "True").strip().lower() == "true"
 
 ALLOWED_HOSTS = [
     "zelaya-sport.cuskatech.com",
     "localhost",
     "127.0.0.1",
 ]
+
+if DEBUG:
+    print("[ENV] DTE_API_BASE_URL loaded:", bool(os.getenv("DTE_API_BASE_URL")))
 
 CSRF_TRUSTED_ORIGINS = [
     "https://zelaya-sport.cuskatech.com",
