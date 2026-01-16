@@ -483,6 +483,10 @@ export default function POS() {
         err?.response?.data?.message ||
         err?.response?.data?.detail ||
         "No se pudo invalidar el DTE.";
+      const bridgeBody = err?.response?.data?.details?.bridge_body;
+      if (bridgeBody) {
+        console.error("Bridge error body:", bridgeBody);
+      }
       const toastInfo = resolveInvalidationMessage(statusValue || "RECHAZADO", messageValue);
       toast(toastInfo);
     } finally {

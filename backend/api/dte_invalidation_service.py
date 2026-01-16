@@ -159,7 +159,7 @@ def _resolve_receiver_email(receptor: dict, invoice: Invoice) -> str:
     return ""
 
 
-def _truncate_text(value: str, limit: int = 1000) -> str:
+def _truncate_text(value: str, limit: int = 4000) -> str:
     if len(value) <= limit:
         return value
     return f"{value[:limit]}...[truncated]"
@@ -314,7 +314,10 @@ def send_dte_invalidation(
     if not record:
         raise ValueError("No se encontró un DTERecord asociado a la factura.")
 
-    invalidation_url = build_dte_url(INVALIDATION_PATH)
+    invalidation_url = (
+        str(getattr(settings, "DTE_API_INVALIDACION_URL", "") or "").strip()
+        or build_dte_url(INVALIDATION_PATH)
+    )
 
     payload = build_invalidation_payload(
         invoice,
@@ -344,9 +347,10 @@ def send_dte_invalidation(
         return invalidation, invalidation.response_payload, 503, "CONFIG_FALTANTE", detail, None
 
     logger.info(
-        "Sending DTE invalidation invoice_id=%s url=%s timeout=%s verify_ssl=%s payload=%s",
+        "Sending DTE invalidation invoice_id=%s url=%s dte_status=%s timeout=%s verify_ssl=%s payload=%s",
         invoice.id,
         invalidation_url,
+        invoice.dte_status,
         DEFAULT_INVALIDATION_TIMEOUT,
         DEFAULT_VERIFY_SSL,
         json.dumps(payload, indent=2, ensure_ascii=False),
@@ -399,12 +403,19 @@ def send_dte_invalidation(
         except Exception:  # pragma: no cover - defensive
             response_text = ""
         logger.info(
-            "DTE invalidation response invoice_id=%s status_code=%s elapsed_ms=%s body=%s",
+            "DTE invalidation response invoice_id=%s status_code=%s elapsed_ms=%s headers=%s body=%s",
             invoice.id,
             status_code,
             elapsed_ms,
+            dict(response.headers),
             _truncate_text(response_text),
         )
+        if isinstance(response_data, dict):
+            logger.info(
+                "DTE invalidation response json invoice_id=%s payload=%s",
+                invoice.id,
+                json.dumps(response_data, indent=2, ensure_ascii=False),
+            )
 
         if status_code >= 500:
             bridge_error = (
@@ -412,18 +423,33 @@ def send_dte_invalidation(
                 if isinstance(response_data, dict)
                 else {"raw_text": _truncate_text(response_text)}
             )
+            bridge_error = {
+                "bridge_url": invalidation_url,
+                "bridge_status": status_code,
+                "bridge_body": bridge_error,
+            }
             invalidation.hacienda_state = "ERROR_PUENTE"
             invalidation.status = "ERROR_PUENTE"
             invalidation.save(update_fields=["response_payload", "hacienda_state", "status"])
-            detail = "El puente respondió con error 5xx."
+            detail = "Puente devolvió error."
             return invalidation, response_data, 502, "ERROR_PUENTE", detail, bridge_error
 
         if status_code >= 400:
+            bridge_error = (
+                response_data
+                if isinstance(response_data, dict)
+                else {"raw_text": _truncate_text(response_text)}
+            )
+            bridge_error = {
+                "bridge_url": invalidation_url,
+                "bridge_status": status_code,
+                "bridge_body": bridge_error,
+            }
             invalidation.hacienda_state = "RECHAZADO"
             invalidation.status = "RECHAZADO"
             invalidation.save(update_fields=["response_payload", "hacienda_state", "status"])
             detail = "La invalidación fue rechazada por el puente."
-            return invalidation, response_data, 422, "RECHAZADO", detail, None
+            return invalidation, response_data, 422, "RECHAZADO", detail, bridge_error
 
         success = response_data.get("success") if isinstance(response_data, dict) else None
         hresp = (

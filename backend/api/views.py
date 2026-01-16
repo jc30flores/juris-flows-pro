@@ -424,6 +424,9 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         }
         if bridge_error is not None:
             details["bridge_error"] = bridge_error
+            details["bridge_url"] = bridge_error.get("bridge_url")
+            details["bridge_status"] = bridge_error.get("bridge_status")
+            details["bridge_body"] = bridge_error.get("bridge_body")
 
         status_label = "INVALIDADO" if result_status == "ACEPTADO" else result_status
         return _build_invalidation_response(
