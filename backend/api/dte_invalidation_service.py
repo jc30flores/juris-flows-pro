@@ -159,7 +159,7 @@ def _resolve_receiver_email(receptor: dict, invoice: Invoice) -> str:
     return ""
 
 
-def _truncate_text(value: str, limit: int = 4000) -> str:
+def _truncate_text(value: str, limit: int = 8000) -> str:
     if len(value) <= limit:
         return value
     return f"{value[:limit]}...[truncated]"
@@ -314,10 +314,18 @@ def send_dte_invalidation(
     if not record:
         raise ValueError("No se encontró un DTERecord asociado a la factura.")
 
-    invalidation_url = (
-        str(getattr(settings, "DTE_API_INVALIDACION_URL", "") or "").strip()
-        or build_dte_url(INVALIDATION_PATH)
-    )
+    raw_invalidation_url = str(
+        getattr(settings, "DTE_API_INVALIDACION_URL", "") or ""
+    ).strip()
+    invalidation_url = raw_invalidation_url or build_dte_url(INVALIDATION_PATH)
+    if invalidation_url and INVALIDATION_PATH not in invalidation_url:
+        logger.warning(
+            "Invalidation URL missing path; normalizing. original=%s",
+            invalidation_url,
+        )
+        invalidation_url = f"{invalidation_url.rstrip('/')}{INVALIDATION_PATH}"
+    if invalidation_url:
+        print("[DTE INVALIDACION] URL:", invalidation_url)
 
     payload = build_invalidation_payload(
         invoice,
@@ -355,6 +363,10 @@ def send_dte_invalidation(
         DEFAULT_VERIFY_SSL,
         json.dumps(payload, indent=2, ensure_ascii=False),
     )
+    print(
+        "[DTE INVALIDACION] Payload:\n",
+        json.dumps(payload, indent=2, ensure_ascii=False),
+    )
 
     headers = {
         "Authorization": f"Bearer {INVALIDATION_AUTH_TOKEN}",
@@ -377,6 +389,9 @@ def send_dte_invalidation(
             invoice.id,
             elapsed_ms,
             exc,
+        )
+        logger.exception(
+            "DTE invalidation request exception invoice_id=%s", invoice.id
         )
         invalidation.response_payload = {
             "success": None,
@@ -410,10 +425,19 @@ def send_dte_invalidation(
             dict(response.headers),
             _truncate_text(response_text),
         )
+        print("[DTE INVALIDACION] Bridge status:", status_code)
+        print(
+            "[DTE INVALIDACION] Bridge body:\n",
+            _truncate_text(response_text),
+        )
         if isinstance(response_data, dict):
             logger.info(
                 "DTE invalidation response json invoice_id=%s payload=%s",
                 invoice.id,
+                json.dumps(response_data, indent=2, ensure_ascii=False),
+            )
+            print(
+                "[DTE INVALIDACION] Bridge JSON:\n",
                 json.dumps(response_data, indent=2, ensure_ascii=False),
             )
 
@@ -431,7 +455,7 @@ def send_dte_invalidation(
             invalidation.hacienda_state = "ERROR_PUENTE"
             invalidation.status = "ERROR_PUENTE"
             invalidation.save(update_fields=["response_payload", "hacienda_state", "status"])
-            detail = "Puente devolvió error."
+            detail = "Puente devolvió error"
             return invalidation, response_data, 502, "ERROR_PUENTE", detail, bridge_error
 
         if status_code >= 400:
@@ -448,7 +472,7 @@ def send_dte_invalidation(
             invalidation.hacienda_state = "RECHAZADO"
             invalidation.status = "RECHAZADO"
             invalidation.save(update_fields=["response_payload", "hacienda_state", "status"])
-            detail = "La invalidación fue rechazada por el puente."
+            detail = "Puente rechazó la invalidación"
             return invalidation, response_data, 422, "RECHAZADO", detail, bridge_error
 
         success = response_data.get("success") if isinstance(response_data, dict) else None

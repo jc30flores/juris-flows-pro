@@ -485,9 +485,18 @@ export default function POS() {
         "No se pudo invalidar el DTE.";
       const bridgeBody = err?.response?.data?.details?.bridge_body;
       if (bridgeBody) {
-        console.error("Bridge error body:", bridgeBody);
+        console.error("INVALIDACION bridge_body:", bridgeBody);
       }
+      const bridgeSnippet =
+        typeof bridgeBody === "string"
+          ? bridgeBody.slice(0, 200)
+          : bridgeBody
+          ? JSON.stringify(bridgeBody).slice(0, 200)
+          : "";
       const toastInfo = resolveInvalidationMessage(statusValue || "RECHAZADO", messageValue);
+      if (bridgeSnippet) {
+        toastInfo.description = `${toastInfo.description}\n${bridgeSnippet}`;
+      }
       toast(toastInfo);
     } finally {
       setInvalidating(false);
